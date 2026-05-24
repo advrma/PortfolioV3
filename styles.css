@@ -266,7 +266,16 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   position: absolute;
   left: 50%;
   bottom: 0;
-  transform: translateX(-50%);
+  /* Composed transform: centering + scroll-driven X + cursor-X.
+     Each input is its own CSS variable so the cursor parallax
+     loop and the scroll-driven frame mapping can update their
+     own channel without overwriting the other. Defaults to 0. */
+  --char-x-cursor: 0px;
+  --char-x-scroll: 0px;
+  transform: translate3d(
+    calc(-50% + var(--char-x-cursor) + var(--char-x-scroll)),
+    0, 0
+  );
   height: min(100vh, calc(100vw * 15 / 16));
   height: min(100svh, calc(100vw * 15 / 16));
   width: auto;

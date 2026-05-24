@@ -236,6 +236,88 @@
   }
 
   /* -------------------------------------------------------
+     SCROLL-DRIVEN CHARACTER X MOVEMENT
+     - The scroll progress (0–1 through the pinned hero) is
+       mapped to a virtual frame counter 0–270.
+     - The character canvas translates left/right across the
+       viewport at scripted frame ranges with an ease-out curve.
+     - The output is written to the same `--char-x-scroll` CSS
+       variable that the canvas's transform composes with the
+       cursor channel — so cursor parallax and scroll movement
+       stack cleanly without overwriting each other.
+     - Respects prefers-reduced-motion (returns 0 always).
+     ------------------------------------------------------- */
+  const TOTAL_VIRTUAL_FRAMES = 270;
+  const reduceMotionMQ = window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+
+  /* Three cubic eases — used selectively per segment so the
+     character can keep velocity through the center handoff
+     between frames 167 and 168 (no slowdown there). */
+  function easeInOutCubic(t) {
+    return t < 0.5
+      ? 4 * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+  function easeInCubic(t)  { return t * t * t; }
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function rangeProgress(frame, start, end) {
+    return clamp01((frame - start) / (end - start));
+  }
+  function lerpVal(a, b, t) { return a + (b - a) * t; }
+
+  /* Maximum horizontal shift. Scales with viewport, but capped
+     so the character never gets cropped on narrow screens —
+     we never push the canvas wider than its available side
+     space + the empty source-padding margin inside it. */
+  function getScrollShift() {
+    const vw = window.innerWidth;
+    const canvasW = cinemaCanvas.getBoundingClientRect().width;
+    const sideRoom = Math.max(0, (vw - canvasW) / 2);
+    // 22vw default, capped so the visible character body stays
+    // inside the viewport (side room + ~10% of the canvas-width
+    // worth of source padding around the character).
+    return Math.min(vw * 0.22, sideRoom + canvasW * 0.10);
+  }
+
+  function computeScrollX(progress) {
+    if (reduceMotionMQ && reduceMotionMQ.matches) return 0;
+
+    const frame = progress * TOTAL_VIRTUAL_FRAMES;
+    const SHIFT = getScrollShift();
+    const LEFT_X  = -SHIFT;
+    const RIGHT_X =  SHIFT;
+
+    // Frames 0–76: hold center
+    if (frame <= 76) return 0;
+    // 77–127: center → left (slow → fast → slow)
+    if (frame <= 127) {
+      return lerpVal(0, LEFT_X, easeInOutCubic(rangeProgress(frame, 77, 127)));
+    }
+    // 128–155: left → center. easeIn so the curve is slow at
+    // the start but does NOT slow down at the end — velocity
+    // is at its peak when it hits frame 155, ready to hand off.
+    if (frame <= 155) {
+      return lerpVal(LEFT_X, 0, easeInCubic(rangeProgress(frame, 128, 155)));
+    }
+    // 156–185: center → right. easeOut so it picks up at full
+    // speed (no slow start) matching the end of the previous
+    // segment, then decelerates into the right pose.
+    if (frame <= 185) {
+      return lerpVal(0, RIGHT_X, easeOutCubic(rangeProgress(frame, 156, 185)));
+    }
+    // 186–199: hold on the right side
+    if (frame < 200) return RIGHT_X;
+    // 200–250: right → center (slow start, fast end)
+    if (frame <= 250) {
+      return lerpVal(RIGHT_X, 0, easeInCubic(rangeProgress(frame, 200, 250)));
+    }
+    // After frame 250 — hold center.
+    return 0;
+  }
+
+  /* -------------------------------------------------------
      GSAP ScrollTrigger setup — one main scrubbed trigger
      covers the entire pinned hero-stage and drives three
      things from a single source of truth:
@@ -262,6 +344,9 @@
         if (cinemaOverlay) cinemaOverlay.style.opacity = String(uiP);
         renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
         renderCinemaUI(animP);
+        cinemaCanvas.style.setProperty(
+          '--char-x-scroll', `${computeScrollX(p).toFixed(2)}px`
+        );
       };
       window.addEventListener('scroll', fallback, { passive: true });
       fallback();
@@ -302,6 +387,16 @@
           const frame = Math.round(animP * (FRAME_COUNT - 1));
           renderFrame(frame);
           renderCinemaUI(animP);
+
+          // 4. Frame-scripted X drift of the canvas DOM. Writes
+          //    to a CSS variable so the cursor parallax channel
+          //    (which writes a different variable) keeps working
+          //    in parallel — the canvas's transform composes
+          //    both with calc(-50% + cursor + scroll).
+          const scrollX = computeScrollX(self.progress);
+          cinemaCanvas.style.setProperty(
+            '--char-x-scroll', `${scrollX.toFixed(2)}px`
+          );
         }
       }
     });
@@ -435,10 +530,103 @@
     window.addEventListener('resize', update);
   }
 
-  /* Hero mouse parallax was tied to the old portrait canvas
-     wrapper. The new pinned canvas fills the viewport, so a
-     subtle pan would compete with the scroll-driven animation.
-     Removed intentionally — keep the canvas dead-stable. */
+  /* -------------------------------------------------------
+     CURSOR PARALLAX (Lando-style depth effect).
+     - Cursor → character translates OPPOSITE on X (creates a
+       sense the character is "behind" the cursor plane).
+     - Cursor → character translates SAME direction on Y (the
+       character tracks vertical cursor movement like a head
+       following).
+     - Small rotateX / rotateY enhance the depth illusion.
+     - All values lerp-smoothed per rAF, with the loop self-
+       suspending when the cursor has left and motion has
+       settled — zero CPU at rest.
+     - Composes with the canvas's `translateX(-50%)` centering
+       via `calc(-50% + Npx)`; the scroll-driven canvas
+       redraw is on a separate channel and is unaffected.
+     - prefers-reduced-motion + touch pointers → no-op. */
+  function initCursorParallax() {
+    const canvas = document.getElementById('cinemaCanvas');
+    const pin = document.querySelector('.hero-stage__pin');
+    if (!canvas || !pin) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    // Distance-adaptive lerp — fast initial catch-up that drops
+    // sharply into a very slow crawl once the gap is small.
+    //   |delta| ≥ ~10  →  step ≈ 22% of delta (snappy)
+    //   |delta| ~  3   →  step ≈ 14% of delta
+    //   |delta| ~  1   →  step ≈  8% of delta
+    //   |delta| <  0.5 →  step ≈  4% of delta (drift)
+    // The exponential blend gives a smooth "lunges then drifts"
+    // curve and naturally creates a perceptible delay before the
+    // character finishes settling after the cursor stops moving.
+    const MAX_TX = 12;      // ±12px, opposite cursor (X only)
+    const LERP_FAST = 0.22;
+    const LERP_SLOW = 0.04;
+    const LERP_K = 0.30;    // larger = sharper fast→slow transition
+    const SETTLE_PX = 0.3;  // snap-exit threshold (visually imperceptible)
+
+    let targetTx = 0;
+    let renderedTx = 0;
+    let active = false;
+    let running = false;
+
+    // Sigmoid-like blend between SLOW and FAST based on |delta|.
+    function lerpForDelta(d) {
+      const m = Math.abs(d);
+      const t = 1 - Math.exp(-m * LERP_K);   // 0 at m=0, →1 as m grows
+      return LERP_SLOW + (LERP_FAST - LERP_SLOW) * t;
+    }
+
+    function tick() {
+      const dx = targetTx - renderedTx;
+      renderedTx += dx * lerpForDelta(dx);
+
+      // Write the cursor channel only; the canvas's CSS rule
+      // composes this with the scroll-driven X channel via calc().
+      canvas.style.setProperty('--char-x-cursor', `${renderedTx.toFixed(2)}px`);
+
+      if (Math.abs(targetTx - renderedTx) < SETTLE_PX) {
+        // Snap and suspend. Keep the value applied if the cursor
+        // is still over the pin; otherwise drop back to the
+        // default 0 (CSS variable's initial value).
+        renderedTx = targetTx;
+        if (!active) {
+          canvas.style.setProperty('--char-x-cursor', '0px');
+        } else {
+          canvas.style.setProperty('--char-x-cursor', `${targetTx.toFixed(2)}px`);
+        }
+        running = false;
+        return;
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      requestAnimationFrame(tick);
+    }
+
+    pin.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      const rect = pin.getBoundingClientRect();
+      const halfW = rect.width / 2;
+      // Normalize horizontal cursor position to [-1, 1].
+      const nx = (e.clientX - rect.left - halfW) / halfW;
+      // X only — opposite cursor (parallax depth).
+      targetTx = -nx * MAX_TX;
+
+      active = true;
+      start();
+    }, { passive: true });
+
+    pin.addEventListener('pointerleave', () => {
+      targetTx = 0;
+      active = false;
+      start();
+    }, { passive: true });
+  }
 
   /* -------------------------------------------------------
      INIT
@@ -477,6 +665,7 @@
     initReveals();
     initStatCounters();
     initScrollProgress();
+    initCursorParallax();
 
     // Wire up GSAP ScrollTriggers BEFORE we start preloading so
     // the very first scroll already gets the smooth scrub.
