@@ -196,14 +196,17 @@
 
   /* Draw a single frame into the canvas with contain-fit so the
      entire character (head, shoulders, torso, bottom edge) is
-     always visible. The xCrop value tightens the source around
-     the character so it fills the canvas instead of floating
-     in source whitespace. */
+     always visible. xCrop = 0.6 means we only ignore the
+     outer 20% of the source on each side (the transparent
+     gutters that have NO character pixels on any frame), which
+     keeps the character from looking tiny while guaranteeing
+     no part of the character — including swaying hair on
+     mid-animation frames — is ever clipped. */
   function renderFrame(idx) {
     const i = idx | 0;
     if (i === lastDrawnFrame) return;
     const img = images[i] || nearestLoaded(i);
-    drawImageContain(cinemaCtx, cinemaCanvas, img, 0.45);
+    drawImageContain(cinemaCtx, cinemaCanvas, img, 0.6);
     lastDrawnFrame = i;
   }
 

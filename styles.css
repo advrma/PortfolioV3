@@ -254,21 +254,26 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   overflow: hidden;
 }
 
-/* Canvas — large portrait centered in the pin. Aspect ratio
-   matches the source character crop (864×1080 ≈ 4:5) so the
-   `contain` draw fills the canvas edge-to-edge with no
-   cropping. Height-driven so the character scales with the
-   viewport; capped by `max-width` on tall narrow screens. */
+/* Canvas — bottom-anchored. Aspect ratio matches a generous
+   source crop (1152×1080 ≈ 16/15) that includes the entire
+   character including swaying hair on every frame. The
+   `height: min(100vh, …)` form means the canvas scales down
+   by WIDTH on narrow viewports so the character is never cut
+   off horizontally. `aspect-ratio` keeps the contain-fit
+   filling the canvas edge-to-edge — no letterboxing, no
+   cropping. */
 .hero-stage__canvas {
   position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  height: 95vh;
-  height: 95svh;
-  max-height: 980px;
-  aspect-ratio: 4 / 5;
-  max-width: 92vw;
+  bottom: 0;
+  transform: translateX(-50%);
+  height: min(100vh, calc(100vw * 15 / 16));
+  height: min(100svh, calc(100vw * 15 / 16));
+  width: auto;
+  aspect-ratio: 16 / 15;
+  max-width: 100vw;
+  max-height: 100vh;
+  max-height: 100svh;
   z-index: 2;
   display: block;
   filter:
@@ -276,15 +281,16 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
     drop-shadow(0 4px 6px rgba(12, 12, 10, 0.06));
 }
 
-/* Soft glow that frames the now-larger character. Sized to
-   spill beyond the canvas edges so it reads as ambient light. */
+/* Soft glow trailing behind the character. Anchored to the
+   bottom to match the new character position and slightly
+   above so it reads as ambient backlight on the upper body. */
 .hero-stage__halo {
   position: absolute;
   left: 50%;
-  top: 55%;
-  transform: translate(-50%, -50%);
-  width: 100vh;
-  height: 100vh;
+  bottom: 5vh;
+  transform: translateX(-50%);
+  width: 90vh;
+  height: 90vh;
   max-width: 96vw;
   border-radius: 50%;
   background: radial-gradient(closest-side,
@@ -403,10 +409,11 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   letter-spacing: -0.005em;
 }
 
-/* Halo pulse keyframes (used by `.hero-stage__halo`) */
+/* Halo pulse keyframes — keeps `translateX(-50%)` so the halo
+   stays horizontally centered while the scale/opacity pulse. */
 @keyframes haloPulse {
-  0%, 100% { opacity: .6; transform: translate(-50%, -50%) scale(1); }
-  50%      { opacity: 1;   transform: translate(-50%, -50%) scale(1.05); }
+  0%, 100% { opacity: .6; transform: translateX(-50%) scale(1); }
+  50%      { opacity: 1;   transform: translateX(-50%) scale(1.05); }
 }
 
 .hero__loading {
