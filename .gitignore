@@ -1,0 +1,21 @@
+# Claude Code / Agent SDK tooling
+.claude/
+.agents/
+skills-lock.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Build / scratch
+.qa/
+.screenshots/
+node_modules/
+dist/
