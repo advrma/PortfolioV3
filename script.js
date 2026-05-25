@@ -281,6 +281,71 @@
     return Math.min(vw * 0.22, sideRoom + canvasW * 0.10);
   }
 
+  /* -------------------------------------------------------
+     CHARACTER SPRING LAYER — adds an extra inertia pass on
+     top of GSAP's scrub. The scroll progress only updates a
+     target value; a self-suspending rAF loop runs spring
+     physics so the character (image frame + X movement + HUD)
+     keeps coasting briefly after the user stops scrolling and
+     settles smoothly. Critically, the UI scroll-away is NOT
+     spring-smoothed — that channel stays instantly responsive
+     so the page never feels laggy under the cursor.
+     ------------------------------------------------------- */
+  let targetProgress = 0;
+  let currentProgress = 0;
+  let springVelocity = 0;
+  let springRunning = false;
+  const SPRING_K       = 0.035;   // pull toward target
+  const SPRING_DAMP    = 0.82;    // velocity decay per frame
+  const SPRING_SETTLE  = 0.0005;  // |diff| & |vel| < this → exit
+
+  /* Apply the smoothed progress to everything character-related:
+     the canvas frame, HUD counters/captions, and the scroll-X
+     CSS variable that combines with the cursor channels. */
+  function applyCharacter(progress) {
+    const { animP } = splitProgress(progress);
+    renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
+    renderCinemaUI(animP);
+    cinemaCanvas.style.setProperty(
+      '--char-x-scroll', `${computeScrollX(progress).toFixed(2)}px`
+    );
+  }
+
+  function springTick() {
+    const diff = targetProgress - currentProgress;
+    springVelocity += diff * SPRING_K;
+    springVelocity *= SPRING_DAMP;
+    currentProgress += springVelocity;
+
+    applyCharacter(currentProgress);
+
+    if (Math.abs(diff) < SPRING_SETTLE &&
+        Math.abs(springVelocity) < SPRING_SETTLE) {
+      // Truly settled — snap exactly to target and suspend.
+      currentProgress = targetProgress;
+      springVelocity = 0;
+      applyCharacter(currentProgress);
+      springRunning = false;
+      return;
+    }
+    requestAnimationFrame(springTick);
+  }
+
+  /* Kick the spring loop. Called by every scroll update; the
+     loop self-arms only when it's not already running. Reduced
+     motion bypasses the spring entirely (snap to target). */
+  function springKick() {
+    if (reduceMotionMQ && reduceMotionMQ.matches) {
+      currentProgress = targetProgress;
+      springVelocity = 0;
+      applyCharacter(currentProgress);
+      return;
+    }
+    if (springRunning) return;
+    springRunning = true;
+    requestAnimationFrame(springTick);
+  }
+
   function computeScrollX(progress) {
     if (reduceMotionMQ && reduceMotionMQ.matches) return 0;
 
@@ -336,17 +401,16 @@
         const sy = window.scrollY;
         const range = heroSection.offsetHeight - window.innerHeight;
         const p = clamp01(sy / range);
-        const { uiP, animP } = splitProgress(p);
+        const { uiP } = splitProgress(p);
         if (heroStageUI) {
           heroStageUI.style.transform = `translate3d(0, ${-uiP * 110}%, 0)`;
           heroStageUI.style.opacity = String(1 - uiP);
         }
         if (cinemaOverlay) cinemaOverlay.style.opacity = String(uiP);
-        renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
-        renderCinemaUI(animP);
-        cinemaCanvas.style.setProperty(
-          '--char-x-scroll', `${computeScrollX(p).toFixed(2)}px`
-        );
+        // Route character work through the same spring layer so
+        // the inertia tail still applies even without GSAP.
+        targetProgress = p;
+        springKick();
       };
       window.addEventListener('scroll', fallback, { passive: true });
       fallback();
@@ -368,9 +432,10 @@
         scrub: 1.1,
         invalidateOnRefresh: true,
         onUpdate: (self) => {
-          const { uiP, animP } = splitProgress(self.progress);
+          const { uiP } = splitProgress(self.progress);
 
-          // 1. UI scrolls up + fades — transform/opacity only.
+          // 1. UI scrolls up + fades — INSTANT (no spring) so
+          //    the page feels responsive under the cursor.
           if (heroStageUI) {
             heroStageUI.style.transform =
               `translate3d(0, ${(-uiP * 110).toFixed(2)}%, 0)`;
@@ -382,21 +447,13 @@
             cinemaOverlay.style.opacity = uiP.toFixed(3);
           }
 
-          // 3. Character animation only starts after UI is gone.
-          //    Until then we hold frame 0 (the natural idle pose).
-          const frame = Math.round(animP * (FRAME_COUNT - 1));
-          renderFrame(frame);
-          renderCinemaUI(animP);
-
-          // 4. Frame-scripted X drift of the canvas DOM. Writes
-          //    to a CSS variable so the cursor parallax channel
-          //    (which writes a different variable) keeps working
-          //    in parallel — the canvas's transform composes
-          //    both with calc(-50% + cursor + scroll).
-          const scrollX = computeScrollX(self.progress);
-          cinemaCanvas.style.setProperty(
-            '--char-x-scroll', `${scrollX.toFixed(2)}px`
-          );
+          // 3. Everything character-related — frame swap, HUD
+          //    detail, and X drift — is routed through the
+          //    spring layer. The scroll value only updates the
+          //    target; an rAF loop chases it with inertia and
+          //    continues coasting briefly after scroll stops.
+          targetProgress = self.progress;
+          springKick();
         }
       }
     });
@@ -560,14 +617,15 @@
     // The exponential blend gives a smooth "lunges then drifts"
     // curve and naturally creates a perceptible delay before the
     // character finishes settling after the cursor stops moving.
-    const MAX_TX = 12;      // ±12px, opposite cursor (X only)
+    const MAX_TX = 12;      // ±12px, opposite cursor
+    const MAX_TY = 4;       // ±4px, opposite cursor — barely noticeable
     const LERP_FAST = 0.22;
     const LERP_SLOW = 0.04;
     const LERP_K = 0.30;    // larger = sharper fast→slow transition
     const SETTLE_PX = 0.3;  // snap-exit threshold (visually imperceptible)
 
-    let targetTx = 0;
-    let renderedTx = 0;
+    let targetTx = 0, targetTy = 0;
+    let renderedTx = 0, renderedTy = 0;
     let active = false;
     let running = false;
 
@@ -580,21 +638,30 @@
 
     function tick() {
       const dx = targetTx - renderedTx;
+      const dy = targetTy - renderedTy;
       renderedTx += dx * lerpForDelta(dx);
+      renderedTy += dy * lerpForDelta(dy);
 
-      // Write the cursor channel only; the canvas's CSS rule
-      // composes this with the scroll-driven X channel via calc().
+      // Write the cursor channels only; the canvas's CSS rule
+      // composes these with the scroll-driven X channel via calc().
       canvas.style.setProperty('--char-x-cursor', `${renderedTx.toFixed(2)}px`);
+      canvas.style.setProperty('--char-y-cursor', `${renderedTy.toFixed(2)}px`);
 
-      if (Math.abs(targetTx - renderedTx) < SETTLE_PX) {
+      const settled =
+        Math.abs(targetTx - renderedTx) < SETTLE_PX &&
+        Math.abs(targetTy - renderedTy) < SETTLE_PX;
+
+      if (settled) {
         // Snap and suspend. Keep the value applied if the cursor
-        // is still over the pin; otherwise drop back to the
-        // default 0 (CSS variable's initial value).
+        // is still over the pin; otherwise drop back to 0.
         renderedTx = targetTx;
+        renderedTy = targetTy;
         if (!active) {
           canvas.style.setProperty('--char-x-cursor', '0px');
+          canvas.style.setProperty('--char-y-cursor', '0px');
         } else {
           canvas.style.setProperty('--char-x-cursor', `${targetTx.toFixed(2)}px`);
+          canvas.style.setProperty('--char-y-cursor', `${targetTy.toFixed(2)}px`);
         }
         running = false;
         return;
@@ -612,10 +679,15 @@
       if (e.pointerType === 'touch') return;
       const rect = pin.getBoundingClientRect();
       const halfW = rect.width / 2;
-      // Normalize horizontal cursor position to [-1, 1].
+      const halfH = rect.height / 2;
+      // Normalize cursor position to [-1, 1] from pin center.
       const nx = (e.clientX - rect.left - halfW) / halfW;
-      // X only — opposite cursor (parallax depth).
+      const ny = (e.clientY - rect.top  - halfH) / halfH;
+      // Both axes move opposite to the cursor for the parallax
+      // depth read. Y magnitude is intentionally tiny so the
+      // vertical drift is barely perceptible.
       targetTx = -nx * MAX_TX;
+      targetTy = -ny * MAX_TY;
 
       active = true;
       start();
@@ -623,9 +695,318 @@
 
     pin.addEventListener('pointerleave', () => {
       targetTx = 0;
+      targetTy = 0;
       active = false;
       start();
     }, { passive: true });
+  }
+
+  /* -------------------------------------------------------
+     SKILLS HYPER-SCROLL — pinned 3D camera flythrough.
+     - 5 category headings (big stroke text) interleaved with
+       3 skill cards each, plus drifting starfield particles.
+     - cameraZ is driven by the section's scroll progress
+       (ScrollTrigger.scrub: 0.6) so the world flies past the
+       viewer as they scroll through the pinned runway.
+     - Camera tilts subtly with cursor; scroll velocity bends
+       the perspective (warp feel) and stretches stars.
+     - rAF render loop self-suspends when the section is not
+       in view to avoid burning frames on hidden 3D.
+     ------------------------------------------------------- */
+  function initSkillsWarp() {
+    const section  = document.getElementById('skills');
+    const viewport = document.getElementById('warpViewport');
+    const world    = document.getElementById('warpWorld');
+    const velEl    = document.getElementById('warpVel');
+    const coordEl  = document.getElementById('warpCoord');
+    const catEl    = document.getElementById('warpCat');
+    if (!section || !viewport || !world) return;
+
+    /* Heading + the top skills per category. Order is the
+       sequence the camera flies past, then loops. */
+    const SKILLS = [
+      { type: 'heading', text: 'LANGUAGES', cat: '01' },
+      { type: 'card',  cat: '01', name: 'TypeScript',  sub: 'Daily driver across the stack.',          meta: 'TYPED · NEXT.JS' },
+      { type: 'card',  cat: '01', name: 'Python',       sub: 'ML pipelines, scrapers, scripts.',       meta: 'ML · DATA' },
+      { type: 'card',  cat: '01', name: 'Java',         sub: 'Production backend services.',           meta: 'REST · JVM' },
+      { type: 'card',  cat: '01', name: 'C / C++',      sub: 'SimX VR physics, low-level work.',       meta: 'NATIVE' },
+      { type: 'card',  cat: '01', name: 'SQL',          sub: 'Postgres, joins, query tuning.',         meta: 'QUERY' },
+      { type: 'card',  cat: '01', name: 'JavaScript',   sub: 'Modern ES, async, DOM craft.',           meta: 'WEB · NODE' },
+
+      { type: 'heading', text: 'FRAMEWORKS', cat: '02' },
+      { type: 'card',  cat: '02', name: 'Next.js 15',   sub: 'App router, RSC, edge runtimes.',        meta: 'REACT · RSC' },
+      { type: 'card',  cat: '02', name: 'React',        sub: 'Components, hooks, suspense.',           meta: '5 YRS' },
+      { type: 'card',  cat: '02', name: 'Convex',       sub: 'Real-time backend + sync.',              meta: 'LIVE · SYNC' },
+      { type: 'card',  cat: '02', name: 'Tailwind CSS', sub: 'Design tokens at the source.',           meta: 'UTILITY' },
+      { type: 'card',  cat: '02', name: 'Framer Motion',sub: 'Spring physics for UI.',                 meta: 'ANIM' },
+      { type: 'card',  cat: '02', name: 'Supabase',     sub: 'Auth + Postgres at the edge.',           meta: 'BAAS' },
+      { type: 'card',  cat: '02', name: 'Playwright',   sub: 'Scrape, test, automate.',                meta: 'E2E' },
+
+      { type: 'heading', text: 'AI / ML', cat: '03' },
+      { type: 'card',  cat: '03', name: 'LLMs / RAG',   sub: 'Semantic search, scoring, tools.',       meta: 'EMBEDDING' },
+      { type: 'card',  cat: '03', name: 'OpenAI API',   sub: 'Streaming, tool use, citations.',        meta: 'STREAM' },
+      { type: 'card',  cat: '03', name: 'PyTorch',      sub: 'Custom training + inference.',           meta: 'TORCH' },
+      { type: 'card',  cat: '03', name: 'TensorFlow',   sub: 'Production model pipelines.',            meta: 'KERAS' },
+      { type: 'card',  cat: '03', name: 'ML Pipelines', sub: 'Ingest → score → ship.',                 meta: 'ETL' },
+      { type: 'card',  cat: '03', name: 'Model Infer',  sub: 'Low-latency serving.',                   meta: 'INFER' },
+
+      { type: 'heading', text: 'CLOUD', cat: '04' },
+      { type: 'card',  cat: '04', name: 'AWS',          sub: 'EC2 · S3 · Lambda · IAM.',               meta: 'PROD' },
+      { type: 'card',  cat: '04', name: 'Docker',       sub: 'Container ship to anywhere.',            meta: 'OCI' },
+      { type: 'card',  cat: '04', name: 'CI / CD',      sub: 'GitHub Actions pipelines.',              meta: 'GREEN' },
+      { type: 'card',  cat: '04', name: 'Lambda',       sub: 'Serverless event workers.',              meta: 'FAAS' },
+      { type: 'card',  cat: '04', name: 'S3',           sub: 'Object storage at scale.',               meta: 'BUCKET' },
+      { type: 'card',  cat: '04', name: 'IAM',          sub: 'Least-privilege roles, scoped.',         meta: 'POLICY' },
+
+      { type: 'heading', text: 'CRAFT', cat: '05' },
+      { type: 'card',  cat: '05', name: 'UI / UX',      sub: 'Pixel-precise interfaces.',              meta: 'FIGMA' },
+      { type: 'card',  cat: '05', name: 'Blender',      sub: '15K+ subs on 3D animation.',             meta: '3D' },
+      { type: 'card',  cat: '05', name: 'Adobe CC',     sub: '50+ motion graphics shipped.',           meta: 'MOTION' },
+      { type: 'card',  cat: '05', name: 'Unreal Engine',sub: 'Cinematic real-time scenes.',            meta: 'UE5' },
+      { type: 'card',  cat: '05', name: 'Unity',        sub: 'VR training environments.',              meta: 'XR' },
+      { type: 'card',  cat: '05', name: 'Motion',       sub: 'Springs, eases, scroll.',                meta: 'GSAP' }
+    ];
+
+    const Z_GAP       = 800;
+    const STAR_COUNT  = 520;
+    const TOTAL_Z     = SKILLS.length * Z_GAP;
+    const CAMERA_END  = TOTAL_Z;     // one pass — no loop
+    const items = [];
+    const headingIndices = [];
+
+    // Build DOM
+    SKILLS.forEach((data, i) => {
+      const el = document.createElement('div');
+      el.className = 'warp-item';
+      let item;
+      if (data.type === 'heading') {
+        headingIndices.push(i);
+        const h = document.createElement('div');
+        h.className = 'warp-heading';
+        h.textContent = data.text;
+        el.appendChild(h);
+        item = { el, type: 'heading', x: 0, y: 0, rot: 0, baseZ: -i * Z_GAP };
+      } else {
+        const card = document.createElement('article');
+        card.className = 'warp-card';
+        card.innerHTML =
+          '<header class="warp-card__head">' +
+            '<span class="warp-card__cat">CAT-' + data.cat + '</span>' +
+            '<span class="warp-card__dot"></span>' +
+          '</header>' +
+          '<div>' +
+            '<h3>' + data.name + '</h3>' +
+            '<p class="warp-card__sub">' + data.sub + '</p>' +
+          '</div>' +
+          '<footer class="warp-card__meta">' +
+            '<span>' + data.meta + '</span>' +
+            '<span>' + String(i).padStart(2, '0') + '/' + String(SKILLS.length - 1).padStart(2, '0') + '</span>' +
+          '</footer>' +
+          '<span class="warp-card__num">' + String(i).padStart(2, '0') + '</span>';
+        el.appendChild(card);
+
+        // Spiral the cards through 3D space so they orbit the headings.
+        const angle = (i / SKILLS.length) * Math.PI * 6;
+        const x = Math.cos(angle) * (window.innerWidth  * 0.28);
+        const y = Math.sin(angle) * (window.innerHeight * 0.28);
+        const rot = (i * 47 % 30) - 15;   // deterministic small rotation
+        item = { el, type: 'card', x, y, rot, baseZ: -i * Z_GAP };
+      }
+      items.push(item);
+      world.appendChild(el);
+    });
+
+    /* Starfield — denser, varied sizes & brightness, plus a
+       sprinkle of chartreuse accent stars for atmosphere.
+       All visual properties are set once at creation; the
+       per-frame render loop only touches transform/opacity
+       so the bigger field doesn't cost extra per-frame CPU. */
+    let seed = 12345;
+    const rnd = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+    for (let i = 0; i < STAR_COUNT; i++) {
+      const el = document.createElement('div');
+      el.className = 'warp-star';
+
+      const size      = 1 + rnd() * 2.4;          // 1 – 3.4 px
+      const baseAlpha = 0.40 + rnd() * 0.55;      // 0.40 – 0.95 (brighter than before)
+      const isAccent  = rnd() < 0.10;             // ~10% chartreuse
+
+      el.style.width  = size.toFixed(2) + 'px';
+      el.style.height = size.toFixed(2) + 'px';
+      if (isAccent) {
+        el.style.background = 'rgba(216, 255, 56, ' + baseAlpha.toFixed(2) + ')';
+        el.style.boxShadow  = '0 0 6px rgba(216, 255, 56, 0.55)';
+      } else {
+        el.style.background = 'rgba(242, 238, 229, ' + baseAlpha.toFixed(2) + ')';
+        if (size > 2.2) {
+          el.style.boxShadow = '0 0 4px rgba(242, 238, 229, 0.40)';
+        }
+      }
+
+      world.appendChild(el);
+      items.push({
+        el, type: 'star',
+        x: (rnd() - 0.5) * 3800,                  // wider spread for depth
+        y: (rnd() - 0.5) * 3800,
+        baseZ: -rnd() * TOTAL_Z
+      });
+    }
+
+    // Local state — refs only
+    const state = {
+      cameraZ: 0,
+      velocity: 0,
+      targetVel: 0,
+      mouseX: 0,
+      mouseY: 0,
+      visible: false,
+      running: false
+    };
+
+    const reduceMotion = reduceMotionMQ && reduceMotionMQ.matches;
+
+    // Drive cameraZ from section scroll progress. `scrub: 1.6`
+    // gives the heavy "Lenis-bouncy" feel — scroll inputs land
+    // softly and the world keeps coasting briefly after the
+    // user stops. Camera travels CAMERA_END (multiple loops)
+    // so items keep cycling past forever via the modulo wrap.
+    if (typeof ScrollTrigger !== 'undefined' && !reduceMotion) {
+      gsap.to(state, {
+        cameraZ: CAMERA_END,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: section,
+          start: 'top top',
+          end: 'bottom bottom',
+          scrub: 1.6,
+          invalidateOnRefresh: true,
+          onUpdate: (self) => {
+            state.targetVel = self.getVelocity();
+            startRender();
+          },
+          onEnter:     () => { state.visible = true;  startRender(); },
+          onEnterBack: () => { state.visible = true;  startRender(); },
+          onLeave:     () => { state.visible = false; },
+          onLeaveBack: () => { state.visible = false; }
+        }
+      });
+    } else {
+      // Fallback: position items at static spiral, no camera motion.
+      state.visible = false;
+      items.forEach((item) => {
+        if (item.type === 'star') {
+          item.el.style.opacity = '0.4';
+          item.el.style.transform =
+            `translate3d(${item.x}px, ${item.y}px, ${item.baseZ}px)`;
+        } else {
+          item.el.style.opacity = '1';
+          item.el.style.transform =
+            `translate3d(${item.x}px, ${item.y}px, ${item.baseZ + TOTAL_Z * 0.5}px)` +
+            (item.rot ? ` rotateZ(${item.rot}deg)` : '');
+        }
+      });
+    }
+
+    // Cursor tilt on the world (separate from the canvas cursor parallax)
+    section.addEventListener('mousemove', (e) => {
+      state.mouseX = (e.clientX / window.innerWidth  - 0.5) * 2;
+      state.mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+
+    function startRender() {
+      if (state.running) return;
+      state.running = true;
+      requestAnimationFrame(render);
+    }
+
+    let lastCameraZ = -1;
+    let lastTilt = '';
+
+    function render(time) {
+      // Smooth velocity toward target
+      state.velocity += (state.targetVel * 0.001 - state.velocity) * 0.10;
+
+      // Suspend when section is offscreen AND nothing is animating.
+      const nearlyStill = Math.abs(state.targetVel) < 1
+                       && Math.abs(state.velocity)  < 0.01;
+      if (!state.visible && nearlyStill) {
+        state.running = false;
+        return;
+      }
+
+      // World tilt (mouse + scroll shake)
+      const tiltX = state.mouseY *  4 - state.velocity * 0.3;
+      const tiltY = state.mouseX *  4;
+      const tiltKey = tiltX.toFixed(2) + '_' + tiltY.toFixed(2);
+      if (tiltKey !== lastTilt) {
+        world.style.transform = `rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg)`;
+        lastTilt = tiltKey;
+      }
+
+      // Dynamic perspective — closer FOV when scrolling fast (warp feel)
+      const fov = 1000 - Math.min(Math.abs(state.velocity) * 6, 450);
+      viewport.style.perspective = `${fov.toFixed(0)}px`;
+
+      // HUD
+      if (velEl)   velEl.textContent   = Math.abs(state.velocity).toFixed(2);
+      if (coordEl) coordEl.textContent = Math.abs(state.cameraZ).toFixed(0).padStart(6, '0');
+      if (catEl) {
+        // current heading index based on cameraZ (no loop)
+        const clampedZ = Math.max(0, Math.min(state.cameraZ, TOTAL_Z));
+        let active = 0;
+        for (let h = 0; h < headingIndices.length; h++) {
+          if (clampedZ >= headingIndices[h] * Z_GAP - Z_GAP * 0.5) active = h;
+        }
+        catEl.textContent =
+          String(active + 1).padStart(2, '0') + ' / ' +
+          String(headingIndices.length).padStart(2, '0');
+      }
+
+      // Item transforms — single pass through the world.
+      const t = time * 0.001;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const vizZ = item.baseZ + state.cameraZ;
+
+        // Opacity envelope: fade in from far, hold, fade out when past camera.
+        // Stars use full element opacity so their per-star baseAlpha
+        // (set inline at creation) is what controls visible brightness.
+        let alpha;
+        if (vizZ < -3200)      alpha = 0;
+        else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
+        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 380);
+        else                   alpha = 1;
+
+        if (alpha < 0) alpha = 0;
+        item.el.style.opacity = alpha.toFixed(3);
+
+        if (alpha > 0) {
+          let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
+          if (item.type === 'star') {
+            const stretch = Math.max(1, Math.min(1 + Math.abs(state.velocity) * 0.06, 8));
+            trans += ` scale3d(1, 1, ${stretch.toFixed(2)})`;
+          } else if (item.type === 'heading') {
+            trans += ` rotateZ(${item.rot}deg)`;
+          } else {
+            const floatY = Math.sin(t + item.x * 0.01) * 5;
+            trans += ` rotateZ(${item.rot}deg) rotateY(${floatY.toFixed(2)}deg)`;
+          }
+          item.el.style.transform = trans;
+        }
+      }
+
+      lastCameraZ = state.cameraZ;
+      requestAnimationFrame(render);
+    }
+
+    // First paint
+    if (!reduceMotion) {
+      state.visible = true;
+      startRender();
+    }
   }
 
   /* -------------------------------------------------------
@@ -666,6 +1047,7 @@
     initStatCounters();
     initScrollProgress();
     initCursorParallax();
+    initSkillsWarp();
 
     // Wire up GSAP ScrollTriggers BEFORE we start preloading so
     // the very first scroll already gets the smooth scrub.

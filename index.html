@@ -245,6 +245,38 @@
   </div>
 </section>
 
+<!-- ============= SKILLS — 3D HYPER-SCROLL WARP =============
+     A pinned 500vh section that takes over right after the
+     character animation ends. Camera flies through five
+     category headings interleaved with my top skills as
+     glass cards floating in 3D space. Lightly cyber-themed
+     (dark scene + chartreuse accent) so the transition from
+     the cream hero reads as a deliberate "deep dive".
+====================================================== -->
+<section class="warp" id="skills">
+  <div class="warp__pin">
+    <div class="warp__hud" aria-hidden="true">
+      <div class="warp__hud-top">
+        <span>STACK / READY</span>
+        <div class="warp__hud-line"></div>
+        <span>VEL: <strong id="warpVel">0.00</strong></span>
+      </div>
+      <div class="warp__hud-bottom">
+        <span>COORD: <strong id="warpCoord">000000</strong></span>
+        <div class="warp__hud-line"></div>
+        <span>CAT: <strong id="warpCat">01 / 05</strong></span>
+      </div>
+    </div>
+
+    <div class="warp__viewport" id="warpViewport">
+      <div class="warp__world" id="warpWorld"></div>
+    </div>
+
+    <div class="warp__scanlines" aria-hidden="true"></div>
+    <div class="warp__vignette" aria-hidden="true"></div>
+  </div>
+</section>
+
 <!-- ============= INTER-SECTION DIVIDER ============= -->
 <div class="seam" aria-hidden="true">
   <span class="seam__line"></span>
@@ -295,70 +327,6 @@
       <span>NEXT.JS</span><span>·</span><span>CONVEX</span><span>·</span><span>PYTORCH</span><span>·</span><span>SUPABASE</span><span>·</span><span>AWS</span><span>·</span><span>TYPESCRIPT</span><span>·</span><span>PYTHON</span><span>·</span><span>JAVA</span><span>·</span><span>UNITY</span><span>·</span><span>C++</span><span>·</span><span>RAG</span><span>·</span><span>LLMs</span><span>·</span><span>DOCKER</span><span>·</span>
       <span>NEXT.JS</span><span>·</span><span>CONVEX</span><span>·</span><span>PYTORCH</span><span>·</span><span>SUPABASE</span><span>·</span><span>AWS</span><span>·</span><span>TYPESCRIPT</span><span>·</span><span>PYTHON</span><span>·</span><span>JAVA</span><span>·</span><span>UNITY</span><span>·</span><span>C++</span><span>·</span><span>RAG</span><span>·</span><span>LLMs</span><span>·</span><span>DOCKER</span><span>·</span>
     </div>
-  </div>
-</section>
-
-<!-- ============= SKILLS / TOOLS ============= -->
-<section class="skills" id="skills">
-  <div class="section-head">
-    <div class="section-head__num">03</div>
-    <h2 class="section-head__title">
-      Toolkit, <span class="italic">honestly&nbsp;earned</span>
-    </h2>
-    <p class="section-head__lede">The stack I reach for, organized by where it shows up in the work.
-      Nothing here is "I read a blog post."</p>
-  </div>
-
-  <div class="skills__grid">
-    <article class="skill-card reveal">
-      <header class="skill-card__head">
-        <span class="skill-card__index">01</span>
-        <span class="skill-card__title">Languages</span>
-      </header>
-      <ul class="skill-card__chips">
-        <li>TypeScript</li><li>Python</li><li>Java</li><li>C / C++</li><li>SQL</li><li>JavaScript</li><li>HTML</li>
-      </ul>
-    </article>
-
-    <article class="skill-card skill-card--wide reveal">
-      <header class="skill-card__head">
-        <span class="skill-card__index">02</span>
-        <span class="skill-card__title">Frameworks &amp; Frontend</span>
-      </header>
-      <ul class="skill-card__chips">
-        <li class="hot">Next.js 15</li><li>React</li><li>Tailwind&nbsp;CSS</li><li>Framer&nbsp;Motion</li><li>Convex</li><li>Supabase</li><li>Playwright</li>
-      </ul>
-    </article>
-
-    <article class="skill-card reveal">
-      <header class="skill-card__head">
-        <span class="skill-card__index">03</span>
-        <span class="skill-card__title">ML / AI</span>
-      </header>
-      <ul class="skill-card__chips">
-        <li class="hot">LLMs</li><li>RAG</li><li>PyTorch</li><li>TensorFlow</li><li>OpenAI&nbsp;API</li><li>ML pipelines</li>
-      </ul>
-    </article>
-
-    <article class="skill-card reveal">
-      <header class="skill-card__head">
-        <span class="skill-card__index">04</span>
-        <span class="skill-card__title">Cloud &amp; DevOps</span>
-      </header>
-      <ul class="skill-card__chips">
-        <li>AWS EC2</li><li>S3</li><li>Lambda</li><li>IAM</li><li>Docker</li><li>CI / CD</li><li>Git</li>
-      </ul>
-    </article>
-
-    <article class="skill-card skill-card--wide reveal">
-      <header class="skill-card__head">
-        <span class="skill-card__index">05</span>
-        <span class="skill-card__title">Craft &amp; Design</span>
-      </header>
-      <ul class="skill-card__chips">
-        <li>UI / UX</li><li>Adobe Creative Suite</li><li>Blender</li><li>Unreal Engine</li><li>Unity</li><li>Motion</li>
-      </ul>
-    </article>
   </div>
 </section>
 

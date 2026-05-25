@@ -265,16 +265,19 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 .hero-stage__canvas {
   position: absolute;
   left: 50%;
-  bottom: 0;
-  /* Composed transform: centering + scroll-driven X + cursor-X.
-     Each input is its own CSS variable so the cursor parallax
-     loop and the scroll-driven frame mapping can update their
-     own channel without overwriting the other. Defaults to 0. */
+  bottom: -1vh;
+  bottom: -1svh;
+  /* Composed transform: centering + scroll-driven X + cursor-X
+     + cursor-Y. Each input is its own CSS variable so the cursor
+     parallax loop and the scroll-driven frame mapping update
+     their own channels without overwriting each other. */
   --char-x-cursor: 0px;
+  --char-y-cursor: 0px;
   --char-x-scroll: 0px;
   transform: translate3d(
     calc(-50% + var(--char-x-cursor) + var(--char-x-scroll)),
-    0, 0
+    var(--char-y-cursor),
+    0
   );
   height: min(100vh, calc(100vw * 15 / 16));
   height: min(100svh, calc(100vw * 15 / 16));
@@ -878,70 +881,234 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 }
 
 /* =========================================================
-   SKILLS
+   SKILLS — HYPER-SCROLL 3D WARP
+   Pinned full-viewport "deep dive" between the cream hero and
+   the rest of the page. Camera flies through 5 category
+   headings + 15 skill cards in 3D space, with dark cyber
+   chrome (HUD, scanlines, vignette) over the portfolio's
+   chartreuse accent.
    ========================================================= */
-.skills {
+.warp {
   position: relative;
-  padding: var(--section-y) 0;
+  height: 600vh;          /* one-pass runway through all categories */
+  z-index: 1;
+  color: var(--cream);
+}
+.warp__pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  width: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 50%, rgba(40,40,32,0.5) 0%, transparent 70%),
+    var(--ink);
+  cursor: crosshair;
+}
+
+/* HUD chrome */
+.warp__hud {
+  position: absolute;
+  inset: clamp(18px, 2.2vw, 32px);
+  z-index: 20;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: rgba(242, 238, 229, 0.5);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.warp__hud-top, .warp__hud-bottom {
+  display: flex; align-items: center; gap: 16px;
+}
+.warp__hud strong { color: var(--accent); font-weight: 500; }
+.warp__hud-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(242, 238, 229, 0.18);
+  position: relative;
+}
+.warp__hud-line::after {
+  content: '';
+  position: absolute;
+  right: 0; top: -2px;
+  width: 5px; height: 5px;
+  background: var(--accent);
+}
+
+/* 3D viewport */
+.warp__viewport {
+  position: absolute;
+  inset: 0;
+  perspective: 1000px;
+  overflow: hidden;
   z-index: 1;
 }
-.skills__grid {
-  padding: 0 var(--gutter);
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
+.warp__world {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform-style: preserve-3d;
+  will-change: transform;
 }
-.skill-card {
-  background: var(--glass);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--glass-stroke);
-  border-radius: 18px;
-  padding: 24px;
-  display: flex; flex-direction: column; gap: 20px;
-  transition: transform .5s var(--ease-out-quart), box-shadow .5s var(--ease-out-quart), border-color .3s ease;
+.warp-item {
+  position: absolute;
+  left: 0; top: 0;
+  backface-visibility: hidden;
+  transform-origin: center center;
+  display: flex; align-items: center; justify-content: center;
+  will-change: transform, opacity;
 }
-.skill-card--wide { grid-column: span 2; }
-.skill-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--ink);
-  box-shadow: 0 30px 60px -30px rgba(12,12,10,0.25);
+
+/* Category heading text — massive stroke type that POPS as
+   it flies past. Inner faint chartreuse fill + bright stroke
+   + chartreuse glow lifts the headings off the dark scene. */
+.warp-heading {
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(120px, 22vw, 360px);
+  color: rgba(216, 255, 56, 0.06);
+  -webkit-text-stroke: 2.5px rgba(242, 238, 229, 0.65);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  letter-spacing: -0.04em;
+  line-height: 0.82;
+  filter:
+    drop-shadow(0 0 24px rgba(216, 255, 56, 0.18))
+    drop-shadow(0 0 4px rgba(216, 255, 56, 0.25));
 }
-.skill-card__head {
-  display: flex; align-items: center; gap: 12px;
+
+/* Skill card */
+.warp-card {
+  width: clamp(260px, 24vw, 340px);
+  height: clamp(360px, 32vw, 460px);
+  background: rgba(18, 18, 14, 0.55);
+  border: 1px solid rgba(242, 238, 229, 0.10);
+  padding: clamp(18px, 1.8vw, 28px);
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 20px 50px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+  transition: border-color .35s ease, background .35s ease, box-shadow .35s ease;
+  position: relative;
+}
+.warp-card::before,
+.warp-card::after {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  border: 1px solid var(--cream);
+  transition: 0.35s;
+}
+.warp-card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.warp-card::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+@media (hover: hover) {
+  .warp-card:hover {
+    border-color: var(--accent);
+    background: rgba(28, 28, 22, 0.78);
+    box-shadow: 0 0 40px rgba(216, 255, 56, 0.18);
+    z-index: 100;
+  }
+  .warp-card:hover::before,
+  .warp-card:hover::after {
+    width: 100%; height: 100%;
+    border-color: var(--accent);
+  }
+}
+.warp-card__head {
+  border-bottom: 1px solid rgba(242, 238, 229, 0.10);
   padding-bottom: 14px;
-  border-bottom: 1px dashed var(--line-soft);
+  display: flex; justify-content: space-between; align-items: center;
 }
-.skill-card__index {
+.warp-card__cat {
   font-family: var(--f-mono);
   font-size: 10px;
   letter-spacing: 0.22em;
-  color: var(--ink-mute);
+  color: var(--accent);
 }
-.skill-card__title {
+.warp-card__dot {
+  width: 10px; height: 10px;
+  background: var(--accent);
+  display: block;
+}
+.warp-card h3 {
+  margin: clamp(16px, 2vw, 28px) 0 0;
   font-family: var(--f-display);
-  font-size: clamp(20px, 1.6vw, 26px);
-  letter-spacing: 0.01em;
-  color: var(--ink);
+  font-weight: 400;
+  font-size: clamp(28px, 2.6vw, 40px);
+  line-height: 0.92;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: var(--cream);
 }
-.skill-card__chips {
-  display: flex; flex-wrap: wrap; gap: 8px;
+.warp-card__sub {
+  margin-top: 12px;
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 15px;
+  color: rgba(242, 238, 229, 0.6);
+  line-height: 1.35;
 }
-.skill-card__chips li {
-  padding: 7px 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
+.warp-card__meta {
+  margin-top: auto;
+  display: flex; justify-content: space-between;
   font-family: var(--f-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--ink);
-  background: rgba(255,255,255,0.4);
-  transition: background .25s ease, transform .25s ease, color .25s ease;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgba(242, 238, 229, 0.45);
+  padding-top: 14px;
+  border-top: 1px solid rgba(242, 238, 229, 0.06);
 }
-.skill-card__chips li:hover {
-  background: var(--ink); color: var(--cream); transform: translateY(-2px);
+.warp-card__num {
+  position: absolute;
+  bottom: 18px; right: 18px;
+  font-family: var(--f-display);
+  font-size: clamp(50px, 5vw, 76px);
+  line-height: 1;
+  color: rgba(242, 238, 229, 0.06);
+  font-weight: 400;
+  pointer-events: none;
 }
-.skill-card__chips li.hot {
-  background: var(--accent); border-color: var(--accent-deep); color: var(--accent-ink);
+
+/* Particle dot */
+.warp-star {
+  position: absolute;
+  width: 2px; height: 2px;
+  background: rgba(242, 238, 229, 0.8);
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+}
+
+/* Scanlines + vignette overlays inside pin */
+.warp__scanlines {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0) 50%,
+    rgba(0,0,0,0.18) 50%,
+    rgba(0,0,0,0.18) 100%);
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 15;
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+.warp__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, transparent 35%, #000 130%);
+  z-index: 14;
+  pointer-events: none;
 }
 
 /* =========================================================
@@ -1351,8 +1518,6 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
    ========================================================= */
 @media (max-width: 1100px) {
   .highlights__grid { grid-template-columns: repeat(2, 1fr); }
-  .skills__grid { grid-template-columns: repeat(2, 1fr); }
-  .skill-card--wide { grid-column: span 2; }
   .exp-card__bullets { grid-template-columns: 1fr; }
   .proj__inner { grid-template-columns: 80px 1fr; }
   .proj__cta { grid-column: 2; justify-content: flex-start; padding-top: 4px; }
@@ -1412,8 +1577,11 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   .section-head__lede { grid-column: 1; }
 
   .highlights__grid { grid-template-columns: 1fr 1fr; gap: 12px; }
-  .skills__grid { grid-template-columns: 1fr; gap: 12px; }
-  .skill-card--wide { grid-column: span 1; }
+
+  .warp { height: 480vh; }
+  .warp-heading { font-size: clamp(76px, 28vw, 220px); }
+  .warp-card { width: min(280px, 86vw); height: clamp(340px, 70vh, 460px); }
+  .warp__hud { font-size: 9px; inset: 14px; }
 
   .exp-card { grid-template-columns: 1fr; padding: 24px; }
   .exp-card__rail { display: none; }

@@ -19,3 +19,7 @@ desktop.ini
 .screenshots/
 node_modules/
 dist/
+
+# Reference assets (kept locally, not versioned)
+hyper-scroll.zip
+.hyper-scroll-temp/
