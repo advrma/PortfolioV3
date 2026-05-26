@@ -294,14 +294,18 @@
     //                  to HOLD_FRAME
     //   HOLD        : animFrame pinned at HOLD_FRAME, awaiting first
     //                  FORWARD scroll
-    //   MAIN play   : forward scroll → animFrame advances at BASE_RATE
+    //   MAIN forward: forward scroll → animFrame advances at BASE_RATE
     //                  toward TIMELINE_MAX
-    //   MAIN paused : reverse scroll → animFrame frozen; awaits next
-    //                  forward scroll to resume
-    //   END         : animFrame at TIMELINE_MAX, no advance
+    //   MAIN reverse: reverse scroll → animFrame retreats at BASE_RATE
+    //                  toward HOLD_FRAME (UI returns to fully visible
+    //                  when animFrame lands there). Reverse stops at
+    //                  HOLD_FRAME — the intro is a one-shot, not a
+    //                  rewind target.
+    //   END         : animFrame at TIMELINE_MAX (forward) or HOLD_FRAME
+    //                  (reverse); reel suspends until scroll direction flips
     animFrame: 0,
-    hasScrolled: false,         // true once a forward scroll has occurred
-    isPlayingForward: false,    // forward play active; toggled by scroll direction
+    hasScrolled: false,         // true once any scroll has occurred (releases HOLD)
+    playDirection: 0,           // -1 reverse, 0 paused, 1 forward; set by scroll direction
     introDelayElapsed: false,   // INTRO_DELAY_MS has passed (or skipped by scroll)
     startTime: 0,               // performance.now() at init
     lastScrollProgress: 0,
@@ -318,24 +322,33 @@
     running: false
   };
 
-  /* CINEMA-REEL TIMELINE — fixed 24fps cadence.
+  /* CINEMA-REEL TIMELINE — fixed cadence, direction-gated.
 
        Tick rule (in motionTick):
-         shouldAdvance =
-           (!hasScrolled  && introDelayElapsed && animFrame < HOLD_FRAME)
-           || (hasScrolled && isPlayingForward && animFrame < TIMELINE_MAX)
-         if (shouldAdvance) animFrame += BASE_RATE
+         INTRO/HOLD (!hasScrolled):
+           advance forward by BASE_RATE if delay elapsed AND below
+           HOLD_FRAME; otherwise idle.
+         MAIN (hasScrolled):
+           advance by playDirection * BASE_RATE, but only when that
+           direction has runway left:
+             playDirection ===  1 && animFrame < TIMELINE_MAX → forward
+             playDirection === -1 && animFrame > HOLD_FRAME    → reverse
+             else                                              → idle.
 
        Scroll rule (in onUpdate / fallback):
-         delta > 0 (forward) → hasScrolled = true; isPlayingForward = true;
+         delta > 0 (forward) → hasScrolled = true; playDirection =  1;
                                introDelayElapsed = true (skip wait)
-         delta < 0 (reverse) → isPlayingForward = false (pause, never reverse)
+         delta < 0 (reverse) → hasScrolled = true; playDirection = -1
 
      Notable invariants:
-     • animFrame ONLY moves forward, and only at exactly BASE_RATE.
-       It never decreases, accelerates, or overshoots.
-     • Reverse scroll cannot rewind the reel. It only freezes
-       it; the next forward scroll resumes from where it paused.
+     • animFrame advances at exactly BASE_RATE — scroll never
+       accelerates it, only chooses its direction.
+     • After scroll stops, the reel continues in the last
+       direction at BASE_RATE until it reaches that direction's
+       boundary (0 reverse / TIMELINE_MAX forward).
+     • UI exit is gated on hasScrolled and maps from animFrame —
+       so reversing animFrame back below HOLD_FRAME naturally
+       brings the title/cards back into view.
      • Forward scroll during INTRO_DELAY skips the wait. */
   const TIMELINE_MAX   = TOTAL_VIRTUAL_FRAMES;   // 270
   const HOLD_FRAME     = 80;        // intro endpoint, hold point
@@ -347,6 +360,13 @@
   const MAX_CURSOR_TX  = 12;      // ±px, opposite X
   const MAX_CURSOR_TY  = 4;       // ±px, opposite Y
 
+  // When motionTick programmatically scrolls the page to keep
+  // scrollY in sync with animFrame, ScrollTrigger still fires
+  // onUpdate. This flag tells onUpdate to absorb that auto-scroll
+  // delta (update lastScrollProgress only) rather than treat it
+  // as user input that could flip the play direction.
+  let isAutoScrolling = false;
+
   /* Recomputed only on init + resize. */
   function refreshHeroLayout() {
     const vw = window.innerWidth;
@@ -355,15 +375,20 @@
     motion.scrollShift = Math.min(vw * 0.22, sideRoom + canvasW * 0.10);
     const pin = document.querySelector('.hero-stage__pin');
     motion.pinRect = pin ? pin.getBoundingClientRect() : null;
+    // Cache the absolute scroll range of the hero pin so motionTick
+    // can map (animFrame - HOLD_FRAME) → scrollY linearly.
+    motion.heroSectionTop = heroSection.offsetTop;
+    motion.pinRunway = Math.max(0, heroSection.offsetHeight - window.innerHeight);
   }
 
   function motionTick() {
-    // --- Decide whether to advance this tick ---
-    //   INTRO branch (!hasScrolled): advance only after the
-    //     intro delay has elapsed AND animFrame < HOLD_FRAME.
-    //   MAIN branch  (hasScrolled):  advance only while
-    //     isPlayingForward AND animFrame < TIMELINE_MAX.
+    // --- Decide whether to advance this tick, and which way ---
+    //   INTRO branch (!hasScrolled): forward only, after delay,
+    //     until animFrame hits HOLD_FRAME.
+    //   MAIN branch  (hasScrolled):  step in playDirection while
+    //     runway exists in that direction.
     let shouldAdvance;
+    let advanceStep = 0;
     if (!motion.hasScrolled) {
       if (!motion.introDelayElapsed) {
         shouldAdvance = false;                 // INTRO_DELAY
@@ -372,15 +397,52 @@
         shouldAdvance = false;
       } else {
         shouldAdvance = true;                  // INTRO autoplay
+        advanceStep = BASE_RATE;
       }
+    } else if (motion.playDirection === 1 && motion.animFrame < TIMELINE_MAX) {
+      shouldAdvance = true;
+      advanceStep = BASE_RATE;
+    } else if (motion.playDirection === -1 && motion.animFrame > HOLD_FRAME) {
+      // Reverse only as far back as HOLD_FRAME (the intro hold
+      // pose). Once you've left the intro, reversing brings the
+      // reel back to the HOLD pose but never further — the
+      // 0→80 intro autoplay is a one-shot, not a rewind target.
+      shouldAdvance = true;
+      advanceStep = -BASE_RATE;
     } else {
-      shouldAdvance =
-        motion.isPlayingForward && motion.animFrame < TIMELINE_MAX;
+      shouldAdvance = false;
     }
 
     if (shouldAdvance) {
-      motion.animFrame += BASE_RATE;
+      motion.animFrame += advanceStep;
       if (motion.animFrame > TIMELINE_MAX) motion.animFrame = TIMELINE_MAX;
+      // Lower clamp only applies after the user has crossed
+      // HOLD_FRAME (i.e., in MAIN). During INTRO autoplay
+      // animFrame is between 0 and HOLD_FRAME, which must NOT
+      // be snapped back up.
+      else if (motion.hasScrolled && motion.animFrame < HOLD_FRAME) {
+        motion.animFrame = HOLD_FRAME;
+      }
+    }
+
+    // --- Auto-scroll the page in sync with animFrame ---
+    // Once MAIN is active, the page scrollY tracks animFrame
+    // linearly across the pin runway. This way the user "scrolls
+    // through" the hero at the animation's pace and the skills
+    // section appears the instant animFrame hits TIMELINE_MAX.
+    // Active only while shouldAdvance — at the rails the auto-
+    // scroll relaxes so the user can scroll past the pin into
+    // skills (forward) or up out of the hero (reverse).
+    if (shouldAdvance && motion.hasScrolled && motion.pinRunway > 0) {
+      const mainProgress =
+        (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME);
+      const targetScrollY =
+        motion.heroSectionTop + clamp01(mainProgress) * motion.pinRunway;
+      if (Math.abs(window.scrollY - targetScrollY) > 0.5) {
+        isAutoScrolling = true;
+        window.scrollTo(0, targetScrollY);
+        isAutoScrolling = false;
+      }
     }
 
     // --- Cursor lerp ---
@@ -439,7 +501,7 @@
       // tracks raw scroll position 1:1, UI follows the original
       // splitProgress mapping (uiP = scrollProgress / 0.15).
       motion.animFrame = motion.lastScrollProgress * TIMELINE_MAX;
-      motion.isPlayingForward = false;
+      motion.playDirection = 0;
       motion.cursorRenderedX = motion.cursorTargetX;
       motion.cursorRenderedY = motion.cursorTargetY;
       const progress = motion.animFrame / TIMELINE_MAX;
@@ -519,14 +581,20 @@
         const sy = window.scrollY;
         const range = heroSection.offsetHeight - window.innerHeight;
         const p = clamp01(sy / range);
-        // Same direction-trigger rule as the GSAP path.
+        // Same direction-selector rule as the GSAP path.
+        // Auto-scrolls from motionTick are absorbed without flipping.
+        if (isAutoScrolling) {
+          motion.lastScrollProgress = p;
+          return;
+        }
         const deltaProgress = p - motion.lastScrollProgress;
         if (deltaProgress > 0) {
           motion.hasScrolled = true;
-          motion.isPlayingForward = true;
+          motion.playDirection = 1;
           motion.introDelayElapsed = true;
         } else if (deltaProgress < 0) {
-          motion.isPlayingForward = false;
+          motion.hasScrolled = true;
+          motion.playDirection = -1;
         }
         motion.lastScrollProgress = p;
         kickMotion();
@@ -561,19 +629,26 @@
         invalidateOnRefresh: true,
         onRefresh: refreshHeroLayout,    // cache layout on resize
         onUpdate: (self) => {
-          // Scroll = play/pause trigger gated by direction.
-          // Forward scroll  → release HOLD + resume forward play.
-          // Reverse scroll  → pause; do NOT rewind the reel.
-          // animFrame is never modulated by scroll; it only ever
-          // advances by BASE_RATE inside motionTick.
+          // Scroll = direction selector. Forward scroll plays
+          // the reel forward; reverse scroll plays it backward.
+          // The reel continues at BASE_RATE in whichever
+          // direction was set last, until it hits that
+          // direction's boundary.
+          // Auto-scrolls from motionTick are absorbed (lastScrollProgress
+          // updated) without flipping playDirection.
           const newProgress = self.progress;
+          if (isAutoScrolling) {
+            motion.lastScrollProgress = newProgress;
+            return;
+          }
           const deltaProgress = newProgress - motion.lastScrollProgress;
           if (deltaProgress > 0) {
             motion.hasScrolled = true;
-            motion.isPlayingForward = true;
+            motion.playDirection = 1;
             motion.introDelayElapsed = true;   // skip intro wait if still pending
           } else if (deltaProgress < 0) {
-            motion.isPlayingForward = false;   // pause; awaits next forward scroll
+            motion.hasScrolled = true;
+            motion.playDirection = -1;
           }
           motion.lastScrollProgress = newProgress;
           kickMotion();
