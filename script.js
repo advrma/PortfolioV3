@@ -267,90 +267,207 @@
   }
   function lerpVal(a, b, t) { return a + (b - a) * t; }
 
-  /* Maximum horizontal shift. Scales with viewport, but capped
-     so the character never gets cropped on narrow screens —
-     we never push the canvas wider than its available side
-     space + the empty source-padding margin inside it. */
-  function getScrollShift() {
+  /* -------------------------------------------------------
+     UNIFIED HERO MOTION SYSTEM
+     One rAF loop handles BOTH the scroll-driven character
+     animation (spring physics) AND the cursor parallax (lerp).
+     One transform string is written per frame to the canvas.
+
+     Why a single loop and a single transform:
+       1. Two rAF loops fight for frame budget. Consolidating
+          halves the rAF callback count.
+       2. Three setProperty() calls per frame (cursor X, Y,
+          scroll X) each invalidate element style. One direct
+          transform write is one style mutation per frame.
+       3. CSS `calc(var() + var())` recomputed every frame is
+          replaced by a JS-computed number; no calc parsing.
+       4. Cached `scrollShift` removes the per-frame
+          `getBoundingClientRect()` reflow.
+     ------------------------------------------------------- */
+
+  const motion = {
+    // Cinema-reel timeline — fixed-cadence playback gated by
+    // scroll direction. There is no bias, no acceleration —
+    // scroll is a play/pause TRIGGER, not a force.
+    //   INTRO_DELAY : page load → INTRO_DELAY_MS, animFrame at 0
+    //   INTRO       : delay elapsed → animFrame advances at BASE_RATE
+    //                  to HOLD_FRAME
+    //   HOLD        : animFrame pinned at HOLD_FRAME, awaiting first
+    //                  FORWARD scroll
+    //   MAIN play   : forward scroll → animFrame advances at BASE_RATE
+    //                  toward TIMELINE_MAX
+    //   MAIN paused : reverse scroll → animFrame frozen; awaits next
+    //                  forward scroll to resume
+    //   END         : animFrame at TIMELINE_MAX, no advance
+    animFrame: 0,
+    hasScrolled: false,         // true once a forward scroll has occurred
+    isPlayingForward: false,    // forward play active; toggled by scroll direction
+    introDelayElapsed: false,   // INTRO_DELAY_MS has passed (or skipped by scroll)
+    startTime: 0,               // performance.now() at init
+    lastScrollProgress: 0,
+    // Cursor parallax
+    cursorTargetX: 0,
+    cursorTargetY: 0,
+    cursorRenderedX: 0,
+    cursorRenderedY: 0,
+    cursorActive: false,
+    // Cached layout
+    scrollShift: 0,
+    pinRect: null,
+    // Loop state
+    running: false
+  };
+
+  /* CINEMA-REEL TIMELINE — fixed 24fps cadence.
+
+       Tick rule (in motionTick):
+         shouldAdvance =
+           (!hasScrolled  && introDelayElapsed && animFrame < HOLD_FRAME)
+           || (hasScrolled && isPlayingForward && animFrame < TIMELINE_MAX)
+         if (shouldAdvance) animFrame += BASE_RATE
+
+       Scroll rule (in onUpdate / fallback):
+         delta > 0 (forward) → hasScrolled = true; isPlayingForward = true;
+                               introDelayElapsed = true (skip wait)
+         delta < 0 (reverse) → isPlayingForward = false (pause, never reverse)
+
+     Notable invariants:
+     • animFrame ONLY moves forward, and only at exactly BASE_RATE.
+       It never decreases, accelerates, or overshoots.
+     • Reverse scroll cannot rewind the reel. It only freezes
+       it; the next forward scroll resumes from where it paused.
+     • Forward scroll during INTRO_DELAY skips the wait. */
+  const TIMELINE_MAX   = TOTAL_VIRTUAL_FRAMES;   // 270
+  const HOLD_FRAME     = 80;        // intro endpoint, hold point
+  const UI_EXIT_FRAMES = 40;        // animFrame 80→120: UI translates + fades out
+  const INTRO_DELAY_MS = 0;         // start immediately when the hero page loads
+  const BASE_RATE      = 0.25;      // virtual frames/tick ≈ 5.5 source-fps — super slow cinematic crawl
+  const CURSOR_LERP    = 0.10;
+  const CURSOR_SETTLE  = 0.2;     // px
+  const MAX_CURSOR_TX  = 12;      // ±px, opposite X
+  const MAX_CURSOR_TY  = 4;       // ±px, opposite Y
+
+  /* Recomputed only on init + resize. */
+  function refreshHeroLayout() {
     const vw = window.innerWidth;
-    const canvasW = cinemaCanvas.getBoundingClientRect().width;
+    const canvasW = cinemaCanvas.offsetWidth || vw;   // offsetWidth is cached
     const sideRoom = Math.max(0, (vw - canvasW) / 2);
-    // 22vw default, capped so the visible character body stays
-    // inside the viewport (side room + ~10% of the canvas-width
-    // worth of source padding around the character).
-    return Math.min(vw * 0.22, sideRoom + canvasW * 0.10);
+    motion.scrollShift = Math.min(vw * 0.22, sideRoom + canvasW * 0.10);
+    const pin = document.querySelector('.hero-stage__pin');
+    motion.pinRect = pin ? pin.getBoundingClientRect() : null;
   }
 
-  /* -------------------------------------------------------
-     CHARACTER SPRING LAYER — adds an extra inertia pass on
-     top of GSAP's scrub. The scroll progress only updates a
-     target value; a self-suspending rAF loop runs spring
-     physics so the character (image frame + X movement + HUD)
-     keeps coasting briefly after the user stops scrolling and
-     settles smoothly. Critically, the UI scroll-away is NOT
-     spring-smoothed — that channel stays instantly responsive
-     so the page never feels laggy under the cursor.
-     ------------------------------------------------------- */
-  let targetProgress = 0;
-  let currentProgress = 0;
-  let springVelocity = 0;
-  let springRunning = false;
-  const SPRING_K       = 0.035;   // pull toward target
-  const SPRING_DAMP    = 0.82;    // velocity decay per frame
-  const SPRING_SETTLE  = 0.0005;  // |diff| & |vel| < this → exit
+  function motionTick() {
+    // --- Decide whether to advance this tick ---
+    //   INTRO branch (!hasScrolled): advance only after the
+    //     intro delay has elapsed AND animFrame < HOLD_FRAME.
+    //   MAIN branch  (hasScrolled):  advance only while
+    //     isPlayingForward AND animFrame < TIMELINE_MAX.
+    let shouldAdvance;
+    if (!motion.hasScrolled) {
+      if (!motion.introDelayElapsed) {
+        shouldAdvance = false;                 // INTRO_DELAY
+      } else if (motion.animFrame >= HOLD_FRAME) {
+        motion.animFrame = HOLD_FRAME;         // pin at hold
+        shouldAdvance = false;
+      } else {
+        shouldAdvance = true;                  // INTRO autoplay
+      }
+    } else {
+      shouldAdvance =
+        motion.isPlayingForward && motion.animFrame < TIMELINE_MAX;
+    }
 
-  /* Apply the smoothed progress to everything character-related:
-     the canvas frame, HUD counters/captions, and the scroll-X
-     CSS variable that combines with the cursor channels. */
-  function applyCharacter(progress) {
-    const { animP } = splitProgress(progress);
+    if (shouldAdvance) {
+      motion.animFrame += BASE_RATE;
+      if (motion.animFrame > TIMELINE_MAX) motion.animFrame = TIMELINE_MAX;
+    }
+
+    // --- Cursor lerp ---
+    const cdx = motion.cursorTargetX - motion.cursorRenderedX;
+    const cdy = motion.cursorTargetY - motion.cursorRenderedY;
+    motion.cursorRenderedX += cdx * CURSOR_LERP;
+    motion.cursorRenderedY += cdy * CURSOR_LERP;
+
+    // --- UI exit (gated on hasScrolled, mapped from animFrame) ---
+    const uiP = motion.hasScrolled
+      ? clamp01((motion.animFrame - HOLD_FRAME) / UI_EXIT_FRAMES)
+      : 0;
+    if (heroStageUI) {
+      heroStageUI.style.transform =
+        'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
+      heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+    }
+    if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
+
+    // --- Character render from animFrame ---
+    const timelineProgress = motion.animFrame / TIMELINE_MAX;
+    const { animP } = splitProgress(timelineProgress);
+    const scrollX = computeScrollX(timelineProgress);
+    const finalX = motion.cursorRenderedX + scrollX;
+    cinemaCanvas.style.transform =
+      'translate3d(calc(-50% + ' + finalX.toFixed(2) + 'px), ' +
+      motion.cursorRenderedY.toFixed(2) + 'px, 0)';
     renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
     renderCinemaUI(animP);
-    cinemaCanvas.style.setProperty(
-      '--char-x-scroll', `${computeScrollX(progress).toFixed(2)}px`
-    );
-  }
 
-  function springTick() {
-    const diff = targetProgress - currentProgress;
-    springVelocity += diff * SPRING_K;
-    springVelocity *= SPRING_DAMP;
-    currentProgress += springVelocity;
+    // --- Suspend when nothing should advance AND cursor settled ---
+    // Covers: INTRO_DELAY waiting, HOLD before first scroll,
+    // MAIN paused after reverse scroll, END clamped at TIMELINE_MAX.
+    // Wake-up paths: setTimeout (delay expiry), onUpdate (scroll
+    // input), cursor listeners (calling kickMotion).
+    const cursorSettled =
+      Math.abs(cdx) < CURSOR_SETTLE && Math.abs(cdy) < CURSOR_SETTLE;
 
-    applyCharacter(currentProgress);
-
-    if (Math.abs(diff) < SPRING_SETTLE &&
-        Math.abs(springVelocity) < SPRING_SETTLE) {
-      // Truly settled — snap exactly to target and suspend.
-      currentProgress = targetProgress;
-      springVelocity = 0;
-      applyCharacter(currentProgress);
-      springRunning = false;
+    if (!shouldAdvance && cursorSettled) {
+      motion.cursorRenderedX = motion.cursorTargetX;
+      motion.cursorRenderedY = motion.cursorTargetY;
+      const finalX2 =
+        motion.cursorRenderedX + computeScrollX(motion.animFrame / TIMELINE_MAX);
+      cinemaCanvas.style.transform =
+        'translate3d(calc(-50% + ' + finalX2.toFixed(2) + 'px), ' +
+        motion.cursorRenderedY.toFixed(2) + 'px, 0)';
+      motion.running = false;
       return;
     }
-    requestAnimationFrame(springTick);
+    requestAnimationFrame(motionTick);
   }
 
-  /* Kick the spring loop. Called by every scroll update; the
-     loop self-arms only when it's not already running. Reduced
-     motion bypasses the spring entirely (snap to target). */
-  function springKick() {
+  function kickMotion() {
     if (reduceMotionMQ && reduceMotionMQ.matches) {
-      currentProgress = targetProgress;
-      springVelocity = 0;
-      applyCharacter(currentProgress);
+      // Reduced motion: no autoplay, no intro delay. animFrame
+      // tracks raw scroll position 1:1, UI follows the original
+      // splitProgress mapping (uiP = scrollProgress / 0.15).
+      motion.animFrame = motion.lastScrollProgress * TIMELINE_MAX;
+      motion.isPlayingForward = false;
+      motion.cursorRenderedX = motion.cursorTargetX;
+      motion.cursorRenderedY = motion.cursorTargetY;
+      const progress = motion.animFrame / TIMELINE_MAX;
+      const { uiP, animP } = splitProgress(progress);
+      if (heroStageUI) {
+        heroStageUI.style.transform =
+          'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
+        heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+      }
+      if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
+      const fx = motion.cursorRenderedX + computeScrollX(progress);
+      cinemaCanvas.style.transform =
+        'translate3d(calc(-50% + ' + fx.toFixed(2) + 'px), ' +
+        motion.cursorRenderedY.toFixed(2) + 'px, 0)';
+      renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
+      renderCinemaUI(animP);
       return;
     }
-    if (springRunning) return;
-    springRunning = true;
-    requestAnimationFrame(springTick);
+    if (motion.running) return;
+    motion.running = true;
+    requestAnimationFrame(motionTick);
   }
 
   function computeScrollX(progress) {
     if (reduceMotionMQ && reduceMotionMQ.matches) return 0;
 
     const frame = progress * TOTAL_VIRTUAL_FRAMES;
-    const SHIFT = getScrollShift();
+    const SHIFT = motion.scrollShift;   // cached at init/resize
     const LEFT_X  = -SHIFT;
     const RIGHT_X =  SHIFT;
 
@@ -383,12 +500,13 @@
   }
 
   /* -------------------------------------------------------
-     GSAP ScrollTrigger setup — one main scrubbed trigger
-     covers the entire pinned hero-stage and drives three
-     things from a single source of truth:
-       1. UI layer: translateY -100%  + fade as it leaves
-       2. Character canvas: frame 0 → last (only after UI exit)
-       3. Cinema HUD overlay: fades in once UI is gone
+     GSAP ScrollTrigger setup — the hero pin trigger only
+     samples scroll delta and feeds it as a bias impulse to
+     the cinema-reel timeline (see motionTick). UI exit,
+     character frame, and HUD overlay are all rendered from
+     the autoplay timeline inside motionTick — NOT from the
+     raw scroll position — so they always stay in sync with
+     the reel even when the user holds still.
      Background parallax is a separate trigger that covers
      the whole document so the topo + aurora keep gliding
      past the hero stage.
@@ -401,27 +519,37 @@
         const sy = window.scrollY;
         const range = heroSection.offsetHeight - window.innerHeight;
         const p = clamp01(sy / range);
-        const { uiP } = splitProgress(p);
-        if (heroStageUI) {
-          heroStageUI.style.transform = `translate3d(0, ${-uiP * 110}%, 0)`;
-          heroStageUI.style.opacity = String(1 - uiP);
+        // Same direction-trigger rule as the GSAP path.
+        const deltaProgress = p - motion.lastScrollProgress;
+        if (deltaProgress > 0) {
+          motion.hasScrolled = true;
+          motion.isPlayingForward = true;
+          motion.introDelayElapsed = true;
+        } else if (deltaProgress < 0) {
+          motion.isPlayingForward = false;
         }
-        if (cinemaOverlay) cinemaOverlay.style.opacity = String(uiP);
-        // Route character work through the same spring layer so
-        // the inertia tail still applies even without GSAP.
-        targetProgress = p;
-        springKick();
+        motion.lastScrollProgress = p;
+        kickMotion();
       };
       window.addEventListener('scroll', fallback, { passive: true });
-      fallback();
+      motion.startTime = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now() : Date.now();
+      fallback();   // initial paint at frame 0 (loop suspends in INTRO_DELAY)
+      setTimeout(() => {
+        if (!motion.introDelayElapsed) {
+          motion.introDelayElapsed = true;
+          kickMotion();
+        }
+      }, INTRO_DELAY_MS);
       return;
     }
 
     gsap.registerPlugin(ScrollTrigger);
 
-    // Main pinned-stage scrub. `scrub: 1.1` gives a ~1.1s
-    // catch-up so the canvas + UI exit have GPU-smooth inertia
-    // after the user stops scrolling.
+    // Direct scrub on the hero (`scrub: true`). The trigger
+    // exists only to sample scroll DIRECTION; it does not
+    // modulate animFrame. motionTick is the sole owner of the
+    // reel's advancement (fixed BASE_RATE forward).
     gsap.to(frameState, {
       idx: FRAME_COUNT - 1,
       ease: 'none',
@@ -429,31 +557,26 @@
         trigger: heroSection,
         start: 'top top',
         end: 'bottom bottom',
-        scrub: 1.1,
+        scrub: true,
         invalidateOnRefresh: true,
+        onRefresh: refreshHeroLayout,    // cache layout on resize
         onUpdate: (self) => {
-          const { uiP } = splitProgress(self.progress);
-
-          // 1. UI scrolls up + fades — INSTANT (no spring) so
-          //    the page feels responsive under the cursor.
-          if (heroStageUI) {
-            heroStageUI.style.transform =
-              `translate3d(0, ${(-uiP * 110).toFixed(2)}%, 0)`;
-            heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+          // Scroll = play/pause trigger gated by direction.
+          // Forward scroll  → release HOLD + resume forward play.
+          // Reverse scroll  → pause; do NOT rewind the reel.
+          // animFrame is never modulated by scroll; it only ever
+          // advances by BASE_RATE inside motionTick.
+          const newProgress = self.progress;
+          const deltaProgress = newProgress - motion.lastScrollProgress;
+          if (deltaProgress > 0) {
+            motion.hasScrolled = true;
+            motion.isPlayingForward = true;
+            motion.introDelayElapsed = true;   // skip intro wait if still pending
+          } else if (deltaProgress < 0) {
+            motion.isPlayingForward = false;   // pause; awaits next forward scroll
           }
-
-          // 2. Cinema HUD fades in opposite the UI exit.
-          if (cinemaOverlay) {
-            cinemaOverlay.style.opacity = uiP.toFixed(3);
-          }
-
-          // 3. Everything character-related — frame swap, HUD
-          //    detail, and X drift — is routed through the
-          //    spring layer. The scroll value only updates the
-          //    target; an rAF loop chases it with inertia and
-          //    continues coasting briefly after scroll stops.
-          targetProgress = self.progress;
-          springKick();
+          motion.lastScrollProgress = newProgress;
+          kickMotion();
         }
       }
     });
@@ -486,6 +609,22 @@
         }
       });
     }
+
+    // Initial paint at frame 0 (kickMotion runs one tick of
+    // motionTick which renders + suspends because the intro
+    // delay has not yet elapsed). Then schedule the wake-up
+    // for the autoplay start.
+    motion.startTime = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now() : Date.now();
+    kickMotion();
+    setTimeout(() => {
+      if (!motion.introDelayElapsed) {
+        motion.introDelayElapsed = true;
+        kickMotion();   // wake the loop to begin INTRO autoplay
+      }
+      // If a forward scroll already happened during the delay,
+      // introDelayElapsed was set there and this no-ops.
+    }, INTRO_DELAY_MS);
   }
 
   /* -------------------------------------------------------
@@ -500,6 +639,7 @@
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       sizeCanvas(cinemaCanvas);
       lastDrawnFrame = -1;
+      refreshHeroLayout();      // re-cache scrollShift + pinRect
       if (typeof ScrollTrigger !== 'undefined') {
         ScrollTrigger.refresh();
       } else {
@@ -588,116 +728,36 @@
   }
 
   /* -------------------------------------------------------
-     CURSOR PARALLAX (Lando-style depth effect).
-     - Cursor → character translates OPPOSITE on X (creates a
-       sense the character is "behind" the cursor plane).
-     - Cursor → character translates SAME direction on Y (the
-       character tracks vertical cursor movement like a head
-       following).
-     - Small rotateX / rotateY enhance the depth illusion.
-     - All values lerp-smoothed per rAF, with the loop self-
-       suspending when the cursor has left and motion has
-       settled — zero CPU at rest.
-     - Composes with the canvas's `translateX(-50%)` centering
-       via `calc(-50% + Npx)`; the scroll-driven canvas
-       redraw is on a separate channel and is unaffected.
-     - prefers-reduced-motion + touch pointers → no-op. */
+     CURSOR PARALLAX LISTENERS — the rAF work happens inside
+     the unified `motionTick`; these listeners only update
+     `motion.cursorTargetX/Y` and kick the loop. Pin bounds
+     are read from the cached `motion.pinRect` (refreshed on
+     resize), never per-event. */
   function initCursorParallax() {
-    const canvas = document.getElementById('cinemaCanvas');
     const pin = document.querySelector('.hero-stage__pin');
-    if (!canvas || !pin) return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-    // Distance-adaptive lerp — fast initial catch-up that drops
-    // sharply into a very slow crawl once the gap is small.
-    //   |delta| ≥ ~10  →  step ≈ 22% of delta (snappy)
-    //   |delta| ~  3   →  step ≈ 14% of delta
-    //   |delta| ~  1   →  step ≈  8% of delta
-    //   |delta| <  0.5 →  step ≈  4% of delta (drift)
-    // The exponential blend gives a smooth "lunges then drifts"
-    // curve and naturally creates a perceptible delay before the
-    // character finishes settling after the cursor stops moving.
-    const MAX_TX = 12;      // ±12px, opposite cursor
-    const MAX_TY = 4;       // ±4px, opposite cursor — barely noticeable
-    const LERP_FAST = 0.22;
-    const LERP_SLOW = 0.04;
-    const LERP_K = 0.30;    // larger = sharper fast→slow transition
-    const SETTLE_PX = 0.3;  // snap-exit threshold (visually imperceptible)
-
-    let targetTx = 0, targetTy = 0;
-    let renderedTx = 0, renderedTy = 0;
-    let active = false;
-    let running = false;
-
-    // Sigmoid-like blend between SLOW and FAST based on |delta|.
-    function lerpForDelta(d) {
-      const m = Math.abs(d);
-      const t = 1 - Math.exp(-m * LERP_K);   // 0 at m=0, →1 as m grows
-      return LERP_SLOW + (LERP_FAST - LERP_SLOW) * t;
-    }
-
-    function tick() {
-      const dx = targetTx - renderedTx;
-      const dy = targetTy - renderedTy;
-      renderedTx += dx * lerpForDelta(dx);
-      renderedTy += dy * lerpForDelta(dy);
-
-      // Write the cursor channels only; the canvas's CSS rule
-      // composes these with the scroll-driven X channel via calc().
-      canvas.style.setProperty('--char-x-cursor', `${renderedTx.toFixed(2)}px`);
-      canvas.style.setProperty('--char-y-cursor', `${renderedTy.toFixed(2)}px`);
-
-      const settled =
-        Math.abs(targetTx - renderedTx) < SETTLE_PX &&
-        Math.abs(targetTy - renderedTy) < SETTLE_PX;
-
-      if (settled) {
-        // Snap and suspend. Keep the value applied if the cursor
-        // is still over the pin; otherwise drop back to 0.
-        renderedTx = targetTx;
-        renderedTy = targetTy;
-        if (!active) {
-          canvas.style.setProperty('--char-x-cursor', '0px');
-          canvas.style.setProperty('--char-y-cursor', '0px');
-        } else {
-          canvas.style.setProperty('--char-x-cursor', `${targetTx.toFixed(2)}px`);
-          canvas.style.setProperty('--char-y-cursor', `${targetTy.toFixed(2)}px`);
-        }
-        running = false;
-        return;
-      }
-      requestAnimationFrame(tick);
-    }
-
-    function start() {
-      if (running) return;
-      running = true;
-      requestAnimationFrame(tick);
-    }
+    if (!pin) return;
+    if (reduceMotionMQ && reduceMotionMQ.matches) return;
 
     pin.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch') return;
-      const rect = pin.getBoundingClientRect();
-      const halfW = rect.width / 2;
+      const rect = motion.pinRect;
+      if (!rect) return;
+      const halfW = rect.width  / 2;
       const halfH = rect.height / 2;
-      // Normalize cursor position to [-1, 1] from pin center.
       const nx = (e.clientX - rect.left - halfW) / halfW;
       const ny = (e.clientY - rect.top  - halfH) / halfH;
-      // Both axes move opposite to the cursor for the parallax
-      // depth read. Y magnitude is intentionally tiny so the
-      // vertical drift is barely perceptible.
-      targetTx = -nx * MAX_TX;
-      targetTy = -ny * MAX_TY;
-
-      active = true;
-      start();
+      // Both axes opposite cursor (depth parallax). Y is tiny.
+      motion.cursorTargetX = -nx * MAX_CURSOR_TX;
+      motion.cursorTargetY = -ny * MAX_CURSOR_TY;
+      motion.cursorActive = true;
+      kickMotion();
     }, { passive: true });
 
     pin.addEventListener('pointerleave', () => {
-      targetTx = 0;
-      targetTy = 0;
-      active = false;
-      start();
+      motion.cursorTargetX = 0;
+      motion.cursorTargetY = 0;
+      motion.cursorActive = false;
+      kickMotion();
     }, { passive: true });
   }
 
@@ -914,6 +974,7 @@
     section.addEventListener('mousemove', (e) => {
       state.mouseX = (e.clientX / window.innerWidth  - 0.5) * 2;
       state.mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+      startRender();   // resume loop to apply tilt
     }, { passive: true });
 
     function startRender() {
@@ -929,10 +990,12 @@
       // Smooth velocity toward target
       state.velocity += (state.targetVel * 0.001 - state.velocity) * 0.10;
 
-      // Suspend when section is offscreen AND nothing is animating.
+      // Suspend whenever nothing is animating — visibility is
+      // not enough on its own to keep the loop running. The next
+      // scroll update or mousemove will call startRender() again.
       const nearlyStill = Math.abs(state.targetVel) < 1
                        && Math.abs(state.velocity)  < 0.01;
-      if (!state.visible && nearlyStill) {
+      if (nearlyStill) {
         state.running = false;
         return;
       }
@@ -1015,6 +1078,7 @@
   function init() {
     // Initial canvas sizing right away so first frame fills.
     sizeCanvas(cinemaCanvas);
+    refreshHeroLayout();        // cache scrollShift + pinRect once
 
     // Static-capture mode: ?ss=1 forces everything visible immediately
     const params = new URLSearchParams(location.search);
