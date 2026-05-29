@@ -12,14 +12,252 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,400&display=swap" />
 
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0001.png" />
+<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0150.png" />
+<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0220.png" />
+<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0270.png" />
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0300.png" />
 
 <link rel="stylesheet" href="styles.css" />
 
+<!-- Critical intro-loader styles inlined for reliable first
+     paint. Layout matches the willem-loading-animation pattern;
+     GSAP timeline in script.js drives all the animations. -->
+<style>
+  .intro-loader {
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: 0;
+    z-index: 9999;
+    background: #F2EEE5;
+    color: #F2EEE5;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .intro-loader.is--gone { display: none !important; }
+
+  /* ----- Centre stage: ADI [box] TYA wordmark ----- */
+  .intro-loader__loader {
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: #0C0C0A;
+  }
+  .intro-loader__h1 {
+    font-family: "Anton", "Archivo Black", sans-serif;
+    font-weight: 400;
+    font-size: clamp(3rem, 12.5vw, 11rem);
+    line-height: 0.78;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+    position: relative;
+  }
+  .intro-loader__h1-start,
+  .intro-loader__h1-end {
+    display: flex;
+    overflow: hidden;
+    width: 1.8em;
+  }
+  .intro-loader__h1-start { justify-content: flex-end; }
+  .intro-loader__h1-end   { justify-content: flex-start; }
+  .intro-loader__letter,
+  .intro-loader__letter-white {
+    display: block;
+    position: relative;
+  }
+
+  /* ----- The opening / expanding box ----- */
+  .intro-loader__box {
+    position: relative;
+    display: flex;
+    flex-flow: column;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    flex-shrink: 0;
+  }
+  .intro-loader__box-inner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 95%;
+    min-width: 1em;
+  }
+  .intro-loader__growing {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 0%;
+    height: 100%;
+    overflow: hidden;
+    background: #0C0C0A;
+  }
+  .intro-loader__growing-wrap {
+    position: absolute;
+    width: 100%;
+    min-width: 1em;
+    height: 100%;
+  }
+  .intro-loader__cover,
+  .intro-loader__cover-final {
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 30%;
+    pointer-events: none;
+    user-select: none;
+  }
+  .intro-loader__cover.is--1 { z-index: 3; }
+  .intro-loader__cover.is--2 { z-index: 2; }
+  .intro-loader__cover.is--3 { z-index: 1; }
+  .intro-loader__cover-final { z-index: 0; }
+
+  /* ----- Foreground overlay: top nav text + bottom mark ----- */
+  .intro-loader__content {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-flow: column;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 100vh;
+    padding: clamp(20px, 3vw, 48px);
+    pointer-events: none;
+  }
+  .intro-loader__top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    overflow: hidden;
+  }
+  .intro-loader__navlink {
+    font-family: "Geist Mono", ui-monospace, monospace;
+    font-size: clamp(11px, 0.95vw, 14px);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #F2EEE5;
+    display: block;
+  }
+  .intro-loader__bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    width: 100%;
+    overflow: hidden;
+  }
+  .intro-loader__mark {
+    font-family: "Anton", "Archivo Black", sans-serif;
+    font-weight: 400;
+    font-size: clamp(3rem, 12.5vw, 11rem);
+    line-height: 0.78;
+    letter-spacing: -0.02em;
+    display: flex;
+    overflow: hidden;
+    color: #F2EEE5;
+  }
+  .intro-loader__letter-white.is--space {
+    margin-left: 0.18em;
+    color: #D8FF38;
+    font-family: "Instrument Serif", serif;
+    font-style: italic;
+  }
+  .intro-loader__credits {
+    margin: 0;
+    align-self: flex-end;
+    font-family: "Geist Mono", ui-monospace, monospace;
+    font-size: clamp(11px, 0.95vw, 14px);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(242, 238, 229, 0.7);
+  }
+
+  @media (max-width: 991px) {
+    .intro-loader__h1,
+    .intro-loader__mark { font-size: clamp(2.6rem, 16vw, 7rem); }
+    .intro-loader__h1-start,
+    .intro-loader__h1-end { width: 1.85em; }
+    .intro-loader__top { flex-flow: column; gap: 6px; }
+    .intro-loader__credits { display: none; }
+  }
+  @media (max-width: 640px) {
+    .intro-loader__h1,
+    .intro-loader__mark { font-size: clamp(2.2rem, 18vw, 5rem); }
+    .intro-loader__h1-start,
+    .intro-loader__h1-end { width: 1.9em; }
+  }
+</style>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
 </head>
-<body>
+<body class="is-pre-load">
+
+<!-- ============= INTRO LOADER (willem-style) =============
+     Faithful adaptation of the willem-loading-animation pattern:
+       1. ADI / TYA letters slide up on cream
+       2. Box opens between them, growing image inside
+       3. Three character-pose images flicker out in stagger
+       4. Image expands to full viewport (ink-dark backdrop)
+       5. Bottom mark "ADITYA" + top nav text slide up in white
+       6. Loader fades, hero takes over -->
+<section class="intro-loader" id="introLoader" aria-hidden="true">
+  <div class="intro-loader__loader">
+    <div class="intro-loader__h1">
+      <div class="intro-loader__h1-start">
+        <span class="intro-loader__letter">A</span>
+        <span class="intro-loader__letter">D</span>
+        <span class="intro-loader__letter">I</span>
+      </div>
+      <div class="intro-loader__box">
+        <div class="intro-loader__box-inner">
+          <div class="intro-loader__growing">
+            <div class="intro-loader__growing-wrap">
+              <img class="intro-loader__cover is--1" src="CYBERFICTION-IMAGES/male0150.png" alt="" decoding="async" />
+              <img class="intro-loader__cover is--2" src="CYBERFICTION-IMAGES/male0220.png" alt="" decoding="async" />
+              <img class="intro-loader__cover is--3" src="CYBERFICTION-IMAGES/male0270.png" alt="" decoding="async" />
+              <img class="intro-loader__cover-final" src="CYBERFICTION-IMAGES/male0001.png" alt="" decoding="async" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="intro-loader__h1-end">
+        <span class="intro-loader__letter">T</span>
+        <span class="intro-loader__letter">Y</span>
+        <span class="intro-loader__letter">A</span>
+      </div>
+    </div>
+  </div>
+  <div class="intro-loader__content">
+    <div class="intro-loader__top">
+      <span class="intro-loader__navlink">Aditya Verma ©</span>
+      <span class="intro-loader__navlink">Software,</span>
+      <span class="intro-loader__navlink">AI Interfaces,</span>
+      <span class="intro-loader__navlink">Portfolio 2026</span>
+    </div>
+    <div class="intro-loader__bottom">
+      <div class="intro-loader__mark">
+        <span class="intro-loader__letter-white">A</span>
+        <span class="intro-loader__letter-white">D</span>
+        <span class="intro-loader__letter-white">I</span>
+        <span class="intro-loader__letter-white">T</span>
+        <span class="intro-loader__letter-white">Y</span>
+        <span class="intro-loader__letter-white">A</span>
+        <span class="intro-loader__letter-white is--space">©</span>
+      </div>
+      <p class="intro-loader__credits">Tempe · Arizona · ASU</p>
+    </div>
+  </div>
+</section>
 
 <!-- ============= AMBIENT BACKGROUND LAYERS ============= -->
 <div class="aurora" aria-hidden="true"></div>
@@ -274,6 +512,100 @@
 
     <div class="warp__scanlines" aria-hidden="true"></div>
     <div class="warp__vignette" aria-hidden="true"></div>
+  </div>
+</section>
+
+<!-- ============= INTER-SECTION DIVIDER ============= -->
+<div class="seam" aria-hidden="true">
+  <span class="seam__line"></span>
+  <span class="seam__chip">·</span>
+  <span class="seam__line"></span>
+</div>
+
+<!-- ====================================================
+     PROJECTS — INFINITE GALLERY HALL
+     Three.js 3D wall of project "paintings". The user
+     scrolls vertically; the camera moves horizontally
+     along the wall, looping the paintings infinitely.
+     UI overlay on the left shows the current project's
+     catalogue number, title, summary, and meta grid.
+     ScrollTrigger pins this section and converts vertical
+     scroll into the gallery's horizontal target.
+====================================================== -->
+<section class="hall" id="projects">
+  <div class="hall__pin">
+    <div class="hall__canvas" id="hallCanvas" aria-hidden="true"></div>
+
+    <div class="hall__chrome">
+      <div class="hall__logo">PROJECTS · GALLERY</div>
+      <div class="hall__hint"><span>Scroll to explore</span></div>
+    </div>
+
+    <div class="hall__ui">
+      <article class="hall-slide" id="hallSlide-0">
+        <span class="hall-slide__num">01 / Selected</span>
+        <h2 class="hall-slide__title">Stealth <br><i>AI Internship Radar</i></h2>
+        <p class="hall-slide__desc">
+          Real-time pipeline that scrapes, dedupes, and ranks tech-internship
+          listings across hundreds of sources. Personalised match scores
+          surface roles before they hit aggregators, with daily digest emails
+          and a search-light Next.js front-end.
+        </p>
+        <div class="hall-slide__meta">
+          <span class="hall-slide__meta-label">Year</span><span class="hall-slide__meta-value">2025</span>
+          <span class="hall-slide__meta-label">Stack</span><span class="hall-slide__meta-value">Next.js · Postgres · Python</span>
+          <span class="hall-slide__meta-label">Status</span><span class="hall-slide__meta-value">Shipping</span>
+        </div>
+      </article>
+
+      <article class="hall-slide" id="hallSlide-1">
+        <span class="hall-slide__num">02 / Selected</span>
+        <h2 class="hall-slide__title">Cyberfiction <br><i>3D Hero Reel</i></h2>
+        <p class="hall-slide__desc">
+          Frame-by-frame canvas reel that drives a 300-frame 3D character
+          animation off scroll. Custom motionTick rAF loop with cursor
+          parallax, sub-frame holds, and reverse-scroll handling — under
+          200&nbsp;KB of JS.
+        </p>
+        <div class="hall-slide__meta">
+          <span class="hall-slide__meta-label">Year</span><span class="hall-slide__meta-value">2026</span>
+          <span class="hall-slide__meta-label">Stack</span><span class="hall-slide__meta-value">Canvas2D · GSAP · Vanilla</span>
+          <span class="hall-slide__meta-label">Status</span><span class="hall-slide__meta-value">Live</span>
+        </div>
+      </article>
+
+      <article class="hall-slide" id="hallSlide-2">
+        <span class="hall-slide__num">03 / Selected</span>
+        <h2 class="hall-slide__title">Hyperscroll <br><i>3D Skills Map</i></h2>
+        <p class="hall-slide__desc">
+          A pinned camera flythrough that maps the tech stack as a 3D
+          starfield. Five categories, fifteen cards, particles drifting
+          past in perspective — with chromatic warp at high scroll
+          velocity for the "deep dive" feel.
+        </p>
+        <div class="hall-slide__meta">
+          <span class="hall-slide__meta-label">Year</span><span class="hall-slide__meta-value">2026</span>
+          <span class="hall-slide__meta-label">Stack</span><span class="hall-slide__meta-value">CSS 3D · ScrollTrigger</span>
+          <span class="hall-slide__meta-label">Status</span><span class="hall-slide__meta-value">Live</span>
+        </div>
+      </article>
+
+      <article class="hall-slide" id="hallSlide-3">
+        <span class="hall-slide__num">04 / Selected</span>
+        <h2 class="hall-slide__title">VR Sessions <br><i>Immersive Studies</i></h2>
+        <p class="hall-slide__desc">
+          A research log from ASU's XR lab — hundreds of supervised VR
+          sessions investigating spatial UI ergonomics, motion sickness
+          thresholds, and gaze-driven menu primitives. Reports + interactive
+          builds.
+        </p>
+        <div class="hall-slide__meta">
+          <span class="hall-slide__meta-label">Year</span><span class="hall-slide__meta-value">2024–25</span>
+          <span class="hall-slide__meta-label">Stack</span><span class="hall-slide__meta-value">Unity · WebXR · Three.js</span>
+          <span class="hall-slide__meta-label">Status</span><span class="hall-slide__meta-value">Ongoing</span>
+        </div>
+      </article>
+    </div>
   </div>
 </section>
 

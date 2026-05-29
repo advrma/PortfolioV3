@@ -151,6 +151,88 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 }
 
 /* =========================================================
+   INTRO LOADER — all styles + keyframes are inlined in
+   index.html's <head> so they apply on first paint regardless
+   of styles.css cache state. Nothing here on purpose.
+   ========================================================= */
+
+/* =========================================================
+   PRE-LOAD UI — the hero UI starts hidden while the intro
+   loader is on screen. JS removes `is-pre-load` from <body>
+   at the moment the loader fades, and each element
+   transitions to its resting place on a staggered delay so
+   the hero "constructs itself" in front of the user
+   (nav → eyebrows → title → status → tagline → cards).
+   ========================================================= */
+body.is-pre-load .nav,
+body.is-pre-load .hero__eyebrow,
+body.is-pre-load .hero__title-word,
+body.is-pre-load .hero__title-italic,
+body.is-pre-load .hero__tagline,
+body.is-pre-load .hero__status,
+body.is-pre-load .hero__card {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+  pointer-events: none;
+}
+/* The nav slides DOWN from above the viewport edge instead
+   of up from below. */
+body.is-pre-load .nav {
+  transform: translate3d(0, -18px, 0);
+}
+/* While the loader is up, the hero canvas is hidden so the
+   only character on screen is the one inside the preview box.
+   When is-pre-load drops the canvas crossfades in at the same
+   moment the loader's character fades out — and because both
+   are positioned identically (height:100%, bottom:-1vh, 16/15),
+   the swap is invisible. */
+body.is-pre-load .hero-stage__canvas {
+  opacity: 0;
+}
+body:not(.is-pre-load) .hero-stage__canvas {
+  opacity: 1;
+  transition: opacity 0.6s var(--ease-out-quart);
+}
+
+body:not(.is-pre-load) .nav,
+body:not(.is-pre-load) .hero__eyebrow,
+body:not(.is-pre-load) .hero__title-word,
+body:not(.is-pre-load) .hero__title-italic,
+body:not(.is-pre-load) .hero__tagline,
+body:not(.is-pre-load) .hero__status,
+body:not(.is-pre-load) .hero__card {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition: opacity 0.6s var(--ease-out-quart),
+              transform 0.6s var(--ease-out-quart);
+}
+
+/* Stagger — each element fires off the moment is-pre-load
+   is removed; the delay determines its position in the queue. */
+body:not(.is-pre-load) .nav                  { transition-delay: 0.05s; }
+body:not(.is-pre-load) .hero__eyebrow--left  { transition-delay: 0.20s; }
+body:not(.is-pre-load) .hero__eyebrow--right { transition-delay: 0.25s; }
+body:not(.is-pre-load) .hero__title-word     { transition-delay: 0.35s; }
+body:not(.is-pre-load) .hero__title-italic   { transition-delay: 0.45s; }
+body:not(.is-pre-load) .hero__status         { transition-delay: 0.55s; }
+body:not(.is-pre-load) .hero__tagline        { transition-delay: 0.65s; }
+body:not(.is-pre-load) .hero__card--next     { transition-delay: 0.75s; }
+body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.is-pre-load) .nav,
+  body:not(.is-pre-load) .hero__eyebrow,
+  body:not(.is-pre-load) .hero__title-word,
+  body:not(.is-pre-load) .hero__title-italic,
+  body:not(.is-pre-load) .hero__tagline,
+  body:not(.is-pre-load) .hero__status,
+  body:not(.is-pre-load) .hero__card {
+    transition-duration: 0.001s;
+    transition-delay: 0s;
+  }
+}
+
+/* =========================================================
    NAV
    ========================================================= */
 .nav {
@@ -249,7 +331,6 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
                                      plays from HOLD_FRAME → TIMELINE_MAX.
                                      Skills section appears the instant the
                                      animation finishes. */
-  z-index: 1;
 }
 .hero-stage__pin {
   position: sticky;
@@ -287,9 +368,9 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   max-height: 100svh;
   z-index: 2;
   display: block;
-  /* No CSS filter on the canvas — drop-shadow on a transforming
-     large element forces per-frame recompositing of the shadow
-     buffer. Use the existing topo/aurora ambience for depth. */
+  /* No CSS filters on the canvas — the character stays sharp at
+     all times. Sub-frame interpolation inside renderFrame already
+     smooths the pose transitions without softening pixels. */
 }
 
 /* Soft glow trailing behind the character. Anchored to the
@@ -765,6 +846,176 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 }
 
 /* =========================================================
+   PROJECTS — INFINITE GALLERY HALL
+   Three.js 3D wall of "paintings" (project cards). The outer
+   section provides vertical scroll runway; the inner pin is
+   sticky 100vh and hosts the canvas + UI overlay. ScrollTrigger
+   converts that vertical scroll into the horizontal camera
+   target inside the Three.js scene.
+   ========================================================= */
+.hall {
+  position: relative;
+  /* Scroll runway for the gallery. The inner __pin is sticky for
+     (height - 100vh); over that range the camera glides through all
+     projects (quantized to the nearest one), then the section
+     releases. Page scroll is always free — it can never trap you.
+     ~50vh of scroll per project transition. */
+  height: 250vh;
+  background: #F4F1EA;
+  color: var(--ink);
+}
+.hall__pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  width: 100%;
+  overflow: hidden;
+}
+.hall__canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.hall__canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Top-left logo + bottom-left scroll hint (chrome) */
+.hall__chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.hall__logo {
+  position: absolute;
+  top: clamp(20px, 3vw, 40px);
+  left: clamp(20px, 3vw, 50px);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.85;
+}
+.hall__hint {
+  position: absolute;
+  bottom: clamp(20px, 3vw, 40px);
+  left: clamp(20px, 3vw, 50px);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.45);
+}
+.hall__hint span::before {
+  content: "↓  ";
+  display: inline-block;
+  margin-right: 4px;
+  transform: translateY(1px);
+}
+
+/* UI overlay — only one slide is `.is-active` at a time */
+.hall__ui {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.hall-slide {
+  position: absolute;
+  top: 22%;
+  left: clamp(20px, 6vw, 90px);
+  width: min(420px, 32vw);
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.22,1,.36,1);
+  pointer-events: auto;
+}
+.hall-slide.is-active {
+  opacity: 1;
+  transform: translateY(0);
+}
+.hall-slide__num {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.45);
+  border-bottom: 1px solid rgba(0,0,0,0.15);
+  padding-bottom: 6px;
+  margin-bottom: 24px;
+}
+.hall-slide__title {
+  font-family: var(--f-serif, "Instrument Serif", serif);
+  font-weight: 400;
+  font-size: clamp(40px, 4.4vw, 64px);
+  line-height: 0.98;
+  letter-spacing: -0.01em;
+  margin: 0 0 22px;
+  color: var(--ink);
+}
+.hall-slide__title i {
+  font-style: italic;
+  color: var(--ink-mute, #555);
+}
+.hall-slide__desc {
+  font-family: var(--f-sans);
+  font-weight: 300;
+  font-size: clamp(13px, 0.95vw, 15px);
+  line-height: 1.75;
+  color: rgba(0,0,0,0.62);
+  margin: 0 0 36px;
+}
+.hall-slide__meta {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  row-gap: 10px;
+  column-gap: 14px;
+  border-top: 1px solid rgba(0,0,0,0.12);
+  padding-top: 18px;
+}
+.hall-slide__meta-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.45);
+  align-self: center;
+}
+.hall-slide__meta-value {
+  font-family: var(--f-serif, "Instrument Serif", serif);
+  font-style: italic;
+  font-size: clamp(14px, 1vw, 17px);
+  color: var(--ink);
+}
+
+@media (max-width: 768px) {
+  .hall { height: 250vh; }
+  .hall-slide {
+    top: auto;
+    bottom: 18%;
+    left: 18px;
+    right: 18px;
+    width: auto;
+    max-width: none;
+  }
+  .hall-slide__title { font-size: clamp(34px, 9vw, 48px); }
+  .hall__logo, .hall__hint { font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hall-slide {
+    transition: opacity 0.2s linear;
+    transform: none;
+  }
+}
+
+/* =========================================================
    SEAM (inter-section divider)
    ========================================================= */
 .seam {
@@ -894,7 +1145,6 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 .warp {
   position: relative;
   height: 600vh;          /* one-pass runway through all categories */
-  z-index: 1;
   color: var(--cream);
 }
 .warp__pin {
@@ -972,18 +1222,14 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 .warp-heading {
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(120px, 22vw, 360px);
-  color: rgba(216, 255, 56, 0.06);
-  -webkit-text-stroke: 2.5px rgba(242, 238, 229, 0.65);
+  font-size: clamp(96px, 16vw, 240px);
+  color: rgba(242, 238, 229, 0.92);
   text-transform: uppercase;
   white-space: nowrap;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
   line-height: 0.82;
-  filter:
-    drop-shadow(0 0 24px rgba(216, 255, 56, 0.18))
-    drop-shadow(0 0 4px rgba(216, 255, 56, 0.25));
 }
 
 /* Skill card */

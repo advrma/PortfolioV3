@@ -12,7 +12,10 @@
   // Source has 300 frames. We sample every Nth to keep total
   // payload reasonable while still feeling silky on scroll.
   const TOTAL_SOURCE_FRAMES = 300;
-  const STEP = 3;                  // every Nth source frame
+  const STEP = 1;                  // every source frame — needed so adjacent
+                                   // rAF ticks paint *different* poses, which
+                                   // is what the canvas-accumulation motion
+                                   // blur relies on for a visible smear.
   const PAD = 4;                   // filename zero-padding
   const PREFIX = 'CYBERFICTION-IMAGES/male';
   const EXT = '.png';
@@ -99,7 +102,7 @@
   async function preloadAll() {
     // Critical first — paint hero immediately when frame 0 is in.
     await loadImage(0);
-    renderFrame(0);
+    renderFrame(0, false);
 
     await loadImage(FRAME_COUNT - 1);
 
@@ -143,8 +146,17 @@
     const cw = canvas.width;
     const ch = canvas.height;
     ctx.clearRect(0, 0, cw, ch);
-    if (!img) return;
+    drawSingleFrame(ctx, canvas, img, xCrop);
+  }
 
+  /* Draw a single character image into the canvas without
+     clearing — used by renderFrame's cross-fade so we can
+     composite two adjacent source frames at fractional alpha
+     to produce sub-frame motion blur. */
+  function drawSingleFrame(ctx, canvas, img, xCrop) {
+    if (!img) return;
+    const cw = canvas.width;
+    const ch = canvas.height;
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
     if (!iw || !ih) return;
@@ -194,20 +206,22 @@
     return images[0] || null;
   }
 
-  /* Draw a single frame into the canvas with contain-fit so the
-     entire character (head, shoulders, torso, bottom edge) is
-     always visible. xCrop = 0.6 means we only ignore the
-     outer 20% of the source on each side (the transparent
-     gutters that have NO character pixels on any frame), which
-     keeps the character from looking tiny while guaranteeing
-     no part of the character — including swaying hair on
-     mid-animation frames — is ever clipped. */
-  function renderFrame(idx) {
-    const i = idx | 0;
+  /* Draw the character sharply — one source frame at full alpha
+     per tick. No blending, no fading, no flicker.
+     The high source-frame density (STEP = 1 → 300 frames) gives
+     ~16 fps source playback at BASE_RATE = 0.25, which already
+     looks smooth without any cross-fade trickery that would
+     soften the character.
+     xCrop = 0.6 ignores transparent gutters in the source PNGs. */
+  function renderFrame(idx, _advancing) {
+    const max = FRAME_COUNT - 1;
+    let i = Math.round(+idx || 0);
+    if (i < 0) i = 0;
+    else if (i > max) i = max;
     if (i === lastDrawnFrame) return;
+    lastDrawnFrame = i;
     const img = images[i] || nearestLoaded(i);
     drawImageContain(cinemaCtx, cinemaCanvas, img, 0.6);
-    lastDrawnFrame = i;
   }
 
   /* HUD/captions read from the character-animation progress
@@ -351,7 +365,7 @@
        brings the title/cards back into view.
      • Forward scroll during INTRO_DELAY skips the wait. */
   const TIMELINE_MAX   = TOTAL_VIRTUAL_FRAMES;   // 270
-  const HOLD_FRAME     = 80;        // intro endpoint, hold point
+  const HOLD_FRAME     = 73;        // intro endpoint, hold point
   const UI_EXIT_FRAMES = 40;        // animFrame 80→120: UI translates + fades out
   const INTRO_DELAY_MS = 0;         // start immediately when the hero page loads
   const BASE_RATE      = 0.25;      // virtual frames/tick ≈ 5.5 source-fps — super slow cinematic crawl
@@ -366,6 +380,7 @@
   // delta (update lastScrollProgress only) rather than treat it
   // as user input that could flip the play direction.
   let isAutoScrolling = false;
+
 
   /* Recomputed only on init + resize. */
   function refreshHeroLayout() {
@@ -426,13 +441,10 @@
     }
 
     // --- Auto-scroll the page in sync with animFrame ---
-    // Once MAIN is active, the page scrollY tracks animFrame
-    // linearly across the pin runway. This way the user "scrolls
-    // through" the hero at the animation's pace and the skills
-    // section appears the instant animFrame hits TIMELINE_MAX.
-    // Active only while shouldAdvance — at the rails the auto-
-    // scroll relaxes so the user can scroll past the pin into
-    // skills (forward) or up out of the hero (reverse).
+    // Once MAIN is active, scrollY tracks animFrame linearly
+    // across the pin runway, so the page progresses through
+    // the hero at the same cadence as the animation and the
+    // skills section appears exactly as the reel ends.
     if (shouldAdvance && motion.hasScrolled && motion.pinRunway > 0) {
       const mainProgress =
         (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME);
@@ -470,7 +482,7 @@
     cinemaCanvas.style.transform =
       'translate3d(calc(-50% + ' + finalX.toFixed(2) + 'px), ' +
       motion.cursorRenderedY.toFixed(2) + 'px, 0)';
-    renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
+    renderFrame(animP * (FRAME_COUNT - 1), shouldAdvance);
     renderCinemaUI(animP);
 
     // --- Suspend when nothing should advance AND cursor settled ---
@@ -516,7 +528,8 @@
       cinemaCanvas.style.transform =
         'translate3d(calc(-50% + ' + fx.toFixed(2) + 'px), ' +
         motion.cursorRenderedY.toFixed(2) + 'px, 0)';
-      renderFrame(Math.round(animP * (FRAME_COUNT - 1)));
+      // Reduced-motion path: no accumulation — clean single-frame paint.
+      renderFrame(animP * (FRAME_COUNT - 1), false);
       renderCinemaUI(animP);
       return;
     }
@@ -600,15 +613,8 @@
         kickMotion();
       };
       window.addEventListener('scroll', fallback, { passive: true });
-      motion.startTime = (typeof performance !== 'undefined' && performance.now)
-        ? performance.now() : Date.now();
-      fallback();   // initial paint at frame 0 (loop suspends in INTRO_DELAY)
-      setTimeout(() => {
-        if (!motion.introDelayElapsed) {
-          motion.introDelayElapsed = true;
-          kickMotion();
-        }
-      }, INTRO_DELAY_MS);
+      // The hero reel's kick happens in startHeroReel(), which
+      // is invoked once the intro loader finishes.
       return;
     }
 
@@ -685,10 +691,17 @@
       });
     }
 
-    // Initial paint at frame 0 (kickMotion runs one tick of
-    // motionTick which renders + suspends because the intro
-    // delay has not yet elapsed). Then schedule the wake-up
-    // for the autoplay start.
+    // The hero reel's kick happens in startHeroReel(), which is
+    // invoked once the intro loader finishes its timeline.
+  }
+
+  /* -------------------------------------------------------
+     startHeroReel — gated kickoff for the cinema reel.
+     Called once the intro loader has finished its animation
+     (or immediately if the loader can't run). Paints the
+     initial frame and schedules the INTRO_DELAY wake-up.
+     ------------------------------------------------------- */
+  function startHeroReel() {
     motion.startTime = (typeof performance !== 'undefined' && performance.now)
       ? performance.now() : Date.now();
     kickMotion();
@@ -697,9 +710,127 @@
         motion.introDelayElapsed = true;
         kickMotion();   // wake the loop to begin INTRO autoplay
       }
-      // If a forward scroll already happened during the delay,
-      // introDelayElapsed was set there and this no-ops.
     }, INTRO_DELAY_MS);
+  }
+
+  /* -------------------------------------------------------
+     initIntroLoader — willem-style GSAP timeline.
+     Sequence:
+       1. ADI / TYA letters slide up
+       2. Box opens; growing image inside fills the box
+       3. Heading halves shift slightly to mark the opening
+       4. Three character-pose covers flicker out in stagger
+       5. Image expands to full viewport (ink-dark backdrop)
+       6. Box widens to 110vw to keep things visually flush
+       7. White bottom mark + top nav text slide up
+       8. Brief hold, then GSAP fades the loader and calls finish.
+     Falls back to a safety timer if GSAP isn't available.
+     ------------------------------------------------------- */
+  function initIntroLoader() {
+    const loader = document.getElementById('introLoader');
+    if (!loader) {
+      startHeroReel();
+      return;
+    }
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    let done = false;
+    function finishLoader() {
+      if (done) return;
+      done = true;
+      loader.classList.add('is--gone');
+      document.body.classList.remove('is-pre-load');
+      document.body.style.overflow = prevOverflow;
+      startHeroReel();
+    }
+
+    // Absolute safety — never let the user get stuck on the loader.
+    const safety = setTimeout(finishLoader, 9000);
+
+    if (typeof gsap === 'undefined') {
+      // No GSAP → snap finish. The safety timer above also handles
+      // it, but call sooner so the user doesn't wait 9 s.
+      clearTimeout(safety);
+      setTimeout(finishLoader, 400);
+      return;
+    }
+
+    try {
+      const letters     = loader.querySelectorAll('.intro-loader__letter');
+      const box         = loader.querySelectorAll('.intro-loader__box');
+      const growing     = loader.querySelectorAll('.intro-loader__growing');
+      const headStart   = loader.querySelectorAll('.intro-loader__h1-start');
+      const headEnd     = loader.querySelectorAll('.intro-loader__h1-end');
+      const covers      = loader.querySelectorAll('.intro-loader__cover');
+      const whiteMark   = loader.querySelectorAll('.intro-loader__letter-white');
+      const navLinks    = loader.querySelectorAll('.intro-loader__navlink, .intro-loader__credits');
+
+      // Lock initial states explicitly so paint-timing doesn't
+      // matter (matches the `from` values in the willem reference).
+      if (letters.length)   gsap.set(letters,   { yPercent: 100 });
+      if (whiteMark.length) gsap.set(whiteMark, { yPercent: 100 });
+      if (navLinks.length)  gsap.set(navLinks,  { yPercent: 100 });
+
+      const tl = gsap.timeline({
+        defaults: { ease: 'expo.inOut' },
+        onComplete: () => {
+          clearTimeout(safety);
+          // GSAP-driven fade so the timing is in our hands.
+          gsap.to(loader, {
+            opacity: 0,
+            duration: 0.6,
+            ease: 'power2.out',
+            onComplete: finishLoader
+          });
+        }
+      });
+
+      // 1. ADI / TYA letters slide up
+      tl.to(letters, { yPercent: 0, stagger: 0.025, duration: 1.0 });
+
+      // 2. Box opens between them; growing image fills it
+      tl.fromTo(box,
+        { width: '0em' },
+        { width: '1em', duration: 1.0 },
+        '< 1.0');
+      tl.fromTo(growing,
+        { width: '0%' },
+        { width: '100%', duration: 1.0 },
+        '<');
+
+      // 3. Heading halves shift outward subtly
+      tl.fromTo(headStart, { x: '0em' }, { x: '-0.05em', duration: 1.0 }, '<');
+      tl.fromTo(headEnd,   { x: '0em' }, { x:  '0.05em', duration: 1.0 }, '<');
+
+      // 4. Cover layers flicker out (each visible briefly)
+      tl.to(covers, {
+        opacity: 0, duration: 0.05, ease: 'none', stagger: 0.4
+      }, '>-=0.05');
+
+      // 5. Growing image expands to full viewport
+      tl.to(growing, {
+        width: '100vw', height: '100vh', duration: 1.6
+      }, '>-=0.1');
+      tl.to(box, { width: '110vw', duration: 1.6 }, '<');
+
+      // 6. White ADITYA mark slides up + nav text slides up
+      tl.to(whiteMark, {
+        yPercent: 0, duration: 1.0, ease: 'expo.out', stagger: 0.035
+      }, '<+=0.7');
+      tl.to(navLinks, {
+        yPercent: 0, duration: 1.0, ease: 'expo.out', stagger: 0.08
+      }, '<');
+
+      // 7. Brief hold on the composed final shot before fade-out
+      tl.to({}, { duration: 0.7 });
+    } catch (err) {
+      clearTimeout(safety);
+      setTimeout(finishLoader, 500);
+      // eslint-disable-next-line no-console
+      console.error('[intro-loader] timeline failed:', err);
+    }
   }
 
   /* -------------------------------------------------------
@@ -718,7 +849,7 @@
       if (typeof ScrollTrigger !== 'undefined') {
         ScrollTrigger.refresh();
       } else {
-        renderFrame(Math.round(frameState.idx));
+        renderFrame(frameState.idx, false);
       }
     }, 120);
   }
@@ -1110,12 +1241,15 @@
         const vizZ = item.baseZ + state.cameraZ;
 
         // Opacity envelope: fade in from far, hold, fade out when past camera.
+        // The past-camera fade-out range is wide (1600 units) so several
+        // recent items remain partially visible behind the current one —
+        // no more "single lonely card" frames at the end of the section.
         // Stars use full element opacity so their per-star baseAlpha
         // (set inline at creation) is what controls visible brightness.
         let alpha;
         if (vizZ < -3200)      alpha = 0;
         else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
-        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 380);
+        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
         else                   alpha = 1;
 
         if (alpha < 0) alpha = 0;
@@ -1148,9 +1282,237 @@
   }
 
   /* -------------------------------------------------------
+     PROJECTS — INFINITE GALLERY HALL
+     Three.js 3D wall of project "paintings". The .hall
+     section provides a 500vh vertical runway; .hall__pin
+     is sticky 100vh and holds a fullscreen canvas + UI
+     overlay. ScrollTrigger scrubs the user's vertical scroll
+     progress into the camera's horizontal target along the
+     gallery wall. The rAF render loop self-suspends when the
+     section is not in view.
+     ------------------------------------------------------- */
+  function initProjectsHall() {
+    if (typeof THREE === 'undefined') return;
+    const section    = document.getElementById('projects');
+    const canvasHost = document.getElementById('hallCanvas');
+    if (!section || !canvasHost) return;
+
+    const SLIDE_COUNT = 4;
+    const SPACING_X   = 45;     // 3D units between paintings
+    const P_WIDTH     = 14;
+    const P_HEIGHT    = 18;
+    const CAM_Z       = 30;
+    const WALL_ANGLE  = -0.25;  // wall recedes to the right
+    const BG_HEX      = 0xF4F1EA;
+
+    // Placeholder painting images — abstract / tech-feel covers
+    // for each project card. Swap with real shots later.
+    const IMAGES = [
+      'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80',
+      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80',
+      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80',
+      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=900&q=80'
+    ];
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(BG_HEX);
+    scene.fog = new THREE.Fog(BG_HEX, 14, 130);
+
+    const camera = new THREE.PerspectiveCamera(
+      45, canvasHost.clientWidth / canvasHost.clientHeight, 0.1, 1000
+    );
+    camera.position.set(0, 0, CAM_Z);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(canvasHost.clientWidth, canvasHost.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+    canvasHost.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.45);
+    dir.position.set(10, 20, 10);
+    scene.add(dir);
+
+    const galleryGroup = new THREE.Group();
+    galleryGroup.rotation.y = WALL_ANGLE;
+    galleryGroup.position.x = 8;
+    scene.add(galleryGroup);
+
+    const loader   = new THREE.TextureLoader();
+    const planeGeo = new THREE.PlaneGeometry(P_WIDTH, P_HEIGHT);
+    const lineMat  = new THREE.LineBasicMaterial({ color: 0xDED7C8 });
+    const outlineMat = new THREE.LineBasicMaterial({ color: 0x222222 });
+
+    const paintingGroups = [];
+    for (let i = 0; i < SLIDE_COUNT; i++) {
+      const g = new THREE.Group();
+      g.position.set(i * SPACING_X, 0, 0);
+
+      const mat  = new THREE.MeshBasicMaterial({ color: 0xe8e3d6 });
+      const mesh = new THREE.Mesh(planeGeo, mat);
+      loader.load(IMAGES[i] || IMAGES[0], (tex) => {
+        if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+        mat.map = tex;
+        mat.color.set(0xffffff);
+        mat.needsUpdate = true;
+      });
+
+      const outline = new THREE.LineSegments(
+        new THREE.EdgesGeometry(planeGeo), outlineMat
+      );
+
+      const shadowMat  = new THREE.MeshBasicMaterial({
+        color: 0x000000, transparent: true, opacity: 0.12
+      });
+      const shadow = new THREE.Mesh(planeGeo, shadowMat);
+      shadow.position.set(0.8, -0.8, -0.5);
+
+      // Top + bottom horizontal "wall lines" between adjacent paintings
+      const half = SPACING_X / 2;
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-half,  14, -1), new THREE.Vector3(half,  14, -1),
+        new THREE.Vector3(-half, -14, -1), new THREE.Vector3(half, -14, -1)
+      ]);
+      const lines = new THREE.LineSegments(lineGeo, lineMat);
+
+      g.add(shadow);
+      g.add(mesh);
+      g.add(outline);
+      g.add(lines);
+      galleryGroup.add(g);
+      paintingGroups.push(g);
+    }
+
+    let currentScroll = 0;
+    let targetScroll  = 0;
+    const mouse       = { x: 0, y: 0 };
+    let visible       = false;
+    let raf           = 0;
+
+    // Update which slide-content panel is active based on
+    // the camera's current horizontal position along the wall.
+    let lastActiveIdx = -1;
+    const slideEls = [];
+    for (let i = 0; i < SLIDE_COUNT; i++) {
+      slideEls.push(document.getElementById('hallSlide-' + i));
+    }
+    function updateUI(scrollX) {
+      const raw  = Math.round(scrollX / SPACING_X);
+      const idx  = ((raw % SLIDE_COUNT) + SLIDE_COUNT) % SLIDE_COUNT;
+      if (idx === lastActiveIdx) return;
+      lastActiveIdx = idx;
+      for (let i = 0; i < SLIDE_COUNT; i++) {
+        if (!slideEls[i]) continue;
+        slideEls[i].classList.toggle('is-active', i === idx);
+      }
+    }
+    // Activate first slide immediately so the panel is visible
+    // when the section first scrolls into view.
+    updateUI(0);
+
+    function render() {
+      raf = 0;
+      if (!visible) return;
+      // currentScroll mirrors targetScroll, which is driven by the
+      // gotoIndex() GSAP tween — that tween is the single source of
+      // eased motion, so a band crossing glides to the next project
+      // in one continuous motion (no per-frame LERP double-smoothing).
+      currentScroll = targetScroll;
+
+      const xMove = currentScroll * Math.cos(WALL_ANGLE);
+      const zMove = currentScroll * Math.sin(WALL_ANGLE);
+      camera.position.x = xMove;
+      camera.position.z = CAM_Z - zMove;
+
+      camera.rotation.x = mouse.y * 0.04;
+      camera.rotation.y = -mouse.x * 0.04;
+
+      updateUI(currentScroll);
+      renderer.render(scene, camera);
+    }
+    function kickRender() {
+      if (raf) return;
+      raf = requestAnimationFrame(render);
+    }
+
+    // Mouse parallax — subtle camera tilt
+    if (!(reduceMotionMQ && reduceMotionMQ.matches)) {
+      window.addEventListener('pointermove', (e) => {
+        if (e.pointerType === 'touch') return;
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        if (visible) kickRender();
+      }, { passive: true });
+    }
+
+    // Resize: re-fit renderer + camera aspect to the canvas host
+    function resize() {
+      const w = canvasHost.clientWidth;
+      const h = canvasHost.clientHeight;
+      if (!w || !h) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      kickRender();
+    }
+    window.addEventListener('resize', resize);
+
+    // Camera glide: animate the camera's horizontal position to a
+    // discrete project index in one continuous motion.
+    const camState = { scroll: 0 };
+    let activeIndex = 0;
+    let camTween = null;
+    function glideTo(i) {
+      if (i < 0) i = 0;
+      else if (i > SLIDE_COUNT - 1) i = SLIDE_COUNT - 1;
+      if (i === activeIndex) return;
+      activeIndex = i;
+      if (camTween) camTween.kill();
+      camTween = gsap.to(camState, {
+        scroll: i * SPACING_X,
+        duration: 0.7,
+        ease: 'power3.inOut',
+        onUpdate: () => { targetScroll = camState.scroll; kickRender(); }
+      });
+    }
+
+    // ----- Free-scroll discrete paging -----
+    // The page scroll is NEVER locked or hijacked, so the section can
+    // never trap you — you can always scroll up or down freely. As you
+    // scroll through the section, the scroll progress is quantized to
+    // the nearest project index and the camera glides there in one
+    // smooth motion. The section releases to the next section naturally.
+    if (typeof ScrollTrigger !== 'undefined') {
+      ScrollTrigger.create({
+        trigger: section,
+        start: 'top top',
+        end: 'bottom bottom',
+        invalidateOnRefresh: true,
+        onEnter:     () => { visible = true;  kickRender(); },
+        onEnterBack: () => { visible = true;  kickRender(); },
+        onLeave:     () => { visible = false; },
+        onLeaveBack: () => { visible = false; },
+        onUpdate: (self) => {
+          glideTo(Math.round(self.progress * (SLIDE_COUNT - 1)));
+        }
+      });
+    }
+  }
+
+  /* -------------------------------------------------------
      INIT
      ------------------------------------------------------- */
   function init() {
+    // Always start the experience from the top so the intro
+    // loader and hero reel run cleanly. Disable browser scroll
+    // restoration; force scrollY = 0 once before anything else
+    // measures layout.
+    if ('scrollRestoration' in history) {
+      try { history.scrollRestoration = 'manual'; } catch (e) {}
+    }
+    window.scrollTo(0, 0);
+
     // Initial canvas sizing right away so first frame fills.
     sizeCanvas(cinemaCanvas);
     refreshHeroLayout();        // cache scrollShift + pinRect once
@@ -1190,17 +1552,31 @@
 
     // Wire up GSAP ScrollTriggers BEFORE we start preloading so
     // the very first scroll already gets the smooth scrub.
+    // initScrollTriggers now ONLY registers handlers — the hero
+    // reel kick is deferred to startHeroReel(), invoked by the
+    // intro loader's onComplete.
     initScrollTriggers();
 
+    // Projects gallery LAST: its pinned ScrollTrigger sits at the
+    // bottom of the page, so creating it after the hero/skills
+    // triggers keeps refresh order top-to-bottom (per GSAP guidance).
+    initProjectsHall();
+
     // Paint frame 0 right away so the hero never looks empty.
-    renderFrame(0);
+    renderFrame(0, false);
+
+    // Play the first-paint reveal. When the loader timeline
+    // finishes, it calls startHeroReel() to wake the cinema
+    // reel. If GSAP / loader element are missing, the loader
+    // skips itself and startHeroReel() runs immediately.
+    initIntroLoader();
 
     // Preload frames in priority order. When the full set is in
     // memory, force a redraw and tell ScrollTrigger to recompute
     // start/end (in case image-driven layout shifted anything).
     preloadAll().then(() => {
       lastDrawnFrame = -1;
-      renderFrame(Math.round(frameState.idx));
+      renderFrame(frameState.idx, false);
       if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.refresh();
     });
 
