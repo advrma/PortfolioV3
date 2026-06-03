@@ -1121,6 +1121,49 @@
       });
     }
 
+    // Shared per-item paint pass. Called once now to set the correct
+    // INITIAL frame (cameraZ = 0) before the render loop runs, and
+    // again by render() each animation tick. Without this initial
+    // pass, the render loop's "nearlyStill" early-return on first
+    // paint left every item without an inline transform, so they all
+    // collapsed onto the world center via the CSS translate(-50%,-50%)
+    // and the last-appended card flashed on top before the first scroll.
+    function paintItems(cameraZ, velocity, t) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const vizZ = item.baseZ + cameraZ;
+
+        let alpha;
+        if (vizZ < -3200)      alpha = 0;
+        else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
+        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
+        else                   alpha = 1;
+        if (alpha < 0) alpha = 0;
+        item.el.style.opacity = alpha.toFixed(3);
+
+        // Always write the transform (not just when alpha > 0). On the
+        // initial paint, every item needs a real translate3d so it
+        // doesn't fall back to the CSS center.
+        let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
+        if (item.type === 'star') {
+          const stretch = Math.max(1, Math.min(1 + Math.abs(velocity) * 0.06, 8));
+          trans += ` scale3d(1, 1, ${stretch.toFixed(2)})`;
+        } else if (item.type === 'heading') {
+          trans += ` rotateZ(${item.rot}deg)`;
+        } else {
+          const floatY = Math.sin(t + item.x * 0.01) * 5;
+          trans += ` rotateZ(${item.rot}deg) rotateY(${floatY.toFixed(2)}deg)`;
+        }
+        item.el.style.transform = trans;
+      }
+    }
+
+    // Apply the correct first-frame state immediately (cameraZ=0, no
+    // velocity, no time-based float) so the section reads as the
+    // composed "LANGUAGES heading + cards behind" pose from the
+    // moment it scrolls into view — not a flash of the last card.
+    paintItems(0, 0, 0);
+
     // Local state — refs only
     const state = {
       cameraZ: 0,
@@ -1234,41 +1277,10 @@
           String(headingIndices.length).padStart(2, '0');
       }
 
-      // Item transforms — single pass through the world.
-      const t = time * 0.001;
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const vizZ = item.baseZ + state.cameraZ;
-
-        // Opacity envelope: fade in from far, hold, fade out when past camera.
-        // The past-camera fade-out range is wide (1600 units) so several
-        // recent items remain partially visible behind the current one —
-        // no more "single lonely card" frames at the end of the section.
-        // Stars use full element opacity so their per-star baseAlpha
-        // (set inline at creation) is what controls visible brightness.
-        let alpha;
-        if (vizZ < -3200)      alpha = 0;
-        else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
-        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
-        else                   alpha = 1;
-
-        if (alpha < 0) alpha = 0;
-        item.el.style.opacity = alpha.toFixed(3);
-
-        if (alpha > 0) {
-          let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
-          if (item.type === 'star') {
-            const stretch = Math.max(1, Math.min(1 + Math.abs(state.velocity) * 0.06, 8));
-            trans += ` scale3d(1, 1, ${stretch.toFixed(2)})`;
-          } else if (item.type === 'heading') {
-            trans += ` rotateZ(${item.rot}deg)`;
-          } else {
-            const floatY = Math.sin(t + item.x * 0.01) * 5;
-            trans += ` rotateZ(${item.rot}deg) rotateY(${floatY.toFixed(2)}deg)`;
-          }
-          item.el.style.transform = trans;
-        }
-      }
+      // Item transforms — shared with the initial-frame paint so the
+      // first scrolled-into-view state matches the composed pose
+      // exactly (no flash of a different card on top).
+      paintItems(state.cameraZ, state.velocity, time * 0.001);
 
       lastCameraZ = state.cameraZ;
       requestAnimationFrame(render);
@@ -1329,6 +1341,49 @@
     if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
     canvasHost.appendChild(renderer.domElement);
 
+    // Directional (horizontal) motion blur. A GPU-accelerated SVG
+    // gaussian-blur filter applied to the canvas, with its X stdDeviation
+    // driven by camera velocity each frame — so the wall smears
+    // horizontally while panning and snaps sharp when it settles. The
+    // filter is removed entirely when idle so it costs nothing at rest.
+    let blurFE = null;
+    let blurOn = false;
+    (function setupMotionBlur() {
+      const NS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('width', '0');
+      svg.setAttribute('height', '0');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none';
+      const filter = document.createElementNS(NS, 'filter');
+      filter.setAttribute('id', 'hallMotionBlur');
+      filter.setAttribute('x', '-25%');
+      filter.setAttribute('y', '-2%');
+      filter.setAttribute('width', '150%');
+      filter.setAttribute('height', '104%');
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      blurFE = document.createElementNS(NS, 'feGaussianBlur');
+      blurFE.setAttribute('in', 'SourceGraphic');
+      blurFE.setAttribute('stdDeviation', '0 0');
+      filter.appendChild(blurFE);
+      svg.appendChild(filter);
+      document.body.appendChild(svg);
+    })();
+    function updateMotionBlur(vel) {
+      if (!blurFE) return;
+      // Map camera velocity (world units/frame) → horizontal blur px.
+      const blur = Math.min(vel * 4.5, 18);
+      if (blur < 0.5) {
+        if (blurOn) { renderer.domElement.style.filter = 'none'; blurOn = false; }
+        return;
+      }
+      blurFE.setAttribute('stdDeviation', blur.toFixed(2) + ' 0');
+      if (!blurOn) {
+        renderer.domElement.style.filter = 'url(#hallMotionBlur)';
+        blurOn = true;
+      }
+    }
+
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dir = new THREE.DirectionalLight(0xffffff, 0.45);
     dir.position.set(10, 20, 10);
@@ -1386,6 +1441,8 @@
 
     let currentScroll = 0;
     let targetScroll  = 0;
+    let prevScroll    = 0;
+    let blurVel       = 0;
     const mouse       = { x: 0, y: 0 };
     let visible       = false;
     let raf           = 0;
@@ -1413,12 +1470,28 @@
 
     function render() {
       raf = 0;
-      if (!visible) return;
-      // currentScroll mirrors targetScroll, which is driven by the
-      // gotoIndex() GSAP tween — that tween is the single source of
-      // eased motion, so a band crossing glides to the next project
-      // in one continuous motion (no per-frame LERP double-smoothing).
+      if (!visible) {
+        // Section left view: let any residual motion blur decay out.
+        if (blurVel > 0.03) { blurVel *= 0.8; updateMotionBlur(blurVel); kickRender(); }
+        else updateMotionBlur(0);
+        return;
+      }
+      // DIRECT follow — the camera is tied 1:1 to scroll position
+      // (no eased lag). This is what guarantees you only leave the
+      // section at the first/last project: the project on screen
+      // always matches the scroll position, so reaching the section's
+      // scroll end *is* reaching the last project. No lag means the
+      // camera can never be mid-pan while the page slips to the next
+      // section (the bug where the last project got skipped).
       currentScroll = targetScroll;
+      const instVel = Math.abs(currentScroll - prevScroll);
+      prevScroll = currentScroll;
+
+      // Motion blur: snap up to the current velocity, then decay so
+      // the horizontal smear trails off smoothly after scrolling stops
+      // (and the wall resolves crisp on the project you land on).
+      blurVel = Math.max(blurVel * 0.8, instVel);
+      updateMotionBlur(blurVel);
 
       const xMove = currentScroll * Math.cos(WALL_ANGLE);
       const zMove = currentScroll * Math.sin(WALL_ANGLE);
@@ -1430,6 +1503,10 @@
 
       updateUI(currentScroll);
       renderer.render(scene, camera);
+
+      // Keep ticking while the blur is still decaying so it clears
+      // cleanly after the scroll stops.
+      if (blurVel > 0.03) kickRender();
     }
     function kickRender() {
       if (raf) return;
@@ -1458,31 +1535,29 @@
     }
     window.addEventListener('resize', resize);
 
-    // Camera glide: animate the camera's horizontal position to a
-    // discrete project index in one continuous motion.
-    const camState = { scroll: 0 };
-    let activeIndex = 0;
-    let camTween = null;
-    function glideTo(i) {
-      if (i < 0) i = 0;
-      else if (i > SLIDE_COUNT - 1) i = SLIDE_COUNT - 1;
-      if (i === activeIndex) return;
-      activeIndex = i;
-      if (camTween) camTween.kill();
-      camTween = gsap.to(camState, {
-        scroll: i * SPACING_X,
-        duration: 0.7,
-        ease: 'power3.inOut',
-        onUpdate: () => { targetScroll = camState.scroll; kickRender(); }
-      });
+    // ----- Free-scroll camera pan with per-project hold zones -----
+    // The page scroll is NEVER locked or hijacked, so the section can
+    // never trap you. The camera is tied DIRECTLY to scroll progress
+    // (no glide tween that could lag behind a fast scroll), so the
+    // project on screen always matches the scroll position — including
+    // the LAST project, which is reached and held before the section
+    // releases. An eased piecewise mapping gives each project a clear
+    // "dwell" zone with smooth pans in between, so every project is
+    // shown cleanly before the page moves on.
+    const SPAN = SLIDE_COUNT - 1;
+    function progressToScroll(progress) {
+      const raw = Math.max(0, Math.min(SPAN, progress * SPAN));
+      const idx = Math.min(SPAN - 1, Math.floor(raw));
+      const frac = raw - idx;
+      // Light hold on each project for the first/last 15% of a segment,
+      // smooth eased pan through the middle 70%. Keeps the motion
+      // mostly continuous/buttery while still settling on each project.
+      let t = (frac - 0.15) / 0.70;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const eased = t * t * (3 - 2 * t);   // smoothstep
+      return Math.min(idx + eased, SPAN) * SPACING_X;
     }
 
-    // ----- Free-scroll discrete paging -----
-    // The page scroll is NEVER locked or hijacked, so the section can
-    // never trap you — you can always scroll up or down freely. As you
-    // scroll through the section, the scroll progress is quantized to
-    // the nearest project index and the camera glides there in one
-    // smooth motion. The section releases to the next section naturally.
     if (typeof ScrollTrigger !== 'undefined') {
       ScrollTrigger.create({
         trigger: section,
@@ -1494,7 +1569,8 @@
         onLeave:     () => { visible = false; },
         onLeaveBack: () => { visible = false; },
         onUpdate: (self) => {
-          glideTo(Math.round(self.progress * (SLIDE_COUNT - 1)));
+          targetScroll = progressToScroll(self.progress);
+          kickRender();
         }
       });
     }
