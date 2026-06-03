@@ -329,8 +329,14 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
                                      with animFrame, so this runway is
                                      consumed exactly as the animation
                                      plays from HOLD_FRAME → TIMELINE_MAX.
-                                     Skills section appears the instant the
-                                     animation finishes. */
+                                     Skills section sits BEHIND the hero
+                                     during the last 100vh of this range
+                                     (see .warp margin-top), and the hero
+                                     pin slides up off-screen naturally
+                                     via sticky un-stick — revealing the
+                                     skills layer underneath. */
+  z-index: 3;                     /* foreground reveal layer — above
+                                     .warp (z-1) and .hall (z-2). */
 }
 .hero-stage__pin {
   position: sticky;
@@ -339,6 +345,17 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   height: 100svh;
   width: 100%;
   overflow: hidden;
+  /* Self-contained foreground layer: cream BG belongs INSIDE the
+     pin so the light hero background, the character canvas, and the
+     hero UI all move as one piece during the slide-up reveal. Without
+     this, the pin would be transparent and the warp section behind
+     (z-index 1, sticky during the overlap) would show through the
+     character canvas's transparent pixels — the bug where the dark
+     "LANGUAGES" heading bled through the character. The cream here
+     stays locked to the pin: when the pin un-sticks and slides up,
+     the cream slides up with it, exposing the skills layer only
+     where the pin no longer covers. */
+  background: var(--cream);
 }
 
 /* Canvas — bottom-anchored. Aspect ratio matches a generous
@@ -856,12 +873,23 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
 .hall {
   position: relative;
   /* Scroll runway for the gallery. The inner __pin is sticky for
-     (height - 100vh); over that range the camera pans through all
-     projects, tied 1:1 to scroll position so the last project is
-     always reached before the section releases. Page scroll is always
-     free — it can never trap you. Longer = slower, more deliberate. */
-  height: 380vh;
-  background: #F4F1EA;
+     (height - 100vh); the first 100vh of that range is the slide-up
+     transition (the pin translates from translateY(100vh) → 0 over
+     the still-pinned skills behind it), and the remaining 280vh is
+     the camera pan through all projects.
+
+     margin-top: -200vh overlaps the last 200vh of the (extended)
+     skills section so the hall's sticky pin engages BEFORE the warp
+     pin unsticks — that lets the gallery slide UP over the visible
+     warp instead of jumping in below it. z-index 2 puts hall in front
+     of warp (z-index 1) during the overlap.
+
+     Background lives on .hall__pin (not here) so the warp behind is
+     visible through the section's transparent area as the pin slides
+     up from below the viewport. */
+  height: 480vh;
+  margin-top: -200vh;
+  z-index: 2;
   color: var(--ink);
 }
 .hall__pin {
@@ -871,6 +899,11 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   height: 100svh;
   width: 100%;
   overflow: hidden;
+  /* Cream BG lives on the pin (the actual slid-up front layer), not
+     on the parent .hall — so during the slide-up transition the warp
+     behind is visible through the section, and only the pin itself
+     covers the warp as it translates into place. */
+  background: #F4F1EA;
 }
 .hall__canvas {
   position: absolute;
@@ -995,7 +1028,7 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
 }
 
 @media (max-width: 768px) {
-  .hall { height: 380vh; }
+  .hall { height: 480vh; }
   .hall-slide {
     top: auto;
     bottom: 18%;
@@ -1144,8 +1177,20 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
    ========================================================= */
 .warp {
   position: relative;
-  height: 600vh;          /* one-pass runway through all categories */
+  /* Layout: 100vh sits behind the hero (reveal zone), 500vh of camera
+     scrub runway, 100vh of "hold" while the gallery slides up over us,
+     100vh of post-scrub buffer before pin un-sticks. The JS pins the
+     camera scrub to its original 500vh window (starting 100vh into the
+     section) so the flythrough timing never changes. The extra heights
+     keep the pin sticky behind the hero during the reveal AND behind
+     the gallery during its slide-up.
+     margin-top: -100vh overlaps the last 100vh of the hero so the warp
+     pin engages BEFORE the hero pin unsticks — the hero slides up off
+     and the warp scene is already in place behind it. */
+  height: 800vh;
+  margin-top: -100vh;
   color: var(--cream);
+  z-index: 1;          /* back layer — hero (z-3) and gallery (z-2) overlay us */
 }
 .warp__pin {
   position: sticky;

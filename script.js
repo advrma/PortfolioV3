@@ -1183,25 +1183,63 @@
     // user stops. Camera travels CAMERA_END (multiple loops)
     // so items keep cycling past forever via the modulo wrap.
     if (typeof ScrollTrigger !== 'undefined' && !reduceMotion) {
+      // Camera flythrough scrub: skip the first 100vh of the section
+      // (that 100vh is the hero→skills reveal zone, where the warp pin
+      // sits behind the un-sticking hero). The scrub still runs over
+      // exactly 500vh, so the camera timing is identical to before.
       gsap.to(state, {
         cameraZ: CAMERA_END,
         ease: 'none',
         scrollTrigger: {
           trigger: section,
-          start: 'top top',
-          end: 'bottom bottom',
+          start: () => 'top+=' + window.innerHeight + ' top',
+          end:   () => '+=' + (window.innerHeight * 5),
           scrub: 1.6,
           invalidateOnRefresh: true,
           onUpdate: (self) => {
             state.targetVel = self.getVelocity();
             startRender();
-          },
-          onEnter:     () => { state.visible = true;  startRender(); },
-          onEnterBack: () => { state.visible = true;  startRender(); },
-          onLeave:     () => { state.visible = false; },
-          onLeaveBack: () => { state.visible = false; }
+          }
         }
       });
+
+      // Visibility trigger covers the FULL section so the warp scene
+      // is already rendering (initial paint) while the hero is still
+      // sliding up over it, and stays rendering through the gallery's
+      // slide-up that happens behind the warp's last 100vh of sticky.
+      ScrollTrigger.create({
+        trigger: section,
+        start: 'top top',
+        end:   'bottom bottom',
+        invalidateOnRefresh: true,
+        onEnter:     () => { state.visible = true;  startRender(); },
+        onEnterBack: () => { state.visible = true;  startRender(); },
+        onLeave:     () => { state.visible = false; },
+        onLeaveBack: () => { state.visible = false; }
+      });
+
+      // Subtle parallax depth on the warp pin during the hero reveal:
+      // translateY 8vh → 0 over the first 100vh of the section. Combined
+      // with the hero sliding up in front, the skills layer feels like
+      // it was already there and is "settling into place" as it's
+      // exposed.
+      const warpPin = section.querySelector('.warp__pin');
+      if (warpPin) {
+        gsap.fromTo(warpPin,
+          { y: () => window.innerHeight * 0.08 },
+          {
+            y: 0,
+            ease: 'none',
+            scrollTrigger: {
+              trigger: section,
+              start: 'top top',
+              end: () => 'top+=' + window.innerHeight + ' top',
+              scrub: true,
+              invalidateOnRefresh: true
+            }
+          }
+        );
+      }
     } else {
       // Fallback: position items at static spiral, no camera motion.
       state.visible = false;
@@ -1559,6 +1597,43 @@
     }
 
     if (typeof ScrollTrigger !== 'undefined') {
+      // Slide-up transition: as the user scrolls into the section, the
+      // pin (the actual cream front layer with the canvas + UI) starts
+      // 100vh below the viewport and translates up to 0 over the first
+      // 100vh of scroll — sliding over the still-pinned skills section
+      // behind it. We animate .hall__pin specifically (not .hall) so
+      // the trigger element's rect stays at its layout position and
+      // the camera-pan ScrollTrigger below calculates start/end
+      // correctly.
+      const hallPin = section.querySelector('.hall__pin');
+      const reduceMotion = reduceMotionMQ && reduceMotionMQ.matches;
+      if (hallPin && !reduceMotion) {
+        gsap.fromTo(hallPin,
+          { y: () => window.innerHeight },
+          {
+            y: 0,
+            ease: 'none',
+            scrollTrigger: {
+              trigger: section,
+              start: 'top top',
+              end: () => 'top+=' + window.innerHeight + ' top',
+              scrub: true,
+              invalidateOnRefresh: true
+            }
+          }
+        );
+      }
+
+      // Camera scroll trigger. The trigger range covers BOTH the slide-up
+      // transition (first 100vh) AND the camera pan (the remaining ~280vh).
+      // We keep onEnter firing at 'top top' so `visible` flips true the
+      // moment the pin starts sliding into view (so the canvas is being
+      // rendered as it appears, not after). The camera target uses an
+      // ADJUSTED progress that holds at 0 until the slide-up completes,
+      // then pans through projects over the remaining runway — so the
+      // first project is in view the whole time the gallery is rising,
+      // and the camera only starts panning once the section has fully
+      // covered the viewport.
       ScrollTrigger.create({
         trigger: section,
         start: 'top top',
@@ -1569,7 +1644,13 @@
         onLeave:     () => { visible = false; },
         onLeaveBack: () => { visible = false; },
         onUpdate: (self) => {
-          targetScroll = progressToScroll(self.progress);
+          const total = self.end - self.start;
+          const skip  = window.innerHeight;          // transition zone (100vh)
+          const frac  = total > 0 ? skip / total : 0;
+          const adj   = frac >= 1
+                          ? 0
+                          : Math.max(0, (self.progress - frac) / (1 - frac));
+          targetScroll = progressToScroll(adj);
           kickRender();
         }
       });
