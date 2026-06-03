@@ -1240,6 +1240,71 @@
           }
         );
       }
+
+      // 3D lift on the hero pin during its slide-up. As the pin un-sticks
+      // and scrolls naturally up off-screen (sticky CSS, no JS Y-translate),
+      // we also scrub a subtle rotateX + scale on it — so it reads as a
+      // physical foreground PANEL receding in 3D space rather than a flat
+      // page sliding. Combined with `perspective: 1500px` on .hero-stage
+      // and `transform-origin: 50% 0%` on the pin, the pivot is the top
+      // edge: the bottom of the panel is what tilts back as it lifts.
+      // The pin's existing box-shadow gives a soft ambient drop onto the
+      // skills layer behind, completing the depth read.
+      const heroPin = heroSection ? heroSection.querySelector('.hero-stage__pin') : null;
+      if (heroPin) {
+        gsap.fromTo(heroPin,
+          { rotateX: 0, scale: 1 },
+          {
+            // Negative rotateX with origin: 50% 0% (top center) tilts the
+            // BOTTOM edge backward (away from viewer in +Z) — the panel
+            // looks like it's lifting away. ~7° + 1.5% scale-down is the
+            // subtle, premium range (the user explicitly asked for not
+            // exaggerated). Positive rotateX would do the opposite
+            // (bottom forward), which would feel like the panel is
+            // falling toward the viewer.
+            rotateX: -7,
+            scale: 0.985,
+            ease: 'none',
+            scrollTrigger: {
+              trigger: heroSection,
+              start: 'bottom bottom',   // scrollY = hero.bottom - viewportH (= 120vh: pin just un-sticks)
+              end:   'bottom top',      // scrollY = hero.bottom (= 220vh: pin fully off-screen)
+              scrub: true,
+              invalidateOnRefresh: true
+            }
+          }
+        );
+      }
+
+      // Cinematic blur reveal on the SKILLS back layer. While the hero
+      // foreground covers the skills, the warp scene sits in soft focus;
+      // as the hero slides up and exposes more of the back layer, the
+      // blur scrubs to 0 so the skills resolve crisp by the time the
+      // hero is fully gone. Filter lives on .warp__pin (the visible
+      // scene), so the foreground hero (character / CTA / cream BG)
+      // is never blurred. Tied to the exact same hero slide-up range
+      // as the 3D lift above.
+      gsap.fromTo(warpPin,
+        { filter: 'blur(10px)' },
+        {
+          filter: 'blur(0px)',
+          ease: 'none',
+          scrollTrigger: {
+            trigger: heroSection,
+            start: 'bottom bottom',     // scrollY ≈ 120vh — hero pin starts un-sticking
+            end:   'bottom top',        // scrollY ≈ 220vh — hero pin fully off-screen
+            scrub: true,
+            invalidateOnRefresh: true,
+            // Clear the filter entirely once the reveal completes so
+            // the warp scene doesn't carry an unnecessary `blur(0)`
+            // compositor pass through the rest of its 500vh runway.
+            // Restored on scroll-back via onLeaveBack so re-entering
+            // the reveal from below starts soft-focus again.
+            onLeave:     () => { warpPin.style.filter = ''; },
+            onLeaveBack: () => { warpPin.style.filter = 'blur(10px)'; }
+          }
+        }
+      );
     } else {
       // Fallback: position items at static spiral, no camera motion.
       state.visible = false;
@@ -1608,10 +1673,21 @@
       const hallPin = section.querySelector('.hall__pin');
       const reduceMotion = reduceMotionMQ && reduceMotionMQ.matches;
       if (hallPin && !reduceMotion) {
+        // 3D slide-up: the gallery pin rises from one viewport below
+        // (translateY: 100vh → 0) AND scrubs a subtle rotateX + scale
+        // alongside it. Combined with `perspective: 1500px` on .hall
+        // and `transform-origin: 50% 0%` on the pin, the panel arrives
+        // tilted (bottom recessed in -Z) and flattens into place over
+        // the still-pinned skills layer behind — the same 3D feel as
+        // the hero's lift, mirrored for an entering panel. The pin's
+        // top-edge box-shadow rides the seam during the rise, giving
+        // a clear depth separation from the skills back layer.
         gsap.fromTo(hallPin,
-          { y: () => window.innerHeight },
+          { y: () => window.innerHeight, rotateX: -10, scale: 0.99 },
           {
             y: 0,
+            rotateX: 0,
+            scale: 1,
             ease: 'none',
             scrollTrigger: {
               trigger: section,

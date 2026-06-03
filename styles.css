@@ -337,6 +337,12 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
                                      skills layer underneath. */
   z-index: 3;                     /* foreground reveal layer — above
                                      .warp (z-1) and .hall (z-2). */
+  /* 3D scene depth for the hero pin's lift-away tilt. The JS scrubs
+     a small negative rotateX on the pin during the slide-up; this
+     perspective makes that rotation read as a real panel receding
+     in space rather than a flat skew. perspective-origin stays at
+     the default (center) so the viewer feels straight-on. */
+  perspective: 1500px;
 }
 .hero-stage__pin {
   position: sticky;
@@ -356,6 +362,16 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
      the cream slides up with it, exposing the skills layer only
      where the pin no longer covers. */
   background: var(--cream);
+  /* Pivot the JS-driven lift tilt at the TOP edge so the bottom of
+     the panel is what swings back as the pin slides up. */
+  transform-origin: 50% 0%;
+  /* Soft ambient shadow under the panel — only visible once the pin
+     starts sliding up (before that, the shadow sits below the
+     viewport's bottom edge). Gives the lifting panel a clear
+     separation from the skills layer behind. */
+  box-shadow:
+    0 28px 56px -14px rgba(0, 0, 0, 0.45),
+    0 10px 22px -8px  rgba(0, 0, 0, 0.22);
 }
 
 /* Canvas — bottom-anchored. Aspect ratio matches a generous
@@ -891,6 +907,12 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   margin-top: -200vh;
   z-index: 2;
   color: var(--ink);
+  /* 3D scene depth for the hall pin's rise-and-flatten tilt. Matches
+     the hero-stage perspective so both reveals feel cohesive. The
+     JS scrubs a small negative rotateX + scale on .hall__pin during
+     the slide-up so it reads as a real foreground panel arriving in
+     3D space rather than a flat sheet sliding up. */
+  perspective: 1500px;
 }
 .hall__pin {
   position: sticky;
@@ -904,6 +926,18 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
      behind is visible through the section, and only the pin itself
      covers the warp as it translates into place. */
   background: #F4F1EA;
+  /* Pivot the JS-driven rise tilt at the TOP edge — matches the
+     hero pin's setup so both transitions read the same way (a soft
+     negative rotateX makes the BOTTOM of the panel recede). */
+  transform-origin: 50% 0%;
+  /* Soft shadow at the TOP edge of the panel, falling UP onto the
+     skills layer that's still visible above the rising gallery. As
+     the panel translates from translateY(100vh) to 0, this shadow
+     rides the panel's top edge across the seam, giving a clear
+     depth separation between the front gallery and the back skills. */
+  box-shadow:
+    0 -26px 52px -14px rgba(0, 0, 0, 0.4),
+    0 -10px 22px  -8px rgba(0, 0, 0, 0.18);
 }
 .hall__canvas {
   position: absolute;
@@ -1191,6 +1225,14 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   margin-top: -100vh;
   color: var(--cream);
   z-index: 1;          /* back layer — hero (z-3) and gallery (z-2) overlay us */
+  /* Dark BG on the SECTION (not just the pin). CSS `filter: blur()`
+     on .warp__pin extends past the pin's edges and fades to
+     transparent — without this, the body's cream BG would show
+     through that fade as bright white/cream stripes on the left
+     and right edges of the blurred dark scene during the hero
+     reveal. With the section itself painted ink, the fade picks
+     up the same dark colour and the edges stay clean. */
+  background: var(--ink);
 }
 .warp__pin {
   position: sticky;
