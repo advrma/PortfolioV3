@@ -1412,7 +1412,7 @@
     const canvasHost = document.getElementById('hallCanvas');
     if (!section || !canvasHost) return;
 
-    const SLIDE_COUNT = 4;
+    const SLIDE_COUNT = 3;
     const SPACING_X   = 45;     // 3D units between paintings
     const P_WIDTH     = 14;
     const P_HEIGHT    = 18;
@@ -1425,8 +1425,7 @@
     const IMAGES = [
       'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80',
       'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80',
-      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80',
-      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=900&q=80'
+      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80'
     ];
 
     const scene = new THREE.Scene();
@@ -1549,6 +1548,12 @@
     const mouse       = { x: 0, y: 0 };
     let visible       = false;
     let raf           = 0;
+    // Moderate lerp on the scroll-driven camera target — relaxes the
+    // pan between projects so it eases in/out instead of locking 1:1
+    // with the scroll wheel. Fast enough (0.11) that the lerp still
+    // catches up to the last project well before the section releases,
+    // so the "last project skipped" bug doesn't return.
+    const SCROLL_LERP = 0.11;
 
     // Update which slide-content panel is active based on
     // the camera's current horizontal position along the wall.
@@ -1579,14 +1584,15 @@
         else updateMotionBlur(0);
         return;
       }
-      // DIRECT follow — the camera is tied 1:1 to scroll position
-      // (no eased lag). This is what guarantees you only leave the
-      // section at the first/last project: the project on screen
-      // always matches the scroll position, so reaching the section's
-      // scroll end *is* reaching the last project. No lag means the
-      // camera can never be mid-pan while the page slips to the next
-      // section (the bug where the last project got skipped).
-      currentScroll = targetScroll;
+      // Eased follow — the camera lerps toward the scroll-driven
+      // target so transitions between projects glide instead of
+      // locking 1:1 to the scroll wheel. The lerp also drives the
+      // motion blur (delta-per-frame = blur input), so faster
+      // catch-up = more smear. Snap to target once the gap is
+      // negligible so the camera always actually reaches the last
+      // project before the section releases.
+      currentScroll += (targetScroll - currentScroll) * SCROLL_LERP;
+      if (Math.abs(targetScroll - currentScroll) < 0.001) currentScroll = targetScroll;
       const instVel = Math.abs(currentScroll - prevScroll);
       prevScroll = currentScroll;
 
@@ -1607,9 +1613,10 @@
       updateUI(currentScroll);
       renderer.render(scene, camera);
 
-      // Keep ticking while the blur is still decaying so it clears
-      // cleanly after the scroll stops.
-      if (blurVel > 0.03) kickRender();
+      // Keep ticking while the camera is still easing toward target
+      // OR while motion blur is decaying — so both the pan and the
+      // smear finish smoothly after scrolling stops.
+      if (currentScroll !== targetScroll || blurVel > 0.03) kickRender();
     }
     function kickRender() {
       if (raf) return;
@@ -1652,13 +1659,41 @@
       const raw = Math.max(0, Math.min(SPAN, progress * SPAN));
       const idx = Math.min(SPAN - 1, Math.floor(raw));
       const frac = raw - idx;
-      // Light hold on each project for the first/last 15% of a segment,
-      // smooth eased pan through the middle 70%. Keeps the motion
-      // mostly continuous/buttery while still settling on each project.
-      let t = (frac - 0.15) / 0.70;
+      // Lighter hold zones (8% on each side) and a wider eased
+      // transition (the middle 84%) — combined with the SCROLL_LERP
+      // smoothing in render(), the pan between projects feels more
+      // relaxed and flowing instead of snappy. `smootherstep` (Perlin)
+      // is even smoother at the endpoints than smoothstep, so the
+      // settle into each project's hold zone is gentler.
+      let t = (frac - 0.08) / 0.84;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const eased = t * t * (3 - 2 * t);   // smoothstep
+      const eased = t * t * t * (t * (t * 6 - 15) + 10);  // smootherstep
       return Math.min(idx + eased, SPAN) * SPACING_X;
+    }
+
+    // Scroll position the camera lands on at the first/last project —
+    // reused by the slide-up tween, the camera onUpdate, and the
+    // onLeave hard-snap that guards against the lerp lag skipping the
+    // last project on a fast scroll past the section.
+    const LAST_SCROLL = (SLIDE_COUNT - 1) * SPACING_X;
+
+    // Force the camera to a specific position and paint ONE frame
+    // synchronously. Used in onLeave / onLeaveBack so the gallery's
+    // parting frame is always the boundary project — even when a
+    // fast scroll outran the smoothing lerp and left currentScroll
+    // mid-pan at the moment the section released.
+    function snapPaintAt(scroll) {
+      currentScroll = scroll;
+      targetScroll  = scroll;
+      prevScroll    = scroll;
+      blurVel       = 0;
+      const xMove = scroll * Math.cos(WALL_ANGLE);
+      const zMove = scroll * Math.sin(WALL_ANGLE);
+      camera.position.x = xMove;
+      camera.position.z = CAM_Z - zMove;
+      updateUI(scroll);
+      renderer.render(scene, camera);
+      updateMotionBlur(0);
     }
 
     if (typeof ScrollTrigger !== 'undefined') {
@@ -1717,15 +1752,28 @@
         invalidateOnRefresh: true,
         onEnter:     () => { visible = true;  kickRender(); },
         onEnterBack: () => { visible = true;  kickRender(); },
-        onLeave:     () => { visible = false; },
-        onLeaveBack: () => { visible = false; },
+        // Hard snap to the last project on forward exit (and the
+        // first on backward exit) so the gallery's final frame is
+        // ALWAYS the boundary project — even when a violent scroll
+        // outran the smoothing lerp and left it mid-pan. Without
+        // this, fast scrolls past the section showed the camera
+        // half-way between project 3 and project 4 as the page
+        // released, then jumped to "Numbers that move".
+        onLeave:     () => { snapPaintAt(LAST_SCROLL); visible = false; },
+        onLeaveBack: () => { snapPaintAt(0);            visible = false; },
         onUpdate: (self) => {
           const total = self.end - self.start;
           const skip  = window.innerHeight;          // transition zone (100vh)
           const frac  = total > 0 ? skip / total : 0;
-          const adj   = frac >= 1
+          let adj     = frac >= 1
                           ? 0
                           : Math.max(0, (self.progress - frac) / (1 - frac));
+          // End buffer: lock the camera target at the last project
+          // for the final ~12% of the camera runway. Gives the lerp
+          // a natural runway to settle on the last project before
+          // the section actually exits — covers slow/moderate
+          // scrolls; the onLeave snap covers very fast scrolls.
+          if (adj > 0.88) adj = 1;
           targetScroll = progressToScroll(adj);
           kickRender();
         }
@@ -1736,6 +1784,211 @@
   /* -------------------------------------------------------
      INIT
      ------------------------------------------------------- */
+  /* -------------------------------------------------------
+     HYPER-TEXT DECRYPTION — vanilla port of the React component
+     hyper-text-with-decryption.tsx. For every paragraph marked
+     [data-hyper] in the markup, every word is wrapped in a
+     .hyper-word span; words whose cleaned form (lowercased,
+     non-alphanumerics stripped) matches an entry in the
+     paragraph's `data-hl-words` get .is-hl (interactive).
+     Hovering an interactive word dims the rest of the
+     paragraph, scales/pillates the hovered word, and
+     scrambles its glyphs through random chars before
+     resolving back to the original. CSS handles the visuals;
+     this function only owns the word-wrapping + scramble loop.
+     ------------------------------------------------------- */
+  function initHyperText() {
+    const paragraphs = document.querySelectorAll('[data-hyper]');
+    if (!paragraphs.length) return;
+
+    const CHARS              = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+';
+    const CYCLES_PER_LETTER  = 3;
+    const SCRAMBLE_SPEED_MS  = 30;
+    const clean = (w) => w.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    paragraphs.forEach((p) => {
+      if (p.dataset.hyperReady === '1') return;
+      p.dataset.hyperReady = '1';
+
+      const hlSet = new Set(
+        (p.dataset.hlWords || '')
+          .split(',')
+          .map((w) => clean(w))
+          .filter(Boolean)
+      );
+
+      // Capture the existing text and rebuild the paragraph with
+      // each word in its own span. Collapse all whitespace so we
+      // emit a single space character between words; the original
+      // line-wrapping is irrelevant once the markup is rebuilt.
+      const text = (p.textContent || '').trim().replace(/\s+/g, ' ');
+      p.textContent = '';
+
+      const words = text.split(' ');
+      words.forEach((word, i) => {
+        const span = document.createElement('span');
+        span.className = 'hyper-word';
+        span.dataset.original = word;
+        span.textContent = word;
+        if (hlSet.has(clean(word))) {
+          span.classList.add('is-hl');
+          // Keyboard accessibility: make the interactive word focusable.
+          span.tabIndex = 0;
+        }
+        p.appendChild(span);
+        if (i < words.length - 1) {
+          p.appendChild(document.createTextNode(' '));
+        }
+      });
+
+      // Wire scramble + dim/highlight on every interactive word.
+      const hlEls = p.querySelectorAll('.hyper-word.is-hl');
+      hlEls.forEach((el) => {
+        const original = el.dataset.original || '';
+        let timer = null;
+
+        const startScramble = () => {
+          if (timer) clearInterval(timer);
+          let pos = 0;
+          timer = setInterval(() => {
+            let scrambled = '';
+            for (let i = 0; i < original.length; i++) {
+              if (pos / CYCLES_PER_LETTER > i) {
+                scrambled += original.charAt(i);
+              } else {
+                scrambled += CHARS.charAt(Math.floor(Math.random() * CHARS.length));
+              }
+            }
+            el.textContent = scrambled;
+            pos++;
+            if (pos >= original.length * CYCLES_PER_LETTER) {
+              clearInterval(timer);
+              timer = null;
+              el.textContent = original;
+            }
+          }, SCRAMBLE_SPEED_MS);
+        };
+
+        const stopScramble = () => {
+          if (timer) { clearInterval(timer); timer = null; }
+          el.textContent = original;
+        };
+
+        const enter = () => {
+          p.classList.add('is-hyper-hover');
+          el.classList.add('is-hovered');
+          startScramble();
+        };
+        const leave = () => {
+          p.classList.remove('is-hyper-hover');
+          el.classList.remove('is-hovered');
+          stopScramble();
+        };
+
+        el.addEventListener('mouseenter', enter);
+        el.addEventListener('mouseleave', leave);
+        el.addEventListener('focus',  enter);
+        el.addEventListener('blur',   leave);
+      });
+    });
+  }
+
+  /* -------------------------------------------------------
+     initTextScramble — vanilla port of the react
+     text-scramble component. Each [data-scramble-text] host
+     is rebuilt into per-character spans + an animated
+     underline + a glow layer. On mouseenter/focus the chars
+     cycle through random ASCII glyphs and resolve left → right
+     at 30ms intervals over (text.length * 3) frames, matching
+     the React algorithm exactly.
+     ------------------------------------------------------- */
+  function initTextScramble() {
+    const targets = document.querySelectorAll('[data-scramble-text]');
+    if (!targets.length) return;
+
+    const CHARS            = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*';
+    const INTERVAL_MS      = 30;
+    const FRAMES_PER_CHAR  = 3;
+
+    targets.forEach((host) => {
+      if (host.dataset.scrambleReady === '1') return;
+      host.dataset.scrambleReady = '1';
+
+      const text = host.dataset.scrambleText || host.textContent || '';
+      if (!text) return;
+
+      host.classList.add('text-scramble');
+      host.textContent = '';
+      host.tabIndex = 0;
+
+      const row = document.createElement('span');
+      row.className = 'text-scramble__row';
+      const charEls = [];
+      for (let i = 0; i < text.length; i++) {
+        const span = document.createElement('span');
+        span.className = 'text-scramble__char';
+        span.style.transitionDelay = (i * 10) + 'ms';
+        span.textContent = text[i];
+        row.appendChild(span);
+        charEls.push(span);
+      }
+
+      const underline = document.createElement('span');
+      underline.className = 'text-scramble__underline';
+      const ulBase = document.createElement('span');
+      ulBase.className = 'text-scramble__underline-base';
+      const ulActive = document.createElement('span');
+      ulActive.className = 'text-scramble__underline-active';
+      underline.appendChild(ulBase);
+      underline.appendChild(ulActive);
+
+      const glow = document.createElement('span');
+      glow.className = 'text-scramble__glow';
+
+      host.appendChild(row);
+      host.appendChild(underline);
+      host.appendChild(glow);
+
+      let timer = null;
+      function scramble() {
+        if (timer) clearInterval(timer);
+        let frame = 0;
+        const duration = text.length * FRAMES_PER_CHAR;
+        timer = setInterval(() => {
+          frame++;
+          const progress     = frame / duration;
+          const revealedLen  = Math.floor(progress * text.length);
+          for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (ch === ' ') {
+              charEls[i].textContent = ' ';
+              charEls[i].classList.remove('is-scrambling');
+              continue;
+            }
+            if (i < revealedLen) {
+              charEls[i].textContent = ch;
+              charEls[i].classList.remove('is-scrambling');
+            } else {
+              charEls[i].textContent = CHARS.charAt(Math.floor(Math.random() * CHARS.length));
+              charEls[i].classList.add('is-scrambling');
+            }
+          }
+          if (frame >= duration) {
+            clearInterval(timer);
+            timer = null;
+            for (let i = 0; i < text.length; i++) {
+              charEls[i].textContent = text[i];
+              charEls[i].classList.remove('is-scrambling');
+            }
+          }
+        }, INTERVAL_MS);
+      }
+
+      host.addEventListener('mouseenter', scramble);
+      host.addEventListener('focus',      scramble);
+    });
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -1794,6 +2047,14 @@
     // bottom of the page, so creating it after the hero/skills
     // triggers keeps refresh order top-to-bottom (per GSAP guidance).
     initProjectsHall();
+
+    // Wrap each project description's words for the hover-decrypt
+    // effect (vanilla port of hyper-text-with-decryption.tsx).
+    initHyperText();
+
+    // Build the per-character scramble titles in the gallery
+    // (vanilla port of text-scramble.tsx).
+    initTextScramble();
 
     // Paint frame 0 right away so the hero never looks empty.
     renderFrame(0, false);

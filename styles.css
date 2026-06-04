@@ -995,16 +995,26 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
 .hall-slide {
   position: absolute;
   top: 22%;
-  left: clamp(20px, 6vw, 90px);
+  /* Pushed further right so the panel clears the previous painting's
+     outline / shadow that bleeds in from the left of the 3D wall
+     view. ~15vw lands the text past where the off-camera painting
+     edge sits on typical viewports. Mobile (below) overrides this. */
+  left: clamp(40px, 15vw, 380px);
   width: min(420px, 32vw);
   opacity: 0;
   transform: translateY(18px);
   transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.22,1,.36,1);
-  pointer-events: auto;
+  /* Only the .is-active slide captures pointer events — the others
+     are stacked invisibly at the same position (later DOM order = on
+     top), and without this they'd steal every hover from the visible
+     slide, so the decrypt effect would only fire on the last
+     project's words no matter which project was actually showing. */
+  pointer-events: none;
 }
 .hall-slide.is-active {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
 }
 .hall-slide__num {
   display: inline-block;
@@ -1021,7 +1031,7 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   font-family: var(--f-serif, "Instrument Serif", serif);
   font-weight: 400;
   font-size: clamp(40px, 4.4vw, 64px);
-  line-height: 0.98;
+  line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0 0 22px;
   color: var(--ink);
@@ -1030,13 +1040,204 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   font-style: italic;
   color: var(--ink-mute, #555);
 }
+.hall-slide__title-sub {
+  display: block;
+  margin-top: 14px;
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(24px, 2.4vw, 38px);
+  line-height: 1.05;
+  color: var(--ink-mute);
+}
+
+/* ------------------------------------------------------------------
+   TEXT SCRAMBLE — kinetic hover-decode title.
+   Vanilla port of the react text-scramble component. The text
+   resolves left → right on hover, each still-scrambling character
+   tinted accent + scaled 1.1. An underline slides in from the
+   left and a subtle accent glow fades in behind the row; both
+   retract on mouseleave.
+   ------------------------------------------------------------------ */
+.text-scramble {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(44px, 5.2vw, 76px);
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  line-height: 0.92;
+  color: var(--ink);
+  outline: none;
+}
+.text-scramble__row {
+  position: relative;
+  display: inline-flex;
+}
+.text-scramble__char {
+  display: inline-block;
+  color: var(--ink);
+  transition: color 150ms ease, transform 150ms ease;
+  will-change: transform;
+}
+.text-scramble__char.is-scrambling {
+  color: var(--accent-deep);
+  transform: scale(1.1);
+}
+.text-scramble__underline {
+  position: relative;
+  display: block;
+  height: 1.5px;
+  width: 100%;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.text-scramble__underline-base {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 12, 10, 0.14);
+}
+.text-scramble__underline-active {
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.text-scramble:hover .text-scramble__underline-active,
+.text-scramble:focus-visible .text-scramble__underline-active {
+  transform: scaleX(1);
+}
+.text-scramble__glow {
+  position: absolute;
+  inset: -18px;
+  border-radius: 14px;
+  background: rgba(180, 221, 24, 0.10);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.text-scramble:hover .text-scramble__glow,
+.text-scramble:focus-visible .text-scramble__glow {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-scramble__char,
+  .text-scramble__underline-active,
+  .text-scramble__glow { transition: none; }
+}
 .hall-slide__desc {
   font-family: var(--f-sans);
   font-weight: 300;
-  font-size: clamp(13px, 0.95vw, 15px);
-  line-height: 1.75;
+  font-size: clamp(15px, 1.15vw, 18px);
+  line-height: 1.7;
   color: rgba(0,0,0,0.62);
   margin: 0 0 36px;
+}
+
+/* ------------------------------------------------------------------
+   HYPER-TEXT DECRYPTION EFFECT (vanilla port of the React component)
+   JS (initHyperText) wraps every word in the description in a
+   .hyper-word span; words listed in `data-hl-words` get .is-hl
+   (interactive). Hovering an interactive word:
+     - adds .is-hyper-hover to the parent → dims every other word
+     - adds .is-hovered to the word → scales, dark pill, scrambles
+     - the JS scrambles the chars then resolves to the original word.
+   Pure CSS transitions handle the visuals; the scramble itself is
+   purely text-content updates from JS.
+   ------------------------------------------------------------------ */
+.hyper-word {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  transition:
+    opacity 0.3s ease,
+    filter  0.3s ease,
+    transform 0.35s cubic-bezier(.22,1,.36,1),
+    color   0.2s ease;
+}
+.hyper-word.is-hl {
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-weight: 600;
+  /* Dark forest green — strong contrast on cream while reading as
+     a natural, premium accent. On hover the colour flips to cream
+     against the dark pill (rule below), so this only paints the
+     idle / "ready to decrypt" state. */
+  color: #15803d;
+  letter-spacing: 0.005em;
+}
+/* Dark pill behind the hovered word — hidden by default. */
+.hyper-word.is-hl::before {
+  content: '';
+  position: absolute;
+  inset: -3px -7px;
+  border-radius: 8px;
+  background: var(--ink);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(.22,1,.36,1);
+  z-index: -1;
+  pointer-events: none;
+  /* Soft green glow under the dark pill — same hue family as the
+     idle colour so the hover state reads as the natural "lit-up"
+     version of the same accent. */
+  box-shadow:
+    0 10px 22px -6px rgba(21, 128, 61, 0.38),
+    0 6px 10px -4px rgba(0, 0, 0, 0.20);
+}
+/* Tiny green dot at the top-right corner of the hovered word —
+   slightly brighter shade so it pops against the dark pill. */
+.hyper-word.is-hl::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 5px;
+  height: 5px;
+  background: #22c55e;
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity 0.2s ease, transform 0.3s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none;
+}
+
+/* When any interactive word is hovered, dim every word in the
+   paragraph (so the focus is on the one being decrypted). */
+.hall-slide__desc.is-hyper-hover .hyper-word {
+  opacity: 0.3;
+  filter: blur(2px);
+}
+/* The hovered word itself: scale + lift + dark pill + cream text. */
+.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered {
+  opacity: 1;
+  filter: none;
+  transform: scale(1.08) translateY(-3px);
+  color: var(--cream);
+  z-index: 20;
+}
+.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered::before {
+  opacity: 1;
+  transform: scale(1);
+}
+.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hyper-word,
+  .hyper-word::before,
+  .hyper-word::after {
+    transition: none !important;
+  }
 }
 .hall-slide__meta {
   display: grid;
