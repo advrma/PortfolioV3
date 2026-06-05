@@ -2054,30 +2054,68 @@
   function initHeroSign() {
     const el = document.querySelector('.hero-sign');
     if (!el) return;
+    const baseEl = document.getElementById('heroSignBase') || el;
+
+    const wlEl = document.querySelector('.hero__welcome--left');
+    const wrEl = document.querySelector('.hero__welcome--right');
+    const ease = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
+    // Right-edge clip wipe at reveal fraction `f` (0 = hidden, 1 = open).
+    // Top/bottom/left pushed out negative so it never cuts descenders.
+    const clipAt = (f) => 'inset(-30% ' + (100 - f * 105).toFixed(2) + '% -45% -3%)';
+    const CLIP_OPEN = clipAt(1);
 
     if (reduceMotionMQ && reduceMotionMQ.matches) {
-      el.style.clipPath = 'inset(-30% -5% -45% -3%)';  // descender-safe, fully open
-      el.style.opacity  = '1';
+      baseEl.style.clipPath = CLIP_OPEN;
+      if (wlEl) wlEl.style.clipPath = CLIP_OPEN;
+      if (wrEl) wrEl.style.clipPath = CLIP_OPEN;
       return;
     }
 
+    // ----- Welcome line: ONE continuous write-on that flows from
+    // "Welcome To My" straight into "Portfolio Experience". The two
+    // spans are split by width so a single eased progress sweeps both
+    // at a continuous pen speed. Kicked off once the name is fully
+    // written on. -----
+    function writeWelcome() {
+      if (!wlEl || !wrEl) return;
+      const lw = wlEl.offsetWidth || 220;
+      const rw = wrEl.offsetWidth || 360;
+      const split = lw / (lw + rw);          // where the left text ends
+      const DUR = 2200;
+      const t0 = performance.now();
+      function frame(now) {
+        let p = (now - t0) / DUR;
+        if (p < 0) p = 0; else if (p > 1) p = 1;
+        const pos = ease(p);                 // fraction along the whole line
+        if (pos <= split) {
+          wlEl.style.clipPath = clipAt(pos / split);
+          wrEl.style.clipPath = clipAt(0);
+        } else {
+          wlEl.style.clipPath = CLIP_OPEN;
+          wrEl.style.clipPath = clipAt((pos - split) / (1 - split));
+        }
+        if (p < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ----- Name write-on (clip sweep on the BASE layer). The welcome
+    // line kicks off once the name is ~halfway revealed, so the two
+    // overlap and cascade instead of running strictly back-to-back. -----
     let started = false;
     function writeOn() {
       if (started) return;
       started = true;
-      const DUR = 2400, DELAY = 0;   // begin the instant the hero shows
-      const ease = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
-      const t0 = performance.now() + DELAY;
+      const DUR = 2400;
+      const t0 = performance.now();
+      let welcomeKicked = false;
       function frame(now) {
         let p = (now - t0) / DUR;
         if (p < 0) p = 0; else if (p > 1) p = 1;
         const e = ease(p);
-        const right = 100 - e * 105;                 // 100% → -5%
-        // Only the RIGHT edge wipes; top/bottom/left are pushed out
-        // negative so the clip never cuts ascenders/descenders (e.g.
-        // the 'y' tail in "Aditya"). Opacity is owned by the scroll
-        // exit (motionTick) — the write-on only drives the clip.
-        el.style.clipPath = 'inset(-30% ' + right.toFixed(2) + '% -45% -3%)';
+        baseEl.style.clipPath = clipAt(e);
+        // e is the visual reveal fraction; 0.5 = name half written-on.
+        if (!welcomeKicked && e >= 0.5) { welcomeKicked = true; writeWelcome(); }
         if (p < 1) requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
@@ -2096,6 +2134,132 @@
       });
       mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
       setTimeout(() => { if (!started) writeOn(); }, 9000);  // safety net
+    }
+
+    // ----- Hover spotlight ("morphing cursor") reveal -----
+    // An ink circle follows the cursor over the name; inside it,
+    // "software engineer" shows in cream, counter-translated so it
+    // stays fixed and is revealed through the moving window. Vanilla
+    // port of the morphing-cursor component.
+    const lens  = document.getElementById('heroSignLens');
+    const inner = document.getElementById('heroSignLensInner');
+    if (lens && inner) {
+      // Starfield on a SINGLE <canvas>, drawn only while hovering — 999
+      // twinkling dots without 999 animated DOM layers, so there's zero
+      // cost during normal browsing (this was the jank source).
+      const starsCanvas = document.getElementById('heroSignLensStars');
+      const sctx  = starsCanvas ? starsCanvas.getContext('2d') : null;
+      const stars = [];
+      if (sctx) {
+        for (let i = 0; i < 999; i++) {
+          stars.push({
+            nx: Math.random(), ny: Math.random(),  // normalized position
+            r:  Math.random() * 1.1 + 0.4,          // 0.4–1.5px
+            a:  Math.random() * 0.55 + 0.45,        // base alpha
+            ph: Math.random() * 6.2832,             // twinkle phase
+            sp: Math.random() * 0.0022 + 0.0008     // twinkle speed
+          });
+        }
+      }
+      let starsRaf = 0;
+      function sizeStars() {
+        if (!starsCanvas) return;
+        const w = starsCanvas.offsetWidth, h = starsCanvas.offsetHeight;
+        if (w && (starsCanvas.width !== w || starsCanvas.height !== h)) {
+          starsCanvas.width = w; starsCanvas.height = h;
+        }
+      }
+      function drawStars(now) {
+        if (!sctx) { starsRaf = 0; return; }
+        const w = starsCanvas.width, h = starsCanvas.height;
+        sctx.clearRect(0, 0, w, h);
+        sctx.fillStyle = '#F2EEE5';
+        for (let i = 0; i < stars.length; i++) {
+          const s = stars[i];
+          sctx.globalAlpha = s.a * (0.4 + 0.6 * (0.5 + 0.5 * Math.sin(now * s.sp + s.ph)));
+          sctx.beginPath();
+          sctx.arc(s.nx * w, s.ny * h, s.r, 0, 6.2832);
+          sctx.fill();
+        }
+        sctx.globalAlpha = 1;
+        starsRaf = requestAnimationFrame(drawStars);
+      }
+
+      const TILT = -8 * Math.PI / 180;   // matches the CSS rotate(-8deg)
+      const cosT = Math.cos(TILT), sinT = Math.sin(TILT);
+      const target = { x: 0, y: 0 };
+      const cur    = { x: 0, y: 0 };
+      let hovering = false;
+      let lraf = 0;
+      const lensText = document.getElementById('heroSignLensText');
+      // The reveal text is wider than the name, so its ends sit beyond
+      // the cursor's reach. We map the cursor's travel across the name
+      // (width sw) onto the full reveal-text width (tw) so sweeping
+      // left→right reaches the first AND last letters. revealRatio =
+      // tw/sw; the text scrolls under the lens at that ratio.
+      let revealRatio = 1;
+
+      // Cursor → the signature's LOCAL (un-rotated) frame. The element
+      // is rotated by TILT, so we inverse-rotate the centered vector.
+      function toLocal(clientX, clientY) {
+        const r = el.getBoundingClientRect();
+        const dx = clientX - (r.left + r.width  / 2);
+        const dy = clientY - (r.top  + r.height / 2);
+        return {
+          x:  dx * cosT + dy * sinT + el.offsetWidth  / 2,
+          y: -dx * sinT + dy * cosT + el.offsetHeight / 2
+        };
+      }
+      function lensTick() {
+        cur.x += (target.x - cur.x) * 0.15;
+        cur.y += (target.y - cur.y) * 0.15;
+        lens.style.transform =
+          'translate(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px) translate(-50%, -50%)';
+        inner.style.transform =
+          'translate(' + (-cur.x).toFixed(1) + 'px,' + (-cur.y).toFixed(1) + 'px)';
+        // Scroll the reveal text under the lens at revealRatio so the
+        // cursor's range covers its whole width (ends included). Stars
+        // stay put (they ride the inner's plain counter-translate).
+        if (lensText) {
+          lensText.style.transform =
+            'translate(' + (cur.x * (1 - revealRatio)).toFixed(1) + 'px, 0)';
+        }
+        if (hovering ||
+            Math.abs(target.x - cur.x) > 0.4 || Math.abs(target.y - cur.y) > 0.4) {
+          lraf = requestAnimationFrame(lensTick);
+        } else { lraf = 0; }
+      }
+      el.addEventListener('mouseenter', (e) => {
+        const p = toLocal(e.clientX, e.clientY);
+        target.x = cur.x = p.x;
+        target.y = cur.y = p.y;
+        hovering = true;
+        inner.style.width  = el.offsetWidth  + 'px';
+        inner.style.height = el.offsetHeight + 'px';
+        // Measure name width (cursor reach) vs reveal-text width so the
+        // sweep maps onto the full text (first/last letters reachable).
+        const sw = el.offsetWidth, tw = lensText ? lensText.offsetWidth : 0;
+        revealRatio = (sw > 0 && tw > 0) ? tw / sw : 1;
+        // Lens scales with the name's font size so it reveals roughly
+        // full-height letters of the same-size "Software Engineer".
+        const fs = parseFloat(getComputedStyle(el).fontSize) || 280;
+        const lensSize = Math.round(fs * 1.25);
+        lens.style.width = lens.style.height = lensSize + 'px';
+        if (!lraf) lraf = requestAnimationFrame(lensTick);
+        sizeStars();
+        if (sctx && !starsRaf) starsRaf = requestAnimationFrame(drawStars);
+      });
+      el.addEventListener('mousemove', (e) => {
+        const p = toLocal(e.clientX, e.clientY);
+        target.x = p.x;
+        target.y = p.y;
+        if (!lraf) lraf = requestAnimationFrame(lensTick);
+      });
+      el.addEventListener('mouseleave', () => {
+        hovering = false;
+        lens.style.width = lens.style.height = '0px';
+        if (starsRaf) { cancelAnimationFrame(starsRaf); starsRaf = 0; }
+      });
     }
   }
 
