@@ -40,6 +40,7 @@
   const cinemaCtx = cinemaCanvas.getContext('2d');
   const heroSection = document.getElementById('hero');
   const heroStageUI = document.getElementById('heroStageUI');
+  const heroSign = document.getElementById('heroSign');
   const cinemaOverlay = document.getElementById('cinemaOverlay');
   const heroLoading = document.getElementById('heroLoading');
   const heroLoadingPct = document.getElementById('heroLoadingPct');
@@ -472,6 +473,15 @@
         'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
       heroStageUI.style.opacity = (1 - uiP).toFixed(3);
     }
+    if (heroSign) {
+      // Move the signature UP + fade with the UI exit so it scrolls
+      // away with everything else instead of staying stuck behind the
+      // character. Composed with its centering + tilt; the leading
+      // translate is in viewport units (vh) to match the UI's travel.
+      heroSign.style.transform =
+        'translate3d(0, ' + (-uiP * 110).toFixed(2) + 'vh, 0) translate(-50%, -50%) rotate(-8deg)';
+      heroSign.style.opacity = (1 - uiP).toFixed(3);
+    }
     if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
 
     // --- Character render from animFrame ---
@@ -522,6 +532,11 @@
         heroStageUI.style.transform =
           'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
         heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+      }
+      if (heroSign) {
+        heroSign.style.transform =
+          'translate3d(0, ' + (-uiP * 110).toFixed(2) + 'vh, 0) translate(-50%, -50%) rotate(-8deg)';
+        heroSign.style.opacity = (1 - uiP).toFixed(3);
       }
       if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
       const fx = motion.cursorRenderedX + computeScrollX(progress);
@@ -1429,7 +1444,13 @@
     ];
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(BG_HEX);
+    // Transparent scene background (renderer alpha:true) so the
+    // .hall__pin's cream + cloned .pin-topo contours show through the
+    // canvas — the gallery then shares the same paper backdrop as the
+    // rest of the page. Fog still fades distant paintings toward the
+    // cream tone (fog.color is independent of scene.background), so
+    // depth reads the same as before; empty wall area is now the pin.
+    scene.background = null;
     scene.fog = new THREE.Fog(BG_HEX, 14, 130);
 
     const camera = new THREE.PerspectiveCamera(
@@ -1989,6 +2010,95 @@
     });
   }
 
+  /* -------------------------------------------------------
+     initTopo — fill the body + pinned-section topo SVGs with
+     a full-height field of gentle, very subtle contour waves.
+     The hand-written markup only covered a middle band, leaving
+     the top/bottom of the large cream pins bare. Here we generate
+     evenly stacked, parallel (non-crossing) wavy lines spanning
+     the whole viewBox so the contour texture fills the entire
+     page edge-to-edge. The existing <g> stroke + opacity is
+     reused, so final visibility is still controlled by CSS.
+     ------------------------------------------------------- */
+  function initTopo() {
+    const groups = document.querySelectorAll('.topo-bg > g, .pin-topo > g');
+    if (!groups.length) return;
+    const HW  = 480;             // half wavelength (viewBox units)
+    const X0  = -260, X1 = 2060; // span beyond the 1600-wide viewBox
+    const AMP = 55;              // wave amplitude
+    const paths = [];
+    let B = 8;                   // running baseline (top → bottom)
+    for (let i = 0; B < 1200; i++) {
+      let x = X0;
+      let d = 'M' + x + ',' + B +
+              ' Q' + (x + HW / 2) + ',' + (B - AMP) + ' ' + (x + HW) + ',' + B;
+      x += HW;
+      while (x < X1) { x += HW; d += ' T' + x + ',' + B; }
+      paths.push('<path d="' + d + '"/>');
+      // Gently varied vertical spacing → organic, never crossing
+      // (each line is the same wave shape, only shifted down).
+      B += 52 + Math.round(12 * Math.sin(i * 0.7));
+    }
+    const html = paths.join('');
+    groups.forEach((g) => { g.innerHTML = html; });
+  }
+
+  /* -------------------------------------------------------
+     initHeroSign — "writes on" the cursive signature behind the
+     character once the intro loader finishes. Sweeps a clip-path
+     inset from the right edge (left → right reveal, along the
+     slanted baseline) with an easeOutCubic, the vanilla take on the
+     text-effect component's stroke draw-on. JS-driven so the timing
+     is frame-accurate and reliable.
+     ------------------------------------------------------- */
+  function initHeroSign() {
+    const el = document.querySelector('.hero-sign');
+    if (!el) return;
+
+    if (reduceMotionMQ && reduceMotionMQ.matches) {
+      el.style.clipPath = 'inset(-30% -5% -45% -3%)';  // descender-safe, fully open
+      el.style.opacity  = '1';
+      return;
+    }
+
+    let started = false;
+    function writeOn() {
+      if (started) return;
+      started = true;
+      const DUR = 2400, DELAY = 0;   // begin the instant the hero shows
+      const ease = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
+      const t0 = performance.now() + DELAY;
+      function frame(now) {
+        let p = (now - t0) / DUR;
+        if (p < 0) p = 0; else if (p > 1) p = 1;
+        const e = ease(p);
+        const right = 100 - e * 105;                 // 100% → -5%
+        // Only the RIGHT edge wipes; top/bottom/left are pushed out
+        // negative so the clip never cuts ascenders/descenders (e.g.
+        // the 'y' tail in "Aditya"). Opacity is owned by the scroll
+        // exit (motionTick) — the write-on only drives the clip.
+        el.style.clipPath = 'inset(-30% ' + right.toFixed(2) + '% -45% -3%)';
+        if (p < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // Trigger once the loader has removed .is-pre-load (the hero is
+    // revealed). If that already happened, go now.
+    if (!document.body.classList.contains('is-pre-load')) {
+      writeOn();
+    } else {
+      const mo = new MutationObserver(() => {
+        if (!document.body.classList.contains('is-pre-load')) {
+          mo.disconnect();
+          writeOn();
+        }
+      });
+      mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+      setTimeout(() => { if (!started) writeOn(); }, 9000);  // safety net
+    }
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -2030,6 +2140,8 @@
       setTimeout(doScroll, 1500);
     }
 
+    initTopo();
+    initHeroSign();
     initReveals();
     initStatCounters();
     initScrollProgress();

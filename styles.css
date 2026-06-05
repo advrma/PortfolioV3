@@ -27,6 +27,7 @@
   --f-serif: "Instrument Serif", "Fraunces", serif;
   --f-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --f-mono: "Geist Mono", ui-monospace, monospace;
+  --f-sign: "Dancing Script", "Brush Script MT", cursive;
 
   /* Spacing scale */
   --gutter: clamp(20px, 4vw, 64px);
@@ -406,6 +407,26 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
      smooths the pose transitions without softening pixels. */
 }
 
+/* Cloned topo contour pattern inside the pinned hero + gallery
+   sections. Mirrors the body's fixed .topo-bg color + opacity so
+   those opaque-cream pins paint the same faint paper contours the
+   rest of the page has. z-index:0 sits above the pin's cream
+   background but below the pins' content (hero halo z1 / canvas z2
+   / ui z6; gallery canvas z1 / ui z2 / chrome z3). It scrolls with
+   the pin, which is fine — the body topo drifts too. */
+.pin-topo {
+  position: absolute;
+  inset: -12vh -12vw;
+  z-index: 0;
+  /* Very subtle — matches the body's fixed .topo-bg so the contour
+     texture reads as the same faint paper across the whole page.
+     initTopo() fills the SVG with a full-height field of waves so
+     the pattern covers the entire pin edge-to-edge. */
+  color: rgba(12, 12, 10, 0.22);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Soft glow trailing behind the character. Anchored to the
    bottom to match the new character position and slightly
    above so it reads as ambient backlight on the upper body. */
@@ -426,6 +447,42 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   filter: blur(28px);
   animation: haloPulse 9s ease-in-out infinite;
   pointer-events: none;
+}
+
+/* Signature wordmark behind the character. Cursive, tilted like a
+   real autograph, z-index 1 so it sits BEHIND the character canvas
+   (z2) — the figure overlaps the middle of the name. It "writes on"
+   left-to-right (a clip-path sweep along the slanted baseline) once
+   the intro loader removes .is-pre-load — the vanilla equivalent of
+   the text-effect component's stroke draw-on. */
+.hero-sign {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 48%;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  transform-origin: center;
+  margin: 0;
+  font-family: var(--f-sign);
+  font-weight: 700;
+  font-size: clamp(96px, 20vw, 360px);
+  line-height: 1;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  color: rgba(12, 12, 10, 0.66);
+  pointer-events: none;
+  user-select: none;
+  /* Hidden until the intro completes; clipped from the right edge.
+     The write-on sweep is JS-driven (initHeroSign) for frame-accurate,
+     reliable timing — it sets clip-path/opacity inline once the intro
+     loader removes .is-pre-load. Top/bottom/left are pushed out
+     negative so the clip only wipes horizontally and never cuts
+     ascenders/descenders (the 'y' tail in "Aditya"). */
+  clip-path: inset(-30% 100% -45% -3%);
+  opacity: 1;   /* clip-path owns the reveal; motionTick owns the exit fade */
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-sign { clip-path: inset(-30% -5% -45% -3%); opacity: 1; }
 }
 
 /* UI layer — translated upward by JS as scroll progresses */
