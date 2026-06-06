@@ -152,9 +152,9 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
 }
 
 /* =========================================================
-   INTRO LOADER — all styles + keyframes are inlined in
-   index.html's <head> so they apply on first paint regardless
-   of styles.css cache state. Nothing here on purpose.
+   PRELOADER — all styles + the noise-animation keyframe are
+   inlined in index.html's <head> so they apply on first paint
+   regardless of styles.css cache state. Nothing here on purpose.
    ========================================================= */
 
 /* =========================================================
@@ -488,6 +488,31 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   display: inline-block;
   clip-path: inset(-30% 100% -45% -3%);
 }
+/* Handwriting draw-on: the name as stroked Dancing Script (700) glyph
+   paths that self-draw (stroke-dashoffset, staggered per letter, set in
+   initHeroSign) then ink in. Sized in em off the 1000-unit viewBox so it
+   tracks the h1 font-size; the parent h1 supplies the tilt + centering.
+   The base span stays clipped (invisible) underneath purely so the box
+   geometry the lens + scroll math rely on is unchanged. */
+.hero-sign__draw {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, calc(-50% + var(--draw-dy, -0.02em)));
+  z-index: 0;                /* above the (invisible) base, below the lens */
+  overflow: visible;
+  opacity: 0;                /* JS sets the dash offsets, then flips to 1 */
+  pointer-events: none;      /* hover stays on .hero-sign (the h1) */
+}
+.hero-sign__stroke {
+  fill: rgba(12, 12, 10, 0.66);    /* same ink as the name */
+  fill-opacity: 0;                 /* outline only until the stroke is drawn */
+  stroke: rgba(12, 12, 10, 0.66);
+  stroke-width: 11;                /* pen width in viewBox units (1000 = 1em) */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: fill-opacity 0.55s ease, stroke-width 0.55s ease;
+}
 /* Spotlight lens: a solid ink circle that follows the cursor; inside,
    "software engineer" shows in cream, counter-translated so it stays
    fixed and is revealed through the moving window. */
@@ -538,10 +563,15 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   position: relative;   /* paints above the stars */
   z-index: 1;
   flex-shrink: 0;       /* keep its natural width so we can measure it */
+  /* The lens text is line-box-centred in the name's box, but the SVG name
+     sits ink-centred (higher), so the reveal landed ~0.12em low. Raise it
+     to meet the name. (JS only sets transform, so top is free to use.) */
+  top: var(--se-dy, -0.12em);
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-sign { cursor: auto; }
-  .hero-sign__base { clip-path: inset(-30% -5% -45% -3%); }
+  .hero-sign__base { clip-path: inset(-30% -5% -45% -3%); }  /* show the static name */
+  .hero-sign__draw { display: none; }                        /* no draw-on */
   .hero-sign__lens { display: none; }
 }
 
@@ -633,6 +663,28 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
 }
 .hero__welcome--left  { left: calc(var(--gutter) + 18px); }
 .hero__welcome--right { right: calc(var(--gutter) + 18px); }
+/* Breathing weight (animated-text port): a SINGLE rendering of each
+   line whose strokes fatten and thin via a same-colour horizontal
+   smear (faux-bold) animating 0 -> ~0.6px and back. Paint-only — no
+   reflow, no per-frame glyph re-raster — and, being one layer rather
+   than a stacked bold copy, it cannot produce the double-image
+   ghosting. The two corners run slightly out of phase for a gentle
+   wave. Paused while the hero is off screen. */
+@keyframes welcomeBreath {
+  0%   { text-shadow: 0 0 0 transparent; }
+  100% { text-shadow: 0.6px 0 0 currentColor, -0.6px 0 0 currentColor; }
+}
+.hero__welcome--left,
+.hero__welcome--right {
+  animation: welcomeBreath 2.4s alternate ease-in-out infinite both;
+}
+.hero__welcome--right { animation-delay: -0.6s; }   /* phase offset -> wave */
+body.hero-hidden .hero__welcome--left,
+body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .hero__welcome--left,
+  .hero__welcome--right { animation: none; }
+}
 @media (max-width: 991px) {
   .hero__welcome { display: none; }
 }
@@ -968,6 +1020,70 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   color: var(--ink-mute);
   margin-right: 8px;
   vertical-align: middle;
+}
+
+/* Side statement — vanilla port of blur-text-animation. Each word
+   blur-reveals (blur + translateY + scale + rotateX, staggered) when
+   its side becomes active; sits in the half opposite the character so
+   it never collides with the figure. Reveal toggled from motionTick. */
+.cinema__aside {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  /* Big editorial block — nearly fills its half of the screen. */
+  width: min(48vw, 780px);
+  margin: 0;
+  /* Same design language as the middle captions: Anton display +
+     italic-serif emphasis on a lime highlight (.cinema__aside-w--em). */
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(40px, 6.2vw, 116px);
+  line-height: 1.0;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  pointer-events: none;
+  perspective: 1000px;           /* gives the per-word rotateX depth */
+}
+.cinema__aside--right { right: clamp(20px, 3vw, 64px); text-align: left; }
+.cinema__aside--left  { left:  clamp(20px, 3vw, 64px); text-align: right; }
+.cinema__aside-w {
+  display: inline-block;
+  margin-right: 0.3em;
+  /* DISAPPEAR state: words blur back out (prompt + uniform, so the
+     statement clears cleanly when the character leaves the side).
+     NOTE: no permanent will-change / preserve-3d here — those kept a
+     GPU filter-backing store alive for every word for the whole page
+     (heavy + site-wide). The blur is rasterised per frame only while a
+     transition is actually running, so the effect is unchanged. */
+  opacity: 0;
+  filter: blur(var(--blur, 12px)) brightness(0.6);
+  transform: translateY(0.2em) scale(var(--scale, 0.95)) rotateX(-15deg);
+  transition: opacity 0.5s, filter 0.5s, transform 0.5s;
+  transition-delay: 0s;
+  transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.cinema__aside.is-revealed .cinema__aside-w {
+  /* APPEAR state: words blur in, staggered per-word (the blur-text
+     effect's computed duration/delay come in via initBlurAside). */
+  opacity: 1;
+  filter: blur(0px) brightness(1);
+  transform: translateY(0) scale(1) rotateX(0deg);
+  transition-duration: var(--dur, 1s);
+  transition-delay: var(--delay, 0s);
+}
+/* Emphasised words — same italic-serif + lime highlight as the
+   middle captions' <em> (see .cinema__caption em). */
+.cinema__aside-w--em {
+  font-family: var(--f-serif);
+  font-style: italic;
+  background: linear-gradient(transparent 68%, var(--accent) 68%, var(--accent) 92%, transparent 92%);
+  padding: 0 0.06em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cinema__aside-w { transition-duration: 0.001s; transition-delay: 0s; }
+}
+@media (max-width: 768px) {
+  .cinema__aside { display: none; }   /* no room beside the figure */
 }
 
 /* =========================================================

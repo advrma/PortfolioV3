@@ -9,7 +9,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Dancing+Script:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Dancing+Script:wght@400..700&display=swap" />
 
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0001.png" />
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0150.png" />
@@ -17,182 +17,92 @@
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0270.png" />
 <link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0300.png" />
 
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=6" />
 
-<!-- Critical intro-loader styles inlined for reliable first
-     paint. Layout matches the willem-loading-animation pattern;
-     GSAP timeline in script.js drives all the animations. -->
+<!-- Critical preloader styles inlined for reliable first paint.
+     A heavy film grain (noise-animation) covers the empty hero
+     background (cream + topo contours); the grain dissolves left to
+     right to reveal the ADITYA VERMA wordmark, then the whole thing
+     fades to the hero. JS (initPreloader) drives the wipe. -->
 <style>
-  .intro-loader {
-    position: fixed;
-    top: 0; right: 0; bottom: 0; left: 0;
+  .preloader {
+    position: fixed; inset: 0;
     z-index: 9999;
     background: #F2EEE5;
-    color: #F2EEE5;
     overflow: hidden;
     isolation: isolate;
+    transition: opacity 0.7s ease;
   }
-  .intro-loader.is--gone { display: none !important; }
+  .preloader.is--fading { opacity: 0; pointer-events: none; }
+  .preloader.is--gone   { display: none !important; }
 
-  /* ----- Centre stage: ADI [box] TYA wordmark ----- */
-  .intro-loader__loader {
-    position: absolute;
-    top: 0; right: 0; bottom: 0; left: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  /* Empty hero background: cream + faint topo contour lines. */
+  .preloader__bg {
+    position: absolute; inset: 0; z-index: 0;
+    background: #F2EEE5;
     overflow: hidden;
-    color: #0C0C0A;
   }
-  .intro-loader__h1 {
-    font-family: "Anton", "Archivo Black", sans-serif;
-    font-weight: 400;
-    font-size: clamp(3rem, 12.5vw, 11rem);
-    line-height: 0.78;
-    letter-spacing: -0.02em;
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    position: relative;
-  }
-  .intro-loader__h1-start,
-  .intro-loader__h1-end {
-    display: flex;
-    overflow: hidden;
-    width: 1.8em;
-  }
-  .intro-loader__h1-start { justify-content: flex-end; }
-  .intro-loader__h1-end   { justify-content: flex-start; }
-  .intro-loader__letter,
-  .intro-loader__letter-white {
-    display: block;
-    position: relative;
+  .preloader__topo {
+    position: absolute; inset: -5%;
+    width: 110%; height: 110%;
+    color: rgba(12, 12, 10, 0.22);
+    opacity: 0.5;
   }
 
-  /* ----- The opening / expanding box ----- */
-  .intro-loader__box {
-    position: relative;
-    display: flex;
-    flex-flow: column;
-    align-items: center;
-    justify-content: center;
-    width: 0;
-    flex-shrink: 0;
-  }
-  .intro-loader__box-inner {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 95%;
-    min-width: 1em;
-  }
-  .intro-loader__growing {
-    position: absolute;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 0%;
-    height: 100%;
-    overflow: hidden;
-    background: #0C0C0A;
-  }
-  .intro-loader__growing-wrap {
-    position: absolute;
-    width: 100%;
-    min-width: 1em;
-    height: 100%;
-  }
-  .intro-loader__cover,
-  .intro-loader__cover-final {
-    position: absolute;
-    top: 0; right: 0; bottom: 0; left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center 30%;
-    pointer-events: none;
-    user-select: none;
-  }
-  .intro-loader__cover.is--1 { z-index: 3; }
-  .intro-loader__cover.is--2 { z-index: 2; }
-  .intro-loader__cover.is--3 { z-index: 1; }
-  .intro-loader__cover-final { z-index: 0; }
-
-  /* ----- Foreground overlay: top nav text + bottom mark ----- */
-  .intro-loader__content {
-    position: relative;
-    z-index: 5;
-    display: flex;
-    flex-flow: column;
-    justify-content: space-between;
-    width: 100%;
-    min-height: 100vh;
-    padding: clamp(20px, 3vw, 48px);
-    pointer-events: none;
-  }
-  .intro-loader__top {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    width: 100%;
-    overflow: hidden;
-  }
-  .intro-loader__navlink {
-    font-family: "Geist Mono", ui-monospace, monospace;
-    font-size: clamp(11px, 0.95vw, 14px);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #F2EEE5;
-    display: block;
-  }
-  .intro-loader__bottom {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 16px;
-    width: 100%;
-    overflow: hidden;
-  }
-  .intro-loader__mark {
-    font-family: "Anton", "Archivo Black", sans-serif;
-    font-weight: 400;
-    font-size: clamp(3rem, 12.5vw, 11rem);
-    line-height: 0.78;
-    letter-spacing: -0.02em;
-    display: flex;
-    overflow: hidden;
-    color: #F2EEE5;
-  }
-  .intro-loader__letter-white.is--space {
-    margin-left: 0.18em;
-    color: #D8FF38;
-    font-family: "Instrument Serif", serif;
-    font-style: italic;
-  }
-  .intro-loader__credits {
+  /* The wordmark, revealed as the grain dissolves over it. */
+  .preloader__name {
+    position: absolute; inset: 0; z-index: 2;
     margin: 0;
-    align-self: flex-end;
-    font-family: "Geist Mono", ui-monospace, monospace;
-    font-size: clamp(11px, 0.95vw, 14px);
-    letter-spacing: 0.18em;
+    display: flex; align-items: center; justify-content: center;
+    gap: 0.28em;
+    font-family: "Anton", "Archivo Black", sans-serif;
+    font-weight: 400;
+    font-size: clamp(2.4rem, 11vw, 9rem);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(242, 238, 229, 0.7);
+    color: #0C0C0A;
+    white-space: nowrap;
+    pointer-events: none;
   }
 
-  @media (max-width: 991px) {
-    .intro-loader__h1,
-    .intro-loader__mark { font-size: clamp(2.6rem, 16vw, 7rem); }
-    .intro-loader__h1-start,
-    .intro-loader__h1-end { width: 1.85em; }
-    .intro-loader__top { flex-flow: column; gap: 6px; }
-    .intro-loader__credits { display: none; }
+  /* Heavy film grain on top; a soft horizontal mask wipes it away
+     left to right (--wipe, driven by JS) so the name emerges. */
+  .preloader__grain {
+    position: absolute; inset: 0; z-index: 3;
+    overflow: hidden;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent var(--wipe, -10%), #000 calc(var(--wipe, -10%) + 10%));
+            mask-image: linear-gradient(90deg, transparent var(--wipe, -10%), #000 calc(var(--wipe, -10%) + 10%));
   }
-  @media (max-width: 640px) {
-    .intro-loader__h1,
-    .intro-loader__mark { font-size: clamp(2.2rem, 18vw, 5rem); }
-    .intro-loader__h1-start,
-    .intro-loader__h1-end { width: 1.9em; }
+  .preloader__grain-tex {
+    position: absolute; inset: -14%;
+    width: 128%; height: 128%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+    filter: grayscale(1) contrast(2.6) brightness(1.08);
+    opacity: 0.92;
+    animation: noise-animation 0.55s steps(6) infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .preloader__grain-tex { animation: none; }
+    .preloader { transition: none; }
+  }
+
+  /* noise-animation: film-grain jitter (from layout-preloader). */
+  @keyframes noise-animation {
+    0%   { transform: translate(0, 0); }
+    10%  { transform: translate(-2%, -3%); }
+    20%  { transform: translate(-4%, 2%); }
+    30%  { transform: translate(2%, -4%); }
+    40%  { transform: translate(-2%, 5%); }
+    50%  { transform: translate(-4%, 2%); }
+    60%  { transform: translate(3%, 0); }
+    70%  { transform: translate(0, 3%); }
+    80%  { transform: translate(-3%, 0); }
+    90%  { transform: translate(2%, 2%); }
+    100% { transform: translate(1%, 0); }
   }
 </style>
 
@@ -202,61 +112,29 @@
 </head>
 <body class="is-pre-load">
 
-<!-- ============= INTRO LOADER (willem-style) =============
-     Faithful adaptation of the willem-loading-animation pattern:
-       1. ADI / TYA letters slide up on cream
-       2. Box opens between them, growing image inside
-       3. Three character-pose images flicker out in stagger
-       4. Image expands to full viewport (ink-dark backdrop)
-       5. Bottom mark "ADITYA" + top nav text slide up in white
-       6. Loader fades, hero takes over -->
-<section class="intro-loader" id="introLoader" aria-hidden="true">
-  <div class="intro-loader__loader">
-    <div class="intro-loader__h1">
-      <div class="intro-loader__h1-start">
-        <span class="intro-loader__letter">A</span>
-        <span class="intro-loader__letter">D</span>
-        <span class="intro-loader__letter">I</span>
-      </div>
-      <div class="intro-loader__box">
-        <div class="intro-loader__box-inner">
-          <div class="intro-loader__growing">
-            <div class="intro-loader__growing-wrap">
-              <img class="intro-loader__cover is--1" src="CYBERFICTION-IMAGES/male0150.png" alt="" decoding="async" />
-              <img class="intro-loader__cover is--2" src="CYBERFICTION-IMAGES/male0220.png" alt="" decoding="async" />
-              <img class="intro-loader__cover is--3" src="CYBERFICTION-IMAGES/male0270.png" alt="" decoding="async" />
-              <img class="intro-loader__cover-final" src="CYBERFICTION-IMAGES/male0001.png" alt="" decoding="async" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="intro-loader__h1-end">
-        <span class="intro-loader__letter">T</span>
-        <span class="intro-loader__letter">Y</span>
-        <span class="intro-loader__letter">A</span>
-      </div>
-    </div>
+<!-- ============= PRELOADER (noise / grain reveal) =============
+     Heavy film grain over the empty hero background (cream + topo);
+     the grain dissolves left to right to reveal the ADITYA VERMA
+     wordmark, then fades to the hero. JS: initPreloader. -->
+<section class="preloader" id="preloader" aria-hidden="true">
+  <div class="preloader__bg">
+    <svg class="preloader__topo" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <g stroke="currentColor" fill="none" stroke-width="0.6" opacity="0.35">
+        <path d="M-100,640 Q200,500 420,580 T880,520 T1300,640 T1750,540" />
+        <path d="M-100,700 Q220,560 460,640 T920,580 T1340,700 T1750,620" />
+        <path d="M-100,760 Q240,620 500,700 T960,640 T1380,760 T1750,700" />
+        <path d="M-100,820 Q260,680 540,760 T1000,700 T1420,820 T1750,780" />
+        <path d="M-100,880 Q280,740 580,820 T1040,760 T1460,880 T1750,860" />
+        <path d="M-100,580 Q220,440 460,520 T920,460 T1340,580 T1750,500" />
+        <path d="M-100,520 Q220,380 460,460 T920,400 T1340,520 T1750,440" />
+        <path d="M-100,460 Q220,320 460,400 T920,340 T1340,460 T1750,380" />
+        <path d="M-100,400 Q220,260 460,340 T920,280 T1340,400 T1750,320" />
+        <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
+      </g>
+    </svg>
   </div>
-  <div class="intro-loader__content">
-    <div class="intro-loader__top">
-      <span class="intro-loader__navlink">Aditya Verma ©</span>
-      <span class="intro-loader__navlink">Software,</span>
-      <span class="intro-loader__navlink">AI Interfaces,</span>
-      <span class="intro-loader__navlink">Portfolio 2026</span>
-    </div>
-    <div class="intro-loader__bottom">
-      <div class="intro-loader__mark">
-        <span class="intro-loader__letter-white">A</span>
-        <span class="intro-loader__letter-white">D</span>
-        <span class="intro-loader__letter-white">I</span>
-        <span class="intro-loader__letter-white">T</span>
-        <span class="intro-loader__letter-white">Y</span>
-        <span class="intro-loader__letter-white">A</span>
-        <span class="intro-loader__letter-white is--space">©</span>
-      </div>
-      <p class="intro-loader__credits">Tempe · Arizona · ASU</p>
-    </div>
-  </div>
+  <h2 class="preloader__name" aria-label="Aditya Verma"><span>Aditya</span><span>Verma</span></h2>
+  <div class="preloader__grain" id="preloaderGrain"><div class="preloader__grain-tex"></div></div>
 </section>
 
 <!-- ============= AMBIENT BACKGROUND LAYERS ============= -->
@@ -358,6 +236,26 @@
          (vanilla take on the text-effect draw-on). -->
     <h1 class="hero-sign" id="heroSign">
       <span class="hero-sign__base" id="heroSignBase">Aditya Verma</span>
+      <!-- Handwriting draw-on: the name as Dancing Script (700) stroke
+           paths that self-draw via stroke-dashoffset, then ink in. The
+           base span above is kept (invisible) purely for box geometry so
+           the hover-spotlight + scroll math are unchanged. -->
+    <svg class="hero-sign__draw" id="heroSignDraw" aria-hidden="true"
+         viewBox="-30 -752 5264 1062"
+         style="width:5.2640em;height:1.0620em"
+         fill="none" preserveAspectRatio="xMidYMid meet">
+      <path class="hero-sign__stroke" d="M46 87Q16 71 8 54Q0 37 0 25Q0-2 19.50-47.50Q39-93 72-152Q105-211 147-275Q116-277 88-278Q60-279 16-279L0-279Q14-315 44.50-329.50Q75-344 116-344Q133-344 151.50-342Q170-340 190-338Q240-410 288.50-474Q337-538 380.50-589.50Q424-641 458-674Q506-722 528-722Q542-722 559.50-711Q577-700 596-683Q586-675 570.50-642Q555-609 537.50-558.50Q520-508 502.50-448Q485-388 471-326Q457-264 448.50-207.50Q440-151 440-108Q440-68 448-48.50Q456-29 475-29Q498-29 532-64Q566-99 608-178L626-159Q595-77 545.50-24Q496 29 440 29Q392 29 372-12.50Q352-54 352-126Q352-149 355-178Q358-207 365-250Q321-257 287-261Q253-265 222-269Q174-184 129-93Q84-2 46 87M375-299Q388-358 405.50-418.50Q423-479 442.50-534.50Q462-590 481-634Q451-610 414-565Q377-520 336.50-459Q296-398 254-326Q284-320 314-313Q344-306 375-299"/>
+      <path class="hero-sign__stroke" d="M700 30Q681 30 661.50 20.50Q642 11 628.50-9Q615-29 615-60Q615-93 631-134Q647-175 674.50-216Q702-257 738.50-291Q775-325 816-346Q857-367 899-367Q922-367 935-359.50Q948-352 948-335Q948-330 946-323.50Q944-317 936-312Q932-318 922-320.50Q912-323 901-323Q868-323 838-304.50Q808-286 783-257Q758-228 739.50-194Q721-160 711-128.50Q701-97 701-74Q701-55 709-43.50Q717-32 733-32Q760-32 797.50-63.50Q835-95 874.50-154.50Q914-214 946-297Q968-354 992-413.50Q1016-473 1040-528Q1064-583 1087.50-626Q1111-669 1132.50-694.50Q1154-720 1172-720Q1183-720 1191.50-711.50Q1200-703 1200-690Q1200-673 1183.50-635.50Q1167-598 1141.50-546Q1116-494 1086.50-433.50Q1057-373 1031.50-309.50Q1006-246 989.50-184.50Q973-123 973-69Q973-45 977.50-36.50Q982-28 993-28Q1015-28 1042-45Q1069-62 1097-95.50Q1125-129 1148-176L1167-160Q1145-105 1111-63Q1077-21 1038 2.50Q999 26 961 26Q920 26 904 0Q888-26 888-61Q888-77 890.50-93.50Q893-110 896-126Q865-81 830.50-45.50Q796-10 763 10Q730 30 700 30"/>
+      <path class="hero-sign__stroke" d="M1202 30Q1158 30 1136 4Q1114-22 1114-59Q1114-82 1122-117Q1130-152 1144.50-190.50Q1159-229 1178-263Q1197-297 1219-318.50Q1241-340 1263-340Q1275-340 1284-333Q1293-326 1293-311Q1293-298 1277.50-272Q1262-246 1241.50-212Q1221-178 1205.50-141.50Q1190-105 1190-72Q1190-40 1201.50-29.50Q1213-19 1235-19Q1269-19 1309-53Q1349-87 1392-172L1407-156Q1372-68 1318-19Q1264 30 1202 30M1320-421Q1301-421 1285.50-430.50Q1270-440 1270-460Q1270-484 1296-501Q1322-518 1350-518Q1368-518 1380.50-510Q1393-502 1393-481Q1393-460 1370-440.50Q1347-421 1320-421"/>
+      <path class="hero-sign__stroke" d="M1457 46Q1413 46 1386 20Q1359-6 1359-59Q1359-100 1374.50-161Q1390-222 1414-287Q1407-289 1397.50-290.50Q1388-292 1379-296L1379-327Q1395-325 1405.50-324Q1416-323 1427-322Q1448-375 1472.50-424.50Q1497-474 1521.50-513Q1546-552 1568-574.50Q1590-597 1607-597Q1617-597 1626-589.50Q1635-582 1635-568Q1635-548 1614.50-511Q1594-474 1564-424.50Q1534-375 1506-319Q1514-319 1522-319Q1530-319 1537-319Q1581-319 1616.50-320.50Q1652-322 1689-326L1689-293Q1634-288 1588-285Q1542-282 1500-281Q1497-281 1494-281Q1491-281 1488-281Q1467-232 1451.50-180.50Q1436-129 1436-80Q1436-39 1449-22Q1462-5 1490-5Q1540-5 1592.50-50.50Q1645-96 1684-174L1698-164Q1672-105 1633.50-57Q1595-9 1550 18.50Q1505 46 1457 46"/>
+      <path class="hero-sign__stroke" d="M1702 280Q1677 280 1655.50 264.50Q1634 249 1634 215Q1634 183 1653 157.50Q1672 132 1702 110.50Q1732 89 1766.50 71.50Q1801 54 1833 39Q1844 10 1857.50-34.50Q1871-79 1881-117Q1850-74 1815-41Q1780-8 1737-8Q1719-8 1699-15.50Q1679-23 1665.50-41.50Q1652-60 1652-91Q1652-117 1661.50-154Q1671-191 1685.50-226.50Q1700-262 1716-285.50Q1732-309 1744-309Q1750-309 1761.50-304.50Q1773-300 1784-292.50Q1795-285 1798-276Q1789-264 1778-241.50Q1767-219 1757-191.50Q1747-164 1740.50-138Q1734-112 1734-93Q1734-78 1740-67Q1746-56 1763-56Q1785-56 1808.50-74Q1832-92 1854.50-120Q1877-148 1895-177Q1897-184 1899-199Q1901-214 1906-230Q1911-247 1923.50-261Q1936-275 1959-275Q1967-275 1974-274Q1981-273 1991-271Q1991-256 1980.50-212.50Q1970-169 1953-112Q1936-55 1915 2Q1957-15 2002.50-54.50Q2048-94 2076-167L2093-153Q2078-103 2047.50-66Q2017-29 1979-3Q1941 23 1902 40Q1875 105 1843.50 160Q1812 215 1777 247.50Q1742 280 1702 280M1692 243Q1711 243 1745 203Q1779 163 1814 83Q1782 99 1749.50 120.50Q1717 142 1695 166Q1673 190 1673 215Q1673 225 1677.50 234Q1682 243 1692 243"/>
+      <path class="hero-sign__stroke" d="M2110 47Q2077 47 2052.50 25Q2028 3 2028-41Q2028-76 2044-117Q2060-158 2088-198Q2116-238 2152-270.50Q2188-303 2229-323Q2270-343 2311-343Q2354-343 2384-321Q2414-299 2414-263Q2414-236 2395-224Q2376-212 2350-217Q2352-226 2353.50-235Q2355-244 2355-254Q2355-274 2347-290Q2339-306 2313-306Q2285-306 2256-287Q2227-268 2200.50-237.50Q2174-207 2153-170.50Q2132-134 2120-99Q2108-64 2108-36Q2108-4 2131-4Q2154-4 2182-26.50Q2210-49 2238.50-83Q2267-117 2293-152.50Q2319-188 2338-213Q2341-218 2346-218Q2350-217 2361.50-213.50Q2373-210 2383-203Q2393-196 2393-185Q2393-175 2384.50-159.50Q2376-144 2364.50-125.50Q2353-107 2344.50-88.50Q2336-70 2336-53Q2336-40 2343-28.50Q2350-17 2366-17Q2390-17 2433.50-52.50Q2477-88 2522-173L2541-154Q2517-100 2483.50-58.50Q2450-17 2413 6.50Q2376 30 2338 30Q2297 30 2277 4Q2257-22 2255-52Q2255-54 2255-55Q2255-56 2255-57Q2215-9 2181.50 19Q2148 47 2110 47"/>
+      <path class="hero-sign__stroke" d="M3003 87Q2987 87 2964.50 80.50Q2942 74 2924.50 54.50Q2907 35 2907-2Q2907-33 2919-77Q2931-121 2949-175Q2967-229 2985-291.50Q3003-354 3015-421.50Q3027-489 3027-559Q3027-594 3022-621Q3017-648 3004-663Q2991-678 2966-678Q2940-678 2922-663Q2904-648 2892.50-624Q2881-600 2875.50-574Q2870-548 2870-525Q2870-508 2873.50-492Q2877-476 2885-460Q2836-460 2814-483Q2792-506 2792-540Q2792-570 2807-602Q2822-634 2848.50-660.50Q2875-687 2910.50-703.50Q2946-720 2986-720Q3054-720 3089-670.50Q3124-621 3124-535Q3124-480 3111.50-420Q3099-360 3081-299.50Q3063-239 3044.50-182Q3026-125 3013.50-76.50Q3001-28 3001 8Q3001 24 3005.50 33Q3010 42 3025 42Q3054 42 3090.50 15Q3127-12 3166-58.50Q3205-105 3242-164Q3279-223 3309-287Q3339-351 3356.50-414Q3374-477 3374-530Q3374-583 3355-611Q3336-639 3307-649Q3321-679 3341.50-692.50Q3362-706 3378-706Q3405-706 3429-672Q3453-638 3453-576Q3453-522 3432.50-452.50Q3412-383 3376-308.50Q3340-234 3294.50-163.50Q3249-93 3198.50-36.50Q3148 20 3098 53.50Q3048 87 3003 87"/>
+      <path class="hero-sign__stroke" d="M3543 44Q3479 44 3444.50 9.50Q3410-25 3410-77Q3410-121 3432.50-170.50Q3455-220 3493-263.50Q3531-307 3577-334Q3623-361 3669-361Q3695-361 3718.50-347.50Q3742-334 3742-294Q3742-256 3720-223Q3698-190 3661-164Q3624-138 3579.50-121.50Q3535-105 3490-100Q3489-96 3488.50-91.50Q3488-87 3488-77Q3488-72 3489.50-59.50Q3491-47 3498-33Q3505-19 3521-9Q3537 1 3565 1Q3607 1 3649.50-22.50Q3692-46 3729.50-85Q3767-124 3792-172L3812-156Q3785-96 3742.50-51Q3700-6 3648.50 19Q3597 44 3543 44M3501-137Q3527-140 3559-155Q3591-170 3620.50-193Q3650-216 3669-243.50Q3688-271 3688-299Q3688-310 3684-314Q3680-318 3671-318Q3648-318 3623-301.50Q3598-285 3574-258.50Q3550-232 3531-200Q3512-168 3501-137"/>
+      <path class="hero-sign__stroke" d="M3953 26Q3916 26 3893 6.50Q3870-13 3870-46Q3870-74 3884-106Q3898-138 3912.50-169Q3927-200 3927-224Q3927-247 3912-262.50Q3897-278 3877-288Q3855-233 3827.50-181.50Q3800-130 3783-101L3768-130Q3782-156 3805-204Q3828-252 3849-311Q3839-321 3839-338Q3839-364 3855-387Q3871-410 3886-410Q3898-410 3903.50-396.50Q3909-383 3909-378Q3909-373 3904.50-360Q3900-347 3898-341Q3899-330 3915.50-319.50Q3932-309 3953-295Q3974-281 3990-260Q4006-239 4006-207Q4006-178 3993-148Q3980-118 3967-92Q3954-66 3954-47Q3954-33 3961.50-28.50Q3969-24 3979-24Q4003-24 4029-38.50Q4055-53 4080-76Q4105-99 4124-124.50Q4143-150 4153-171L4177-153Q4158-110 4122-68.50Q4086-27 4042-0.50Q3998 26 3953 26"/>
+      <path class="hero-sign__stroke" d="M4654 31Q4615 31 4596 8Q4577-15 4577-47Q4577-70 4584-93Q4591-116 4598-138.50Q4605-161 4605-179Q4605-196 4598.50-202.50Q4592-209 4582-209Q4559-209 4528.50-174Q4498-139 4453-72Q4437-48 4423-21.50Q4409 5 4398 23Q4389 23 4374.50 20Q4360 17 4349 11.50Q4338 6 4338-3Q4338-12 4348-38Q4358-64 4371-98.50Q4384-133 4394-166.50Q4404-200 4404-223Q4404-237 4399-245Q4394-253 4383-253Q4362-253 4332.50-228Q4303-203 4270.50-162.50Q4238-122 4209.50-72.50Q4181-23 4163 27Q4152 27 4136 22.50Q4120 18 4108 11.50Q4096 5 4096 0Q4096-1 4103-28.50Q4110-56 4120-97Q4130-138 4141-181Q4152-224 4160-256Q4163-267 4182-275.50Q4201-284 4215-284Q4229-284 4239-275Q4249-266 4249-251Q4249-241 4245-222Q4241-203 4235-179Q4256-207 4279.50-234.50Q4303-262 4328.50-284Q4354-306 4379.50-319Q4405-332 4430-332Q4467-332 4480-305.50Q4493-279 4493-248Q4493-235 4491-222.50Q4489-210 4485.50-197.50Q4482-185 4476-168Q4495-196 4517.50-219.50Q4540-243 4566-257Q4592-271 4621-271Q4660-271 4675-247.50Q4690-224 4690-196Q4690-170 4681.50-141.50Q4673-113 4664.50-87.50Q4656-62 4656-44Q4656-34 4661-25.50Q4666-17 4681-17Q4708-17 4733-42Q4758-67 4779.50-103.50Q4801-140 4816-173L4833-152Q4817-111 4791.50-68.50Q4766-26 4732 2.50Q4698 31 4654 31"/>
+      <path class="hero-sign__stroke" d="M4847 47Q4814 47 4789.50 25Q4765 3 4765-41Q4765-76 4781-117Q4797-158 4825-198Q4853-238 4889-270.50Q4925-303 4966-323Q5007-343 5048-343Q5091-343 5121-321Q5151-299 5151-263Q5151-236 5132-224Q5113-212 5087-217Q5089-226 5090.50-235Q5092-244 5092-254Q5092-274 5084-290Q5076-306 5050-306Q5022-306 4993-287Q4964-268 4937.50-237.50Q4911-207 4890-170.50Q4869-134 4857-99Q4845-64 4845-36Q4845-4 4868-4Q4891-4 4919-26.50Q4947-49 4975.50-83Q5004-117 5030-152.50Q5056-188 5075-213Q5078-218 5083-218Q5087-217 5098.50-213.50Q5110-210 5120-203Q5130-196 5130-185Q5130-175 5121.50-159.50Q5113-144 5101.50-125.50Q5090-107 5081.50-88.50Q5073-70 5073-53Q5073-40 5080-28.50Q5087-17 5103-17Q5127-17 5170.50-52.50Q5214-88 5259-173L5278-154Q5254-100 5220.50-58.50Q5187-17 5150 6.50Q5113 30 5075 30Q5034 30 5014 4Q4994-22 4992-52Q4992-54 4992-55Q4992-56 4992-57Q4952-9 4918.50 19Q4885 47 4847 47"/>
+    </svg>
       <!-- Hover spotlight: an ink circle follows the cursor and reveals
            "software engineer" inside it (morphing-cursor effect). -->
       <span class="hero-sign__lens" id="heroSignLens" aria-hidden="true">
@@ -443,28 +341,14 @@
         <span></span><span></span><span></span><span></span>
       </div>
 
-      <div class="cinema__captions">
-        <p class="cinema__caption" data-from="0.05" data-to="0.30">
-          <span class="cinema__caption-num">01 ·</span>
-          I design and build <em>full-stack products</em>
-          where the interface feels inevitable.
-        </p>
-        <p class="cinema__caption" data-from="0.32" data-to="0.55">
-          <span class="cinema__caption-num">02 ·</span>
-          Studying <em>Computer Science</em> at Arizona State,
-          shipping AI-native tools the rest of the time.
-        </p>
-        <p class="cinema__caption" data-from="0.58" data-to="0.82">
-          <span class="cinema__caption-num">03 ·</span>
-          <em>Three years</em> of internships, side projects,
-          and 1.5&nbsp;million views on creative work.
-        </p>
-        <p class="cinema__caption" data-from="0.85" data-to="1.05">
-          <span class="cinema__caption-num">04 ·</span>
-          Available <em>Summer 2026</em> &mdash;
-          let's build something <em>good.</em>
-        </p>
-      </div>
+      <!-- Side statement (blur-text reveal). Sits opposite the
+           character: shown on the RIGHT while the character is on the
+           left, and on the LEFT while it's on the right. The word
+           spans + per-word blur values are built in initBlurAside; the
+           reveal is toggled from motionTick by the sign of the
+           character's scroll-X. -->
+      <p class="cinema__aside cinema__aside--right" id="cinemaAsideRight" aria-hidden="true">Self-taught, <em>Tempe-based</em>, and always chasing the next thing to build.</p>
+      <p class="cinema__aside cinema__aside--left" id="cinemaAsideLeft" aria-hidden="true">Equal parts <em>engineer</em> and <em>designer</em> &mdash; I obsess over how it feels.</p>
     </div>
 
   </div>
@@ -877,6 +761,6 @@
 
 </main>
 
-<script src="script.js" defer></script>
+<script src="script.js?v=6" defer></script>
 </body>
 </html>

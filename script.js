@@ -48,6 +48,9 @@
   const cinemaBar = document.getElementById('cinemaBar');
   const cinemaRuntime = document.getElementById('cinemaRuntime');
   const captions = Array.from(document.querySelectorAll('.cinema__caption'));
+  const cinemaAsideLeft = document.getElementById('cinemaAsideLeft');
+  const cinemaAsideRight = document.getElementById('cinemaAsideRight');
+  let asideSide = 0;   // -1 = right text shown (char left); 1 = left text shown (char right)
   const topoBg = document.querySelector('.topo-bg');
   const aurora = document.querySelector('.aurora');
 
@@ -248,6 +251,70 @@
       const to = parseFloat(c.dataset.to);
       c.classList.toggle('is-active', cp >= from && cp < to);
     });
+  }
+
+  /* -------------------------------------------------------
+     SIDE STATEMENT — vanilla blur-text-animation port.
+     Split each aside into words and stamp per-word blur /
+     duration / delay / scale (the React component's computed
+     values) onto CSS custom props; the blur-reveal itself is
+     the CSS transition toggled by .is-revealed. updateAside()
+     flips which side is revealed from the character's scroll-X.
+     ------------------------------------------------------- */
+  function initBlurAside() {
+    [cinemaAsideLeft, cinemaAsideRight].filter(Boolean).forEach((el) => {
+      el.setAttribute('aria-label', el.textContent.trim());
+      // Walk child nodes so <em> phrases keep their emphasis: collect
+      // (word, emphasised?) tokens in document order, then rebuild as
+      // per-word blur spans.
+      const tokens = [];
+      el.childNodes.forEach((node) => {
+        const em = node.nodeType === 1 && node.tagName === 'EM';
+        (node.textContent || '').split(/\s+/).forEach((w) => {
+          if (w) tokens.push({ w, em });
+        });
+      });
+      el.textContent = '';
+      const n = tokens.length;
+      tokens.forEach((tok, i) => {
+        const progress = i / n;
+        const exp = Math.pow(progress, 0.8) * 0.2;
+        const base = i * 0.028;
+        const micro = (Math.random() - 0.5) * 0.04;
+        const dur = 0.7 + Math.cos(i * 0.3) * 0.18;
+        const delay = Math.max(0, base + exp + micro);
+        const blur = 8 + Math.floor(Math.random() * 10);    // modest blur — cheaper to raster on big type
+        const scale = 0.9 + Math.sin(i * 0.2) * 0.05;
+        const span = document.createElement('span');
+        span.className = 'cinema__aside-w' + (tok.em ? ' cinema__aside-w--em' : '');
+        span.textContent = tok.w;
+        span.style.setProperty('--dur', dur.toFixed(2) + 's');
+        span.style.setProperty('--delay', delay.toFixed(2) + 's');
+        span.style.setProperty('--blur', blur + 'px');
+        span.style.setProperty('--scale', scale.toFixed(3));
+        el.appendChild(span);
+      });
+    });
+  }
+
+  /* Character LEFT (scrollX < 0) → reveal the RIGHT text; character
+     RIGHT (scrollX > 0) → reveal the LEFT text; near centre, hide both.
+     The RIGHT text is gated with a small look-ahead so it starts AND
+     ends a bit earlier — leading the character into/out of the left
+     pose. The LEFT text stays in step. Only touches the DOM on change. */
+  const ASIDE_RIGHT_LEAD = 0.045;   // ~12 virtual frames earlier
+  function updateAside(timelineProgress) {
+    if (!cinemaAsideLeft || !cinemaAsideRight) return;
+    const thresh = (motion.scrollShift || 220) * 0.45;
+    const xLeftText  = computeScrollX(timelineProgress);                      // in step
+    const xRightText = computeScrollX(timelineProgress + ASIDE_RIGHT_LEAD);   // a touch earlier
+    let side = 0;
+    if (xRightText <= -thresh) side = -1;       // character (nearly) LEFT → right text
+    else if (xLeftText >= thresh) side = 1;     // character RIGHT → left text
+    if (side === asideSide) return;
+    asideSide = side;
+    cinemaAsideRight.classList.toggle('is-revealed', side === -1);
+    cinemaAsideLeft.classList.toggle('is-revealed', side === 1);
   }
 
   /* -------------------------------------------------------
@@ -494,6 +561,7 @@
       motion.cursorRenderedY.toFixed(2) + 'px, 0)';
     renderFrame(animP * (FRAME_COUNT - 1), shouldAdvance);
     renderCinemaUI(animP);
+    updateAside(timelineProgress);   // reveal the side statement opposite the character
 
     // --- Suspend when nothing should advance AND cursor settled ---
     // Covers: INTRO_DELAY waiting, HOLD before first scroll,
@@ -729,24 +797,17 @@
   }
 
   /* -------------------------------------------------------
-     initIntroLoader — willem-style GSAP timeline.
-     Sequence:
-       1. ADI / TYA letters slide up
-       2. Box opens; growing image inside fills the box
-       3. Heading halves shift slightly to mark the opening
-       4. Three character-pose covers flicker out in stagger
-       5. Image expands to full viewport (ink-dark backdrop)
-       6. Box widens to 110vw to keep things visually flush
-       7. White bottom mark + top nav text slide up
-       8. Brief hold, then GSAP fades the loader and calls finish.
-     Falls back to a safety timer if GSAP isn't available.
+     initPreloader — noise / grain reveal.
+     Heavy film grain covers the empty hero background; a soft
+     horizontal mask (--wipe) dissolves it left to right so the
+     ADITYA VERMA wordmark emerges, then the whole preloader fades
+     and the hero takes over. Removing .is-pre-load kicks the hero
+     name's handwriting draw-on. rAF-driven; safety-timed.
      ------------------------------------------------------- */
-  function initIntroLoader() {
-    const loader = document.getElementById('introLoader');
-    if (!loader) {
-      startHeroReel();
-      return;
-    }
+  function initPreloader() {
+    const loader = document.getElementById('preloader');
+    if (!loader) { startHeroReel(); return; }
+    const grain = document.getElementById('preloaderGrain');
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -755,97 +816,41 @@
     function finishLoader() {
       if (done) return;
       done = true;
-      loader.classList.add('is--gone');
-      document.body.classList.remove('is-pre-load');
+      document.body.classList.remove('is-pre-load');   // kicks the hero name draw-on
       document.body.style.overflow = prevOverflow;
       startHeroReel();
+      setTimeout(() => loader.classList.add('is--gone'), 750);
+    }
+    function exit() {
+      clearTimeout(safety);
+      loader.classList.add('is--fading');               // fade preloader out
+      setTimeout(finishLoader, 700);                    // then hand off to the hero
     }
 
-    // Absolute safety — never let the user get stuck on the loader.
-    const safety = setTimeout(finishLoader, 9000);
+    // Absolute safety — never leave the user stuck on the loader.
+    const safety = setTimeout(exit, 9000);
 
-    if (typeof gsap === 'undefined') {
-      // No GSAP → snap finish. The safety timer above also handles
-      // it, but call sooner so the user doesn't wait 9 s.
-      clearTimeout(safety);
-      setTimeout(finishLoader, 400);
+    // Reduced motion: skip the grain reveal, fade straight in.
+    if (reduceMotionMQ && reduceMotionMQ.matches) {
+      if (grain) grain.style.setProperty('--wipe', '105%');
+      setTimeout(exit, 350);
       return;
     }
 
-    try {
-      const letters     = loader.querySelectorAll('.intro-loader__letter');
-      const box         = loader.querySelectorAll('.intro-loader__box');
-      const growing     = loader.querySelectorAll('.intro-loader__growing');
-      const headStart   = loader.querySelectorAll('.intro-loader__h1-start');
-      const headEnd     = loader.querySelectorAll('.intro-loader__h1-end');
-      const covers      = loader.querySelectorAll('.intro-loader__cover');
-      const whiteMark   = loader.querySelectorAll('.intro-loader__letter-white');
-      const navLinks    = loader.querySelectorAll('.intro-loader__navlink, .intro-loader__credits');
+    const DURATION = 3000;   // grain dissolves over this long
+    const HOLD = 560;        // hold on the revealed name before exit
+    // easeInOutQuad
+    const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+    const t0 = performance.now();
 
-      // Lock initial states explicitly so paint-timing doesn't
-      // matter (matches the `from` values in the willem reference).
-      if (letters.length)   gsap.set(letters,   { yPercent: 100 });
-      if (whiteMark.length) gsap.set(whiteMark, { yPercent: 100 });
-      if (navLinks.length)  gsap.set(navLinks,  { yPercent: 100 });
-
-      const tl = gsap.timeline({
-        defaults: { ease: 'expo.inOut' },
-        onComplete: () => {
-          clearTimeout(safety);
-          // GSAP-driven fade so the timing is in our hands.
-          gsap.to(loader, {
-            opacity: 0,
-            duration: 0.6,
-            ease: 'power2.out',
-            onComplete: finishLoader
-          });
-        }
-      });
-
-      // 1. ADI / TYA letters slide up
-      tl.to(letters, { yPercent: 0, stagger: 0.025, duration: 1.0 });
-
-      // 2. Box opens between them; growing image fills it
-      tl.fromTo(box,
-        { width: '0em' },
-        { width: '1em', duration: 1.0 },
-        '< 1.0');
-      tl.fromTo(growing,
-        { width: '0%' },
-        { width: '100%', duration: 1.0 },
-        '<');
-
-      // 3. Heading halves shift outward subtly
-      tl.fromTo(headStart, { x: '0em' }, { x: '-0.05em', duration: 1.0 }, '<');
-      tl.fromTo(headEnd,   { x: '0em' }, { x:  '0.05em', duration: 1.0 }, '<');
-
-      // 4. Cover layers flicker out (each visible briefly)
-      tl.to(covers, {
-        opacity: 0, duration: 0.05, ease: 'none', stagger: 0.4
-      }, '>-=0.05');
-
-      // 5. Growing image expands to full viewport
-      tl.to(growing, {
-        width: '100vw', height: '100vh', duration: 1.6
-      }, '>-=0.1');
-      tl.to(box, { width: '110vw', duration: 1.6 }, '<');
-
-      // 6. White ADITYA mark slides up + nav text slides up
-      tl.to(whiteMark, {
-        yPercent: 0, duration: 1.0, ease: 'expo.out', stagger: 0.035
-      }, '<+=0.7');
-      tl.to(navLinks, {
-        yPercent: 0, duration: 1.0, ease: 'expo.out', stagger: 0.08
-      }, '<');
-
-      // 7. Brief hold on the composed final shot before fade-out
-      tl.to({}, { duration: 0.7 });
-    } catch (err) {
-      clearTimeout(safety);
-      setTimeout(finishLoader, 500);
-      // eslint-disable-next-line no-console
-      console.error('[intro-loader] timeline failed:', err);
+    function frame(now) {
+      const p = Math.min((now - t0) / DURATION, 1);
+      // --wipe runs -10% -> 105%, dissolving the grain left to right.
+      if (grain) grain.style.setProperty('--wipe', (-10 + ease(p) * 115).toFixed(2) + '%');
+      if (p < 1) requestAnimationFrame(frame);
+      else setTimeout(exit, HOLD);
     }
+    requestAnimationFrame(frame);
   }
 
   /* -------------------------------------------------------
@@ -2099,24 +2104,64 @@
       requestAnimationFrame(frame);
     }
 
-    // ----- Name write-on (clip sweep on the BASE layer). The welcome
-    // line kicks off once the name is ~halfway revealed, so the two
-    // overlap and cascade instead of running strictly back-to-back. -----
+    // ----- Name handwriting draw-on. Each Dancing Script glyph is a
+    // stroked path that self-draws via stroke-dashoffset (staggered
+    // left-to-right, like handwriting) then inks in — the fill fades up
+    // as the pen stroke thins to nothing. Replaces the old clip sweep.
+    // The welcome line kicks once the name is ~halfway drawn so the two
+    // overlap and cascade. -----
     let started = false;
-    function writeOn() {
+    function startDraw() {
       if (started) return;
       started = true;
-      const DUR = 2400;
+      const draw = document.getElementById('heroSignDraw');
+      const strokes = draw
+        ? Array.prototype.slice.call(draw.querySelectorAll('.hero-sign__stroke'))
+        : [];
+      if (!strokes.length || typeof strokes[0].getTotalLength !== 'function') {
+        // Fallback (SVG missing / no getTotalLength): show the static name.
+        baseEl.style.clipPath = CLIP_OPEN;
+        writeWelcome();
+        return;
+      }
+
+      const DRAW = 620, STAGGER = 175, n = strokes.length;
+      const total = DRAW + (n - 1) * STAGGER;
+
+      // Hide each stroke (dash = full length) before revealing the SVG so
+      // the formed outline never flashes. Driven by ONE rAF loop — same
+      // approach as the welcome write-on, reliable everywhere and (unlike
+      // WAAPI) not tied to the document timeline.
+      const lengths = strokes.map((p) => {
+        const L = p.getTotalLength();
+        p.style.strokeDasharray = String(L);
+        p.style.strokeDashoffset = String(L);
+        return L;
+      });
+      draw.style.opacity = '1';
+
+      const inked = new Array(n).fill(false);
+      const drawEase = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
       const t0 = performance.now();
       let welcomeKicked = false;
       function frame(now) {
-        let p = (now - t0) / DUR;
-        if (p < 0) p = 0; else if (p > 1) p = 1;
-        const e = ease(p);
-        baseEl.style.clipPath = clipAt(e);
-        // e is the visual reveal fraction; 0.5 = name half written-on.
-        if (!welcomeKicked && e >= 0.5) { welcomeKicked = true; writeWelcome(); }
-        if (p < 1) requestAnimationFrame(frame);
+        const elapsed = now - t0;
+        for (let i = 0; i < n; i++) {
+          if (inked[i]) continue;
+          const q = (elapsed - i * STAGGER) / DRAW;   // this letter's progress
+          if (q <= 0) continue;
+          if (q >= 1) {
+            inked[i] = true;
+            strokes[i].style.strokeDashoffset = '0';  // pin the drawn state
+            strokes[i].style.fillOpacity = '1';       // ink this letter in
+            strokes[i].style.strokeWidth = '0';       // pen thins to nothing
+          } else {
+            strokes[i].style.strokeDashoffset = String(lengths[i] * (1 - drawEase(q)));
+          }
+        }
+        // Welcome line kicks once the name is ~halfway drawn.
+        if (!welcomeKicked && elapsed >= total * 0.5) { welcomeKicked = true; writeWelcome(); }
+        if (elapsed < total + 80) requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
     }
@@ -2124,16 +2169,16 @@
     // Trigger once the loader has removed .is-pre-load (the hero is
     // revealed). If that already happened, go now.
     if (!document.body.classList.contains('is-pre-load')) {
-      writeOn();
+      startDraw();
     } else {
       const mo = new MutationObserver(() => {
         if (!document.body.classList.contains('is-pre-load')) {
           mo.disconnect();
-          writeOn();
+          startDraw();
         }
       });
       mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-      setTimeout(() => { if (!started) writeOn(); }, 9000);  // safety net
+      setTimeout(() => { if (!started) startDraw(); }, 9000);  // safety net
     }
 
     // ----- Hover spotlight ("morphing cursor") reveal -----
@@ -2263,6 +2308,22 @@
     }
   }
 
+  /* -------------------------------------------------------
+     initWelcomeBreath — the weight-breath on the bottom line is pure
+     CSS now (a single faux-bold text-shadow per line; see
+     .hero__welcome--left/right). There's no stacked bold copy, so no
+     double-image ghosting. This only wires the IntersectionObserver
+     that pauses that CSS animation while the hero is off screen.
+     ------------------------------------------------------- */
+  function initWelcomeBreath() {
+    const heroSec = document.getElementById('hero');
+    if (heroSec && 'IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        document.body.classList.toggle('hero-hidden', !entries[0].isIntersecting);
+      }).observe(heroSec);
+    }
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -2306,6 +2367,8 @@
 
     initTopo();
     initHeroSign();
+    initWelcomeBreath();
+    initBlurAside();
     initReveals();
     initStatCounters();
     initScrollProgress();
@@ -2339,7 +2402,7 @@
     // finishes, it calls startHeroReel() to wake the cinema
     // reel. If GSAP / loader element are missing, the loader
     // skips itself and startHeroReel() runs immediately.
-    initIntroLoader();
+    initPreloader();
 
     // Preload frames in priority order. When the full set is in
     // memory, force a redraw and tell ScrollTrigger to recompute
