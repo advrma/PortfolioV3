@@ -12,10 +12,20 @@
   // Source has 300 frames. We sample every Nth to keep total
   // payload reasonable while still feeling silky on scroll.
   const TOTAL_SOURCE_FRAMES = 300;
-  const STEP = 1;                  // every source frame — needed so adjacent
-                                   // rAF ticks paint *different* poses, which
-                                   // is what the canvas-accumulation motion
-                                   // blur relies on for a visible smear.
+
+  // Weak-device detection — used ONLY to load fewer character frames
+  // (every 2nd → ~150) on low-power machines, roughly halving image
+  // decode + memory. Capable devices keep all 300. `?lp=1` / `?lp=0`
+  // forces it on/off for testing.
+  const lpParam = new URLSearchParams(location.search).get('lp');
+  const isLowPower = lpParam === '1' ? true
+    : lpParam === '0' ? false
+    : ((navigator.hardwareConcurrency || 8) <= 4
+       || (navigator.deviceMemory || 8) <= 4
+       || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+       || Math.min(window.innerWidth, window.innerHeight) <= 768);
+
+  const STEP = isLowPower ? 2 : 1; // every source frame (300) or every 2nd (~150)
   const PAD = 4;                   // filename zero-padding
   const PREFIX = 'CYBERFICTION-IMAGES/male';
   const EXT = '.png';
@@ -406,7 +416,13 @@
     scrollShift: 0,
     pinRect: null,
     // Loop state
-    running: false
+    running: false,
+    // Visibility gating — the reel suspends entirely while the hero
+    // section is off-screen (set by the #hero IntersectionObserver) or
+    // the tab is hidden (visibilitychange). No point drawing the
+    // character canvas over the warp/gallery sections.
+    heroVisible: true,
+    pageVisible: true
   };
 
   /* CINEMA-REEL TIMELINE — fixed cadence, direction-gated.
@@ -470,6 +486,13 @@
   }
 
   function motionTick() {
+    // Suspend the whole reel while the hero is off-screen or the tab is
+    // hidden — nothing to draw, and the warp/gallery sections below are
+    // the expensive ones. Wakes via kickMotion() on re-enter.
+    if (!motion.heroVisible || !motion.pageVisible) {
+      motion.running = false;
+      return;
+    }
     // --- Decide whether to advance this tick, and which way ---
     //   INTRO branch (!hasScrolled): forward only, after delay,
     //     until animFrame hits HOLD_FRAME.
@@ -591,6 +614,9 @@
   }
 
   function kickMotion() {
+    // Don't wake the reel while the hero is off-screen or the tab is
+    // hidden (re-entry calls kickMotion again to resume).
+    if (!motion.heroVisible || !motion.pageVisible) return;
     if (reduceMotionMQ && reduceMotionMQ.matches) {
       // Reduced motion: no autoplay, no intro delay. animFrame
       // tracks raw scroll position 1:1, UI follows the original
@@ -1012,6 +1038,7 @@
     const coordEl  = document.getElementById('warpCoord');
     const catEl    = document.getElementById('warpCat');
     if (!section || !viewport || !world) return;
+    const scanlines = section.querySelector('.warp__scanlines');
 
     /* Heading + the top skills per category. Order is the
        sequence the camera flies past, then loops. */
@@ -1164,11 +1191,12 @@
         else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
         else                   alpha = 1;
         if (alpha < 0) alpha = 0;
-        item.el.style.opacity = alpha.toFixed(3);
+        // Write opacity only when it actually changed (most items hold a
+        // steady 1 or 0 across frames) — avoids ~hundreds of redundant
+        // style mutations per frame. First paint writes (cache undefined).
+        const op = alpha.toFixed(3);
+        if (op !== item._lastOp) { item.el.style.opacity = op; item._lastOp = op; }
 
-        // Always write the transform (not just when alpha > 0). On the
-        // initial paint, every item needs a real translate3d so it
-        // doesn't fall back to the CSS center.
         let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
         if (item.type === 'star') {
           const stretch = Math.max(1, Math.min(1 + Math.abs(velocity) * 0.06, 8));
@@ -1179,7 +1207,8 @@
           const floatY = Math.sin(t + item.x * 0.01) * 5;
           trans += ` rotateZ(${item.rot}deg) rotateY(${floatY.toFixed(2)}deg)`;
         }
-        item.el.style.transform = trans;
+        // Same for the transform — skip the write when unchanged.
+        if (trans !== item._lastTr) { item.el.style.transform = trans; item._lastTr = trans; }
       }
     }
 
@@ -1237,11 +1266,14 @@
         start: 'top top',
         end:   'bottom bottom',
         invalidateOnRefresh: true,
-        onEnter:     () => { state.visible = true;  startRender(); },
-        onEnterBack: () => { state.visible = true;  startRender(); },
-        onLeave:     () => { state.visible = false; },
-        onLeaveBack: () => { state.visible = false; }
+        onEnter:     () => { state.visible = true;  if (scanlines) scanlines.style.display = ''; startRender(); },
+        onEnterBack: () => { state.visible = true;  if (scanlines) scanlines.style.display = ''; startRender(); },
+        onLeave:     () => { state.visible = false; if (scanlines) scanlines.style.display = 'none'; },
+        onLeaveBack: () => { state.visible = false; if (scanlines) scanlines.style.display = 'none'; }
       });
+      // Start hidden until the section enters (the full-viewport
+      // mix-blend overlay shouldn't composite while it's off-screen).
+      if (scanlines) scanlines.style.display = 'none';
 
       // Subtle parallax depth on the warp pin during the hero reveal:
       // translateY 8vh → 0 over the first 100vh of the section. Combined
@@ -2324,7 +2356,12 @@
     const heroSec = document.getElementById('hero');
     if (heroSec && 'IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
-        document.body.classList.toggle('hero-hidden', !entries[0].isIntersecting);
+        const visible = entries[0].isIntersecting;
+        document.body.classList.toggle('hero-hidden', !visible);
+        // Gate the cinema reel: suspend it entirely while the hero is
+        // off-screen, resume (and repaint) on re-entry.
+        motion.heroVisible = visible;
+        if (visible) kickMotion();
       }).observe(heroSec);
     }
   }
@@ -2419,6 +2456,14 @@
     });
 
     window.addEventListener('resize', onResize);
+
+    // Suspend the hero reel while the tab is backgrounded (browsers
+    // already throttle rAF, but this also stops the reel's auto-advance
+    // cleanly); resume + repaint on return.
+    document.addEventListener('visibilitychange', () => {
+      motion.pageVisible = !document.hidden;
+      if (motion.pageVisible) kickMotion();
+    });
   }
 
   if (document.readyState === 'loading') {

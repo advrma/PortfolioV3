@@ -458,6 +458,10 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   animation: haloPulse 9s ease-in-out infinite;
   pointer-events: none;
 }
+/* Pause the (blurred, animated) halo while the hero is off-screen — no
+   point re-rasterising a 28px blur on a scaling element you can't see.
+   Identical on-screen; mirrors the welcomeBreath pause. */
+body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 
 /* Signature wordmark behind the character. Cursive, tilted like a
    real autograph, z-index 1 so it sits BEHIND the character canvas
@@ -979,54 +983,8 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
 .cinema__crosshair span:nth-child(3) { left: 50%; top: 16%; width: 1px; height: 28px; }
 .cinema__crosshair span:nth-child(4) { left: 50%; bottom: 16%; width: 1px; height: 28px; }
 
-.cinema__captions {
-  position: absolute;
-  left: 50%; bottom: 12%;
-  transform: translateX(-50%);
-  width: min(820px, 92vw);
-  text-align: center;
-  pointer-events: none;
-  min-height: 180px;
-}
-.cinema__caption {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  font-family: var(--f-display);
-  font-weight: 400;
-  font-size: clamp(28px, 4vw, 54px);
-  line-height: 1.08;
-  letter-spacing: -0.005em;
-  color: var(--ink);
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity .6s var(--ease-out-quart), transform .6s var(--ease-out-quart);
-  padding: 22px 28px;
-  border-radius: 18px;
-  background: linear-gradient(180deg,
-    rgba(244, 241, 234, 0) 0%,
-    rgba(244, 241, 234, 0.85) 35%,
-    rgba(244, 241, 234, 0.95) 100%);
-  backdrop-filter: blur(6px);
-}
-.cinema__caption.is-active { opacity: 1; transform: translateY(0); }
-.cinema__caption em {
-  font-family: var(--f-serif);
-  font-style: italic;
-  font-weight: 400;
-  color: var(--ink);
-  background: linear-gradient(transparent 68%, var(--accent) 68%, var(--accent) 92%, transparent 92%);
-  padding: 0 0.06em;
-}
-.cinema__caption-num {
-  display: inline-block;
-  font-family: var(--f-mono);
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  color: var(--ink-mute);
-  margin-right: 8px;
-  vertical-align: middle;
-}
+/* Cinema captions removed — the markup was deleted earlier, so these
+   rules (incl. a backdrop-filter: blur(6px)) were dead weight. */
 
 /* Side statement — vanilla port of blur-text-animation. Each word
    blur-reveals (blur + translateY + scale + rotateX, staggered) when
@@ -1892,7 +1850,9 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   width: 2px; height: 2px;
   background: rgba(242, 238, 229, 0.8);
   transform: translate(-50%, -50%);
-  will-change: transform, opacity;
+  /* No will-change here: ~520 stars × will-change = ~520 permanent GPU
+     layers (huge VRAM). The compositor promotes them on demand while the
+     warp render loop animates; identical appearance. */
 }
 
 /* Scanlines + vignette overlays inside pin */
@@ -1925,6 +1885,10 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   position: relative;
   padding: var(--section-y) 0;
   z-index: 1;
+  /* Skip layout/paint while off-screen. `auto` intrinsic size remembers
+     the real height after first render, so there's no scroll jump. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
 }
 .experience__list {
   padding: 0 var(--gutter);
@@ -2175,6 +2139,8 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   position: relative;
   padding: var(--section-y) var(--gutter) 0;
   z-index: 1;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 700px;
 }
 .contact__inner {
   max-width: 1200px;
@@ -2281,6 +2247,8 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   border-top: 1px solid var(--line-soft);
   display: grid; grid-template-columns: 1fr 1fr 1fr;
   align-items: center;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
   font-family: var(--f-mono);
   font-size: 10px; letter-spacing: 0.22em;
   color: var(--ink-mute);
