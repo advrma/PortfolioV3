@@ -95,26 +95,32 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   100% { transform: translate3d(4vw, 3vh, 0) rotate(2deg); }
 }
 
-/* Film-grain — animated step-shift gives the calm 24fps cinema feel */
+/* Film-grain — animated step-shift gives the calm 24fps cinema feel.
+   Perf: oversized + animated via translate3d (compositor only, no
+   per-frame paint) and a plain normal blend instead of mix-blend-mode
+   multiply — the old multiply forced a full-viewport backdrop re-blend
+   on every frame of every scroll/animation, site-wide. Over this cream
+   palette a low-opacity black grain reads the same either way. */
 .grain {
-  position: fixed; inset: 0;
+  position: fixed; inset: -40px;   /* oversize so the shift never reveals an edge */
   pointer-events: none;
   z-index: 200;
-  opacity: 0.38;
-  mix-blend-mode: multiply;
+  opacity: 0.28;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   background-size: 220px 220px;
   animation: grainShift 1.6s steps(6) infinite;
-  will-change: background-position;
 }
 @keyframes grainShift {
-  0%   { background-position:   0px   0px; }
-  16%  { background-position: -55px  35px; }
-  32%  { background-position:  70px -42px; }
-  50%  { background-position: -28px -58px; }
-  66%  { background-position:  46px  22px; }
-  82%  { background-position: -64px  12px; }
-  100% { background-position:   0px   0px; }
+  0%   { transform: translate3d(  0px,   0px, 0); }
+  16%  { transform: translate3d(-14px,   9px, 0); }
+  32%  { transform: translate3d( 18px, -11px, 0); }
+  50%  { transform: translate3d( -7px, -15px, 0); }
+  66%  { transform: translate3d( 12px,   6px, 0); }
+  82%  { transform: translate3d(-16px,   3px, 0); }
+  100% { transform: translate3d(  0px,   0px, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .grain { animation: none; }
 }
 
 .topo-bg {
@@ -1030,22 +1036,31 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  /* Big editorial block — nearly fills its half of the screen. */
-  width: min(48vw, 780px);
+  /* Square editorial block — width tuned against the font so the
+     statement wraps to a roughly 1:1 shape; centred lines give the
+     symmetrical, rectangular look. */
+  width: min(37vw, 525px);
   margin: 0;
+  text-align: center;
   /* Same design language as the middle captions: Anton display +
      italic-serif emphasis on a lime highlight (.cinema__aside-w--em). */
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(40px, 6.2vw, 116px);
-  line-height: 1.0;
-  letter-spacing: -0.015em;
+  /* Big, but sized to still fit ~half the screen; text-wrap: balance
+     evens the line lengths so the block reads as a clean shape rather
+     than a ragged stack with orphan words. */
+  font-size: clamp(30px, 5vw, 84px);
+  line-height: 1.2;        /* tuned with the width so the 6-line block is ~square */
+  letter-spacing: -0.012em;
+  text-wrap: balance;
   color: var(--ink);
   pointer-events: none;
   perspective: 1000px;           /* gives the per-word rotateX depth */
 }
-.cinema__aside--right { right: clamp(20px, 3vw, 64px); text-align: left; }
-.cinema__aside--left  { left:  clamp(20px, 3vw, 64px); text-align: right; }
+/* Each block centred within its half, pulled a bit off the middle
+   (mirror-symmetric gutters), clear of the character opposite. */
+.cinema__aside--right { right: clamp(50px, 10vw, 200px); left:  auto; }
+.cinema__aside--left  { left:  clamp(50px, 10vw, 200px); right: auto; }
 .cinema__aside-w {
   display: inline-block;
   margin-right: 0.3em;
@@ -1581,7 +1596,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   position: relative;
   padding: 28px 24px 24px;
   background: var(--glass);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--glass-stroke);
   border-radius: 18px;
   display: flex; flex-direction: column; gap: 8px;
@@ -1922,7 +1937,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   gap: 16px;
   padding: 32px 32px 32px 24px;
   background: var(--glass);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--glass-stroke);
   border-radius: 22px;
   transition: transform .5s var(--ease-out-quart), box-shadow .5s var(--ease-out-quart);
@@ -2038,7 +2053,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   border: 1px solid var(--glass-stroke);
   border-radius: 24px;
   background: var(--glass);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
   overflow: hidden;
   transition: transform .5s var(--ease-out-quart), border-color .3s ease, background .5s ease;
 }

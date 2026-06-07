@@ -276,6 +276,7 @@
       });
       el.textContent = '';
       const n = tokens.length;
+      let prevSpan = null;
       tokens.forEach((tok, i) => {
         const progress = i / n;
         const exp = Math.pow(progress, 0.8) * 0.2;
@@ -292,7 +293,11 @@
         span.style.setProperty('--delay', delay.toFixed(2) + 's');
         span.style.setProperty('--blur', blur + 'px');
         span.style.setProperty('--scale', scale.toFixed(3));
+        // Standalone punctuation (e.g. a period after an <em>) hugs the
+        // previous word instead of floating after a word-space.
+        if (/^[.,;:!?…)]+$/.test(tok.w) && prevSpan) prevSpan.style.marginRight = '0';
         el.appendChild(span);
+        prevSpan = span;
       });
     });
   }
