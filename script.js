@@ -13,10 +13,11 @@
   // payload reasonable while still feeling silky on scroll.
   const TOTAL_SOURCE_FRAMES = 300;
 
-  // Weak-device detection — used ONLY to load fewer character frames
-  // (every 2nd → ~150) on low-power machines, roughly halving image
-  // decode + memory. Capable devices keep all 300. `?lp=1` / `?lp=0`
-  // forces it on/off for testing.
+  // Weak-device detection — drives a lighter character tier on
+  // low-power machines: a smaller, fewer-frame WebP set decoded
+  // once into ImageBitmaps (no mid-scroll re-decode), instead of
+  // the full 1152×1080 / 300-frame set. `?lp=1` / `?lp=0` forces
+  // it on/off for testing.
   const lpParam = new URLSearchParams(location.search).get('lp');
   const isLowPower = lpParam === '1' ? true
     : lpParam === '0' ? false
@@ -25,10 +26,18 @@
        || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
        || Math.min(window.innerWidth, window.innerHeight) <= 768);
 
-  const STEP = isLowPower ? 2 : 1; // every source frame (300) or every 2nd (~150)
+  // Frames are pre-cropped to the center 1152×1080 (== the canvas
+  // 16/15 aspect) and re-encoded to WebP offline by
+  // scripts/optimize-frames.js — no transparent gutter shipped.
+  //   capable: full set, 300 frames @ 1152×1080, HTMLImageElement
+  //   weak:    every 2nd, ~150 frames @ 640×600, decode-once ImageBitmap
+  const STEP = isLowPower ? 2 : 1;
   const PAD = 4;                   // filename zero-padding
-  const PREFIX = 'CYBERFICTION-IMAGES/male';
-  const EXT = '.png';
+  const PREFIX = (isLowPower ? 'CYBERFICTION-WEBP-LOW/' : 'CYBERFICTION-WEBP/') + 'male';
+  const EXT = '.webp';
+  // Decode each weak-tier frame once into an ImageBitmap and hold it,
+  // so scrubbing never triggers a re-decode (the source of the stutter).
+  const USE_BITMAP = isLowPower && typeof createImageBitmap === 'function';
 
   // Build list of frame URLs we'll actually load
   const frameUrls = [];
@@ -48,6 +57,8 @@
    // is painted on first load; scroll drives the animation.
   const cinemaCanvas = document.getElementById('cinemaCanvas');
   const cinemaCtx = cinemaCanvas.getContext('2d');
+  // Weak tier draws a near-display-size source, so cheap scaling is fine.
+  if (isLowPower) cinemaCtx.imageSmoothingQuality = 'low';
   const heroSection = document.getElementById('hero');
   const heroStageUI = document.getElementById('heroStageUI');
   const heroSign = document.getElementById('heroSign');
@@ -82,6 +93,24 @@
      - Then everything else in parallel batches
      ------------------------------------------------------- */
   function loadImage(index) {
+    // Weak tier: fetch → decode once into an ImageBitmap we keep for
+    // the session. Capable tier: plain HTMLImageElement (small WebP).
+    if (USE_BITMAP) {
+      return fetch(frameUrls[index])
+        .then((r) => r.blob())
+        .then((blob) => createImageBitmap(blob))
+        .then((bmp) => {
+          images[index] = bmp;
+          loadedCount++;
+          updateLoadingUI();
+          return bmp;
+        })
+        .catch(() => {
+          loadedCount++;
+          updateLoadingUI();
+          return null;
+        });
+    }
     return new Promise((resolve) => {
       const img = new Image();
       img.decoding = 'async';
@@ -171,8 +200,9 @@
     if (!img) return;
     const cw = canvas.width;
     const ch = canvas.height;
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
+    // naturalWidth/Height for HTMLImageElement; width/height for ImageBitmap.
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
     if (!iw || !ih) return;
 
     // Crop the source horizontally to the character bounding
@@ -220,13 +250,12 @@
     return images[0] || null;
   }
 
-  /* Draw the character sharply — one source frame at full alpha
-     per tick. No blending, no fading, no flicker.
-     The high source-frame density (STEP = 1 → 300 frames) gives
-     ~16 fps source playback at BASE_RATE = 0.25, which already
-     looks smooth without any cross-fade trickery that would
-     soften the character.
-     xCrop = 0.6 ignores transparent gutters in the source PNGs. */
+  /* Draw the character — ONE source frame at full opacity per change.
+     (Cross-fading adjacent frames was tried and reverted: it ghosts a
+     moving figure and source-over of two semi-transparent draws drops
+     the silhouette below full opacity.) Frames are pre-cropped to the
+     character region, so xCrop = 1. `idx` may be fractional; rounded to
+     the nearest source frame. Skips redraw when the frame is unchanged. */
   function renderFrame(idx, _advancing) {
     const max = FRAME_COUNT - 1;
     let i = Math.round(+idx || 0);
@@ -234,8 +263,7 @@
     else if (i > max) i = max;
     if (i === lastDrawnFrame) return;
     lastDrawnFrame = i;
-    const img = images[i] || nearestLoaded(i);
-    drawImageContain(cinemaCtx, cinemaCanvas, img, 0.6);
+    drawImageContain(cinemaCtx, cinemaCanvas, images[i] || nearestLoaded(i), 1);
   }
 
   /* HUD/captions read from the character-animation progress
@@ -457,7 +485,13 @@
   const HOLD_FRAME     = 73;        // intro endpoint, hold point
   const UI_EXIT_FRAMES = 40;        // animFrame 80→120: UI translates + fades out
   const INTRO_DELAY_MS = 0;         // start immediately when the hero page loads
-  const BASE_RATE      = 0.25;      // virtual frames/tick ≈ 5.5 source-fps — super slow cinematic crawl
+  // Crawl speed (virtual frames per 60fps tick) — THE smoothness/pacing
+  // knob for the continuous reel. With a fixed ~300 source frames the only
+  // artifact-free way to be smooth is to play near display-rate: 0.7 ≈ 47fps
+  // playback, full main reel in ~4.7s. Higher = faster+smoother (0.9 ≈ 60fps),
+  // lower = slower but steppier (0.25 ≈ 16fps was the old choppy crawl).
+  // Delta-time keeps the wall-clock speed constant across devices.
+  const BASE_RATE      = 0.7;
   const CURSOR_LERP    = 0.10;
   const CURSOR_SETTLE  = 0.2;     // px
   const MAX_CURSOR_TX  = 12;      // ±px, opposite X
@@ -491,13 +525,30 @@
     // the expensive ones. Wakes via kickMotion() on re-enter.
     if (!motion.heroVisible || !motion.pageVisible) {
       motion.running = false;
+      motion.lastTickTime = 0;   // force a fresh dt baseline on resume
       return;
     }
-    // --- Decide whether to advance this tick, and which way ---
-    //   INTRO branch (!hasScrolled): forward only, after delay,
-    //     until animFrame hits HOLD_FRAME.
-    //   MAIN branch  (hasScrolled):  step in playDirection while
-    //     runway exists in that direction.
+
+    // --- Delta-time: advance by elapsed wall-time, not a fixed amount
+    // per tick, so the crawl runs at a constant speed regardless of the
+    // device's frame rate (no fps-coupled jitter). `rate` is 1.0 at 60fps.
+    const nowT = performance.now();
+    let dt = motion.lastTickTime ? nowT - motion.lastTickTime : 16.667;
+    motion.lastTickTime = nowT;
+    if (dt > 33) dt = 33;        // cap gaps (tab switch / GC) to ~2 frames
+    else if (dt < 1) dt = 16.667;
+    const rate = dt / 16.667;
+
+    // --- Advance the reel (CONTINUOUS crawl) ---
+    //   INTRO (!hasScrolled): autoplay 0 → HOLD_FRAME on load.
+    //   MAIN  (hasScrolled):  once the user scrolls, the reel plays
+    //     CONTINUOUSLY on its own at BASE_RATE in playDirection until it
+    //     reaches that direction's boundary; the page auto-scrolls to
+    //     follow. Smoothness comes from (a) delta-time, so speed is
+    //     constant regardless of fps, and (b) a high BASE_RATE so playback
+    //     runs near display-rate (~1 source frame per tick) instead of the
+    //     old steppy ~16fps — with only ~300 source frames that's the only
+    //     artifact-free way to be smooth.
     let shouldAdvance;
     let advanceStep = 0;
     if (!motion.hasScrolled) {
@@ -511,47 +562,28 @@
         advanceStep = BASE_RATE;
       }
     } else if (motion.playDirection === 1 && motion.animFrame < TIMELINE_MAX) {
-      shouldAdvance = true;
+      shouldAdvance = true;                     // play forward to the end
       advanceStep = BASE_RATE;
     } else if (motion.playDirection === -1 && motion.animFrame > HOLD_FRAME) {
-      // Reverse only as far back as HOLD_FRAME (the intro hold
-      // pose). Once you've left the intro, reversing brings the
-      // reel back to the HOLD pose but never further — the
-      // 0→80 intro autoplay is a one-shot, not a rewind target.
-      shouldAdvance = true;
+      shouldAdvance = true;                     // reverse back to the hold pose
       advanceStep = -BASE_RATE;
     } else {
       shouldAdvance = false;
     }
 
     if (shouldAdvance) {
-      motion.animFrame += advanceStep;
+      motion.animFrame += advanceStep * rate;   // delta-time scaled
       if (motion.animFrame > TIMELINE_MAX) motion.animFrame = TIMELINE_MAX;
-      // Lower clamp only applies after the user has crossed
-      // HOLD_FRAME (i.e., in MAIN). During INTRO autoplay
-      // animFrame is between 0 and HOLD_FRAME, which must NOT
-      // be snapped back up.
       else if (motion.hasScrolled && motion.animFrame < HOLD_FRAME) {
-        motion.animFrame = HOLD_FRAME;
+        motion.animFrame = HOLD_FRAME;          // never reverse past the hold
       }
     }
 
-    // --- Auto-scroll the page in sync with animFrame ---
-    // Once MAIN is active, scrollY tracks animFrame linearly
-    // across the pin runway, so the page progresses through
-    // the hero at the same cadence as the animation and the
-    // skills section appears exactly as the reel ends.
-    if (shouldAdvance && motion.hasScrolled && motion.pinRunway > 0) {
-      const mainProgress =
-        (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME);
-      const targetScrollY =
-        motion.heroSectionTop + clamp01(mainProgress) * motion.pinRunway;
-      if (Math.abs(window.scrollY - targetScrollY) > 0.5) {
-        isAutoScrolling = true;
-        window.scrollTo(0, targetScrollY);
-        isAutoScrolling = false;
-      }
-    }
+    // NOTE: the reel no longer drives the page scroll. It used to call
+    // window.scrollTo() every frame to drag the page along, which fought the
+    // user's own scrolling — the page got stuck / snapped back / flickered.
+    // The hero is CSS-sticky-pinned, so it stays in view on its own; the
+    // character just plays continuously while the user scrolls natively.
 
     // --- Cursor lerp ---
     const cdx = motion.cursorTargetX - motion.cursorRenderedX;
@@ -825,6 +857,8 @@
         kickMotion();   // wake the loop to begin INTRO autoplay
       }
     }, INTRO_DELAY_MS);
+    // Now that the real reel is running, measure the live frame rate.
+    runPerfProbe();
   }
 
   /* -------------------------------------------------------
@@ -2366,6 +2400,50 @@
     }
   }
 
+  /* -------------------------------------------------------
+     Adaptive frame-rate fallback.
+     The probe must sample the REAL heavy phase — the character
+     reel running over the ambient effects — so it is armed at
+     init() but only fired from startHeroReel() (i.e. AFTER the
+     preloader hands off; measuring during the light preloader
+     phase would under-read the load). If the device can't sustain
+     a smooth rate, switch to perf-lite, which freezes the always-on
+     decorative animations (see styles.css .perf-lite) — the ambient
+     repaint, not the character reel, is the bottleneck. ?lite=1/0
+     forces the decision.
+     ------------------------------------------------------- */
+  let perfProbeArmed = false;
+  let perfProbeRan = false;
+
+  function initPerfProbe() {
+    const liteParam = new URLSearchParams(location.search).get('lite');
+    if (liteParam === '1') { document.body.classList.add('perf-lite'); return; }
+    if (liteParam === '0') return;   // forced off — never arm
+    perfProbeArmed = true;
+  }
+
+  function runPerfProbe() {
+    if (!perfProbeArmed || perfProbeRan) return;
+    perfProbeRan = true;
+
+    const SETTLE = 900;    // skip the reel's own start-up burst
+    const SAMPLE = 1600;   // measure over this window
+    const THRESH = 50;     // sustained FPS below this → go lite
+
+    setTimeout(() => {
+      if (document.hidden) { perfProbeRan = false; return; }  // can't judge a hidden tab; allow a later retry
+      let frames = 0;
+      const start = performance.now();
+      function count(now) {
+        frames++;
+        if (now - start < SAMPLE) { requestAnimationFrame(count); return; }
+        const fps = (frames / (now - start)) * 1000;
+        if (fps < THRESH) document.body.classList.add('perf-lite');
+      }
+      requestAnimationFrame(count);
+    }, SETTLE);
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -2464,6 +2542,9 @@
       motion.pageVisible = !document.hidden;
       if (motion.pageVisible) kickMotion();
     });
+
+    // Adaptive: drop to perf-lite if this device can't keep up.
+    initPerfProbe();
   }
 
   if (document.readyState === 'loading') {

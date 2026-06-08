@@ -123,6 +123,26 @@ ul, ol { list-style: none; padding: 0; margin: 0; }
   .grain { animation: none; }
 }
 
+/* -------------------------------------------------------
+   PERF-LITE — adaptive low-frame-rate fallback.
+   The runtime FPS probe (script.js · initPerfProbe) adds
+   .perf-lite to <body> when the device can't sustain a
+   smooth frame rate. It FREEZES the always-on ambient
+   animations — the layers stay visible and blurred, they
+   just stop repainting the full viewport every frame, which
+   roughly doubles FPS on weak GPUs. The JS-driven character
+   reel is unaffected and keeps animating. ?lite=1/0 forces.
+   ------------------------------------------------------- */
+body.perf-lite .aurora,
+body.perf-lite .grain,
+body.perf-lite .topo-bg,
+body.perf-lite .hero-stage__halo,
+body.perf-lite .hero__scroll svg,
+body.perf-lite .hero__welcome,
+body.perf-lite .hero__welcome--right {
+  animation-play-state: paused !important;
+}
+
 .topo-bg {
   position: fixed;
   inset: -10vh -10vw -10vh -10vw;

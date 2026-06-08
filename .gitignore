@@ -23,3 +23,11 @@ dist/
 # Reference assets (kept locally, not versioned)
 hyper-scroll.zip
 .hyper-scroll-temp/
+
+# Local-only tooling — not needed by the static site (and keeps Vercel
+# from treating this as a Node build). sharp/puppeteer are dev-only.
+package.json
+package-lock.json
+# Keep the asset-pipeline script, ignore the one-off diagnostics
+/scripts/*
+!/scripts/optimize-frames.js
