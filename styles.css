@@ -1343,6 +1343,7 @@ html.is-dark .hall__glow {
   position: relative;
   display: inline-flex;
 }
+.text-scramble__word { display: inline-flex; }
 .text-scramble__char {
   display: inline-block;
   color: var(--ink);
@@ -1476,23 +1477,23 @@ html.is-dark .hall__glow {
 
 /* When any interactive word is hovered, dim every word in the
    paragraph (so the focus is on the one being decrypted). */
-.hall-slide__desc.is-hyper-hover .hyper-word {
+.is-hyper-hover .hyper-word {
   opacity: 0.3;
   filter: blur(2px);
 }
 /* The hovered word itself: scale + lift + dark pill + cream text. */
-.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered {
+.is-hyper-hover .hyper-word.is-hovered {
   opacity: 1;
   filter: none;
   transform: scale(1.08) translateY(-3px);
   color: var(--cream);
   z-index: 20;
 }
-.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered::before {
+.is-hyper-hover .hyper-word.is-hovered::before {
   opacity: 1;
   transform: scale(1);
 }
-.hall-slide__desc.is-hyper-hover .hyper-word.is-hovered::after {
+.is-hyper-hover .hyper-word.is-hovered::after {
   opacity: 1;
   transform: scale(1);
 }
@@ -2687,9 +2688,15 @@ html.is-dark .hall-slide__num { border-bottom-color: rgba(236, 231, 218, 0.18); 
    the dark hand-off (the light gallery keeps it). */
 html.is-dark .hall__hint { opacity: 0; }
 html.is-dark .hall-slide__meta { border-top-color: rgba(236, 231, 218, 0.14); }
-/* Idle highlight words: the dark forest green is low-contrast on black —
-   lift to a brighter green so they still read as the accent. */
-html.is-dark .hyper-word.is-hl { color: #4ade80; }
+/* Idle highlight words: the dark forest green is low-contrast on black, but
+   the full neon accent glares against the muted body — use a softer, slightly
+   desaturated lime that reads as the accent without overpowering the text. */
+html.is-dark .hyper-word.is-hl { color: #A8BE54; }
+/* Hovered (decoding) word in dark mode: flip to crisp black-on-white. The
+   idle-green rule above is more specific than the base hover rule, so re-assert
+   the hover colour + a pure-white pill here with matching dark-scoped weight. */
+html.is-dark .is-hyper-hover .hyper-word.is-hovered { color: #0a0a0a; }
+html.is-dark .is-hyper-hover .hyper-word.is-hovered::before { background: #fff; }
 
 /* The fade itself. Only the layers that are actually on screen during
    (and after) the flip get a transition — the rest sit off-screen and
@@ -3278,16 +3285,27 @@ body.perf-lite .xpx__wire-flow { animation: none; }
 .xpx2.is-on .xpx2__vignette { opacity: 1; }
 body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
 
-/* --- HUD (top-right) + scene strip (left) --- */
-.xpx2__hud, .xpx2__strip {
+/* --- Section label (top-left, gallery-logo style) + HUD (top-right) + scene
+   strip (left). The label and HUD are tucked just inside the frame's top
+   corners via the same inset the frame uses + a small gap. --- */
+.xpx2__tag, .xpx2__hud, .xpx2__strip {
   position: fixed; z-index: 5;
   opacity: 0; pointer-events: none;
   transition: opacity .5s ease;
   font-family: var(--f-mono);
 }
-.xpx2.is-on .xpx2__hud, .xpx2.is-on .xpx2__strip { opacity: 1; }
+.xpx2.is-on .xpx2__tag,
+.xpx2.is-on .xpx2__hud,
+.xpx2.is-on .xpx2__strip { opacity: 1; }
+.xpx2__tag {
+  top: calc(clamp(16px, 3vh, 40px) + 18px);
+  left: calc(clamp(16px, 3.5vw, 64px) + 22px);
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(236,231,218,.7);
+}
 .xpx2__hud {
-  top: clamp(54px, 8vh, 92px); right: clamp(28px, 4vw, 66px);
+  top: calc(clamp(16px, 3vh, 40px) + 18px);
+  right: calc(clamp(16px, 3.5vw, 64px) + 22px);
   text-align: right; color: rgba(236,231,218,.5);
 }
 .xpx2__pct { font-size: 12px; letter-spacing: .18em; }
@@ -3312,117 +3330,156 @@ body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
   padding: clamp(80px, 12vh, 150px) clamp(28px, 8vw, 130px);
 }
 
+/* ------------------------------------------------------------------
+   Experience cards — restyled to mirror the project-gallery text
+   (.hall-slide): mono index eyebrow, serif title wrapping a display
+   text-scramble + italic serif subtitle, light low-weight body, and
+   minimal accent-tick pointers. Same reveal hooks (.visible) as before.
+   ------------------------------------------------------------------ */
 .xpcard {
-  max-width: 440px;
-  padding: 30px 30px 32px;
-  background: rgba(8, 10, 15, 0.55);
-  border-left: 1px solid rgba(216,255,56,.28);
-  -webkit-backdrop-filter: blur(14px) saturate(1.05);
-          backdrop-filter: blur(14px) saturate(1.05);
+  max-width: 430px;
+  padding: 32px 32px 34px;
+  background: rgba(8, 10, 15, 0.42);
+  border-left: 1px solid rgba(216,255,56,.24);
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+          backdrop-filter: blur(16px) saturate(1.05);
   box-shadow: 0 40px 90px -40px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.05);
   border-radius: 2px;
 }
-.xpcard.right { margin-left: auto; text-align: right; border-left: none; border-right: 1px solid rgba(216,255,56,.28); }
-.xpcard.center { margin: 0 auto; text-align: center; border-left: none; border-top: 1px solid rgba(216,255,56,.28); max-width: 540px; }
+.xpcard.right { margin-left: auto; text-align: right; border-left: none; border-right: 1px solid rgba(216,255,56,.24); }
 
-.xpcard__line { display: block; width: 52px; height: 1px; background: var(--accent); margin-bottom: 18px; opacity: 0; scale: 0 1; transform-origin: left; transition: opacity .4s ease, scale .5s cubic-bezier(.22,1,.36,1); }
-.xpcard.right .xpcard__line { margin-left: auto; transform-origin: right; }
-.xpcard.center .xpcard__line { margin: 0 auto 18px; transform-origin: center; }
-.xpcard__line.visible { opacity: 1; scale: 1 1; }
-
-.xpcard__tag {
-  display: block;
+/* Eyebrow index — mirrors .hall-slide__num */
+.xpcard__num {
+  display: inline-block;
   font-family: var(--f-mono);
-  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
-  color: var(--accent); margin-bottom: 14px;
+  font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 0 14px rgba(216,255,56,.45);
+  border-bottom: 1px solid rgba(216,255,56,.32);
+  padding-bottom: 6px; margin-bottom: 24px;
   opacity: 0; translate: 0 10px; transition: opacity .5s ease, translate .5s ease;
 }
-.xpcard__tag em { font-style: normal; color: #fff; background: var(--accent); color: #10160a; padding: 2px 7px; border-radius: 999px; box-shadow: 0 0 14px rgba(216,255,56,.55); }
+.xpcard__num.visible { opacity: 1; translate: 0 0; }
+
+/* Title — mirrors .hall-slide__title: serif h2 hosting a display
+   text-scramble word + an italic serif subtitle below it. */
 .xpcard__title {
   margin: 0;
-  font-family: var(--f-display); font-weight: 400;
-  font-size: clamp(40px, 6.5vw, 86px); line-height: .9; letter-spacing: .01em;
-  text-transform: uppercase; color: #F4F1EA;
+  font-family: var(--f-serif, "Instrument Serif", serif);
+  font-weight: 400;
+  font-size: clamp(40px, 4.4vw, 64px);
+  line-height: 1.05; letter-spacing: -.01em;
+  color: var(--ink);
   opacity: 0; translate: 0 18px; transition: opacity .5s ease .08s, translate .5s ease .08s;
 }
-.xpcard__title em { font-style: normal; color: var(--accent); text-shadow: 0 0 26px rgba(216,255,56,.5); }
-.xpcard__title.visible, .xpcard__tag.visible { opacity: 1; translate: 0 0; }
-.xpcard__org {
-  display: inline-flex; align-items: center; gap: 9px;
-  margin-top: 14px;
-  font-family: var(--f-sans); font-weight: 500; font-size: 14px;
-  color: rgba(236,231,218,.82);
+.xpcard__title.visible { opacity: 1; translate: 0 0; }
+.xpcard .text-scramble { font-size: clamp(34px, 3.8vw, 54px); }
+.xpcard.right .text-scramble { align-items: flex-end; }
+/* Let multi-word role titles wrap at word boundaries. Spaces are dropped
+   from layout (display:none) and word spacing comes from column-gap, so a
+   wrapped line carries no trailing space to nudge it off the right edge —
+   every line stays flush to the card's text alignment. */
+.xpcard .text-scramble__row { flex-wrap: wrap; column-gap: .26em; }
+.xpcard .text-scramble__space { display: none; }
+.xpcard.right .text-scramble__row { justify-content: flex-end; }
+/* Company lockup below the title: a monochrome logo glyph on a dark glass
+   tile + the company name — tuned to blend with the section's HUD vibe. */
+.xpcard__sub {
+  display: flex; align-items: center; gap: 13px;
+  margin-top: 18px;
   opacity: 0; translate: 0 10px; transition: opacity .5s ease .16s, translate .5s ease .16s;
 }
-.xpcard.right .xpcard__org { flex-direction: row-reverse; }
-.xpcard.center .xpcard__org { justify-content: center; }
-.xpcard__org.visible { opacity: 1; translate: 0 0; }
+.xpcard.right .xpcard__sub { flex-direction: row-reverse; justify-content: flex-start; }
+.xpcard__sub.visible { opacity: 1; translate: 0 0; }
 .xpcard__logo {
-  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
-  border-radius: 7px; background: rgba(216,255,56,.12); border: 1px solid rgba(216,255,56,.3);
-  color: var(--accent); font-family: var(--f-display); font-size: 11px;
+  position: relative; height: 44px; width: 44px; flex: none;
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 10px 24px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(216,255,56,.16);
 }
+.xpcard__logo img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: saturate(.92) brightness(.96);
+}
+/* A little tint so the original-colour logos sit in the section's vibe. */
+.xpcard__logo::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: rgba(216,255,56,.16);
+  mix-blend-mode: soft-light;
+}
+.xpcard__co {
+  font-family: var(--f-sans); font-weight: 500;
+  font-size: clamp(14px, 1.05vw, 16px); letter-spacing: .04em;
+  line-height: 1.25; color: rgba(236,231,218,.82);
+}
+
+/* Body — mirrors .hall-slide__desc */
 .xpcard__body {
-  margin: 16px 0 0;
-  font-family: var(--f-sans); font-size: 14.5px; line-height: 1.65;
+  margin: 22px 0 0;
+  font-family: var(--f-sans); font-weight: 300;
+  font-size: clamp(15px, 1.18vw, 17.5px); line-height: 1.72;
   color: rgba(236,231,218,.62);
   opacity: 0; translate: 0 10px; transition: opacity .5s ease .22s, translate .5s ease .22s;
 }
 .xpcard__body.visible { opacity: 1; translate: 0 0; }
 .xpcard__body b { color: #fff; font-weight: 600; }
 
-.xpcard__stats {
-  display: flex; gap: 26px; flex-wrap: wrap; margin-top: 22px;
-  opacity: 0; translate: 0 10px; transition: opacity .5s ease .3s, translate .5s ease .3s;
-}
-.xpcard.right .xpcard__stats { justify-content: flex-end; }
-.xpcard.center .xpcard__stats { justify-content: center; }
-.xpcard__stats.visible { opacity: 1; translate: 0 0; }
-.xpstat { display: flex; flex-direction: column; gap: 3px; }
-.xpstat__n { font-family: var(--f-display); font-size: 30px; line-height: 1; color: var(--accent); }
-.xpstat__n i { font-style: normal; font-size: .6em; }
-.xpstat__l { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: rgba(236,231,218,.45); }
-
+/* Minimal pointers — thin accent tick + low-weight text. */
 .xpcard__points {
-  margin: 20px 0 0; display: flex; flex-direction: column; gap: 9px;
-  opacity: 0; translate: 0 10px; transition: opacity .5s ease .36s, translate .5s ease .36s;
+  margin: 26px 0 0; display: flex; flex-direction: column; gap: 13px;
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease .3s, translate .5s ease .3s;
 }
 .xpcard__points.visible { opacity: 1; translate: 0 0; }
 .xpcard__points li {
-  position: relative; padding-left: 16px;
-  font-family: var(--f-sans); font-size: 13px; line-height: 1.55;
-  color: rgba(236,231,218,.72); text-align: left;
+  position: relative; padding-left: 18px;
+  font-family: var(--f-sans); font-weight: 300; font-size: 13px; line-height: 1.6;
+  color: rgba(236,231,218,.7); text-align: left;
 }
-.xpcard.right .xpcard__points li { padding-left: 0; padding-right: 16px; text-align: right; }
-.xpcard__points li::before { content: ""; position: absolute; left: 0; top: 8px; width: 7px; height: 1.5px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.xpcard.right .xpcard__points li { padding-left: 0; padding-right: 18px; text-align: right; }
+.xpcard__points li::before {
+  content: ""; position: absolute; left: 0; top: 9px;
+  width: 9px; height: 1px; background: var(--accent); opacity: .85;
+}
 .xpcard.right .xpcard__points li::before { left: auto; right: 0; }
 .xpcard__points li b { color: #fff; font-weight: 600; }
 
-.xpcard__cta {
-  display: inline-flex; align-items: center; gap: 8px; margin-top: 24px;
-  padding: 9px 18px; border: 1px solid var(--accent); color: var(--accent);
-  font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
-  text-decoration: none; border-radius: 2px;
-  opacity: 0; translate: 0 10px;
-  transition: opacity .5s ease .34s, translate .5s ease .34s, background .25s, color .25s;
+/* "wow" closing pointer — set off by a hairline divider and a glowing,
+   gently pulsing accent node instead of the flat tick. */
+.xpcard__points li.xpcard__wow {
+  margin-top: 14px; padding-top: 15px;
+  border-top: 1px solid rgba(216,255,56,.16);
+  font-size: 13.5px; color: rgba(236,231,218,.95); letter-spacing: .004em;
 }
-.xpcard__cta.visible { opacity: 1; translate: 0 0; }
-.xpcard__cta:hover { background: var(--accent); color: #0a0c08; }
-.xpcard__cta svg { width: 11px; height: 11px; }
+.xpcard.right .xpcard__points li.xpcard__wow { padding-right: 18px; }
+.xpcard__points li.xpcard__wow::before {
+  width: 7px; height: 7px; top: 22px; border-radius: 50%;
+  background: var(--accent); opacity: 1;
+  box-shadow: 0 0 9px var(--accent), 0 0 18px rgba(216,255,56,.55);
+  animation: xpWowPulse 2.1s ease-in-out infinite;
+}
+@keyframes xpWowPulse {
+  0%, 100% { box-shadow: 0 0 7px var(--accent), 0 0 14px rgba(216,255,56,.38); transform: scale(1); }
+  50%      { box-shadow: 0 0 13px var(--accent), 0 0 28px rgba(216,255,56,.78); transform: scale(1.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xpcard__points li.xpcard__wow::before { animation: none; }
+}
+
+/* text-scramble in the dark experience context: lift the underline
+   base off the near-black panel (its default is a dark-on-light tint). */
+html.is-dark .xpcard .text-scramble__underline-base { background: rgba(236,231,218,.18); }
 
 @media (prefers-reduced-motion: reduce) {
-  .xpcard__tag, .xpcard__title, .xpcard__org, .xpcard__body, .xpcard__stats, .xpcard__points, .xpcard__cta, .xpcard__line {
-    opacity: 1 !important; translate: 0 0 !important; scale: 1 1 !important;
+  .xpcard__num, .xpcard__title, .xpcard__sub, .xpcard__body, .xpcard__points {
+    opacity: 1 !important; translate: 0 0 !important;
   }
 }
 @media (max-width: 760px) {
   .xpx2__strip { display: none; }
   .xpp { padding: 90px 20px; }
-  .xpcard, .xpcard.right, .xpcard.center { max-width: 100%; text-align: left; }
-  .xpcard.right { margin-left: 0; border-right: none; border-left: 1px solid rgba(216,255,56,.28); }
-  .xpcard.right .xpcard__org { flex-direction: row; }
-  .xpcard.right .xpcard__stats { justify-content: flex-start; }
-  .xpcard.right .xpcard__points li { padding-left: 16px; padding-right: 0; text-align: left; }
+  .xpcard, .xpcard.right { max-width: 100%; text-align: left; }
+  .xpcard.right { margin-left: 0; border-right: none; border-left: 1px solid rgba(216,255,56,.24); }
+  .xpcard.right .text-scramble { align-items: flex-start; }
+  .xpcard.right .xpcard__points li { padding-left: 18px; padding-right: 0; text-align: left; }
   .xpcard.right .xpcard__points li::before { left: 0; right: auto; }
 }
 

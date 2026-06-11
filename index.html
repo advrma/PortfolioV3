@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=53" />
+<link rel="stylesheet" href="styles.css?v=70" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -513,7 +513,8 @@
     <div id="xpGlobe" class="xpx2__globe" aria-hidden="true"></div>
     <div class="xpx2__vignette" aria-hidden="true"></div>
 
-    <!-- HUD + scene strip (shown only while the section is on screen) -->
+    <!-- Section label (top-left corner) + HUD + scene strip (shown while in view) -->
+    <div class="xpx2__tag" aria-hidden="true">Experience · Trajectory</div>
     <div class="xpx2__hud" aria-hidden="true">
       <div class="xpx2__pct">000%</div>
       <div class="xpx2__bar"><i></i></div>
@@ -528,54 +529,43 @@
     <div class="xpx2__scroll">
       <section class="xpp" data-xpp data-scene="FOUNDING ENGINEER">
         <div class="xpcard right">
-          <span class="xpcard__line"></span>
-          <span class="xpcard__tag">FEB 2026 &#8594; PRESENT · <em>NOW</em></span>
-          <h2 class="xpcard__title">Founding<br>Engineer</h2>
-          <div class="xpcard__org"><span class="xpcard__logo">ST</span> Stealth — Founder-led</div>
-          <p class="xpcard__body">An <b>AI internship radar</b>: Playwright + BeautifulSoup scrape company portals and <b>LLMs score every listing</b> against your resume.</p>
-          <ul class="xpcard__points">
-            <li>Built <b>one-click AI tailoring</b> that rewrites your <b>resume &amp; cover letter</b> per posting — hours collapsed into one button.</li>
-            <li>Shipped end-to-end on <b>Next.js · TypeScript · Supabase</b>, dashboard in Tailwind &amp; Framer Motion.</li>
-            <li>Own the architecture, <b>semantic matching</b> &amp; scraping pipeline — <b>zero &#8594; live product</b>.</li>
-          </ul>
+          <span class="xpcard__num">Feb 2026 &#8594; Present</span>
+          <h2 class="xpcard__title">
+            <span class="text-scramble" data-scramble-text="FOUNDING ENGINEER"></span>
+            <span class="xpcard__sub">
+              <span class="xpcard__logo"><img src="assets/logos/stealth.png" alt="Stealth" onerror="this.closest('.xpcard__logo').style.display='none'" /></span>
+              <span class="xpcard__co">Stealth</span>
+            </span>
+          </h2>
+          <p class="xpcard__body" data-hyper data-hl-words="ai-powered,next.js,typescript,supabase,playwright,llm-based,scraping,resume,ats">Built Stealth, an AI-powered internship and job discovery platform that helps students find high-fit opportunities and tailor stronger applications. Developed the MVP using Next.js, TypeScript, Supabase, Playwright, and LLM-based matching, integrating job scraping, resume analysis, ATS optimization, and a premium SaaS-style dashboard.</p>
         </div>
       </section>
 
-      <section class="xpp" data-xpp data-scene="SOFTWARE ENGINEER">
+      <section class="xpp" data-xpp data-scene="SOFTWARE ENGINEER INTERN">
         <div class="xpcard left">
-          <span class="xpcard__line"></span>
-          <span class="xpcard__tag">MAY 2025 &#8594; AUG 2025</span>
-          <h2 class="xpcard__title">Software Eng.<br>Intern</h2>
-          <div class="xpcard__org"><span class="xpcard__logo">BO</span> Blue Ocean Biotech — Andhra Pradesh, IN</div>
-          <p class="xpcard__body">Backend + data tooling that put real-time visibility into production &amp; QA.</p>
-          <div class="xpcard__stats">
-            <div class="xpstat"><span class="xpstat__n">50<i>%</i></span><span class="xpstat__l">Data visibility</span></div>
-            <div class="xpstat"><span class="xpstat__n">40<i>%</i></span><span class="xpstat__l">Less manual entry</span></div>
-            <div class="xpstat"><span class="xpstat__n">2h&#8594;10m</span><span class="xpstat__l">Report latency</span></div>
-          </div>
-          <ul class="xpcard__points">
-            <li><b>Java REST services</b> automating production &amp; inventory; <b>Python + SQL</b> ingestion pipelines for QA telemetry.</li>
-            <li>Stood up the team’s <b>Git CI workflows</b> &amp; modular architecture.</li>
-          </ul>
+          <span class="xpcard__num">May 2025 &#8594; Aug 2025</span>
+          <h2 class="xpcard__title">
+            <span class="text-scramble" data-scramble-text="SOFTWARE ENGINEER INTERN"></span>
+            <span class="xpcard__sub">
+              <span class="xpcard__logo"><img src="assets/logos/blue-ocean.png" alt="Blue Ocean Biotech" onerror="this.closest('.xpcard__logo').style.display='none'" /></span>
+              <span class="xpcard__co">Blue Ocean Biotech</span>
+            </span>
+          </h2>
+          <p class="xpcard__body" data-hyper data-hl-words="java-based,rest,apis,pipelines,python,sql,visibility,real-time,reporting">Developed Java-based backend services, REST APIs, and automated data pipelines to support production, inventory, and QA reporting workflows. Used Python and SQL to process operational metrics, improve data visibility, reduce manual data entry, and enable faster real-time reporting for internal teams.</p>
         </div>
       </section>
 
       <section class="xpp" data-xpp data-scene="VR SIMULATION">
         <div class="xpcard right">
-          <span class="xpcard__line"></span>
-          <span class="xpcard__tag">AUG 2024 &#8594; DEC 2024</span>
-          <h2 class="xpcard__title">VR Simulation<br>Asst · SW III</h2>
-          <div class="xpcard__org"><span class="xpcard__logo">CH</span> College of Health Solutions — Phoenix, AZ</div>
-          <p class="xpcard__body">Engine work + immersive training sims for healthcare cohorts.</p>
-          <div class="xpcard__stats">
-            <div class="xpstat"><span class="xpstat__n">+35<i>%</i></span><span class="xpstat__l">Physics / load</span></div>
-            <div class="xpstat"><span class="xpstat__n">+40<i>%</i></span><span class="xpstat__l">Engagement</span></div>
-            <div class="xpstat"><span class="xpstat__n">500+</span><span class="xpstat__l">Sessions, 0 downtime</span></div>
-          </div>
-          <ul class="xpcard__points">
-            <li>Wrote <b>C++ modules</b> in the SimX VR engine; built immersive <b>Unity</b> environments.</li>
-            <li>Authored a 25-page onboarding manual — new-hire ramp <b>&#8722;50%</b>.</li>
-          </ul>
+          <span class="xpcard__num">Aug 2024 &#8594; Dec 2024</span>
+          <h2 class="xpcard__title">
+            <span class="text-scramble" data-scramble-text="VIRTUAL REALITY ASSISTANT"></span>
+            <span class="xpcard__sub">
+              <span class="xpcard__logo"><img src="assets/logos/asu-chs.png" alt="ASU College of Health Solutions" onerror="this.closest('.xpcard__logo').style.display='none'" /></span>
+              <span class="xpcard__co">ASU College of Health Solutions</span>
+            </span>
+          </h2>
+          <p class="xpcard__body" data-hyper data-hl-words="vr,simx,unity,engine,real-time,immersive,modules,documentation,onboarding">Developed and optimized VR simulation modules for medical training environments using C++, Unity, and the SimX VR engine. Improved real-time performance, built immersive 3D training scenes, supported VR hardware/software operations, and created technical documentation to streamline onboarding and simulation consistency.</p>
         </div>
       </section>
     </div>
@@ -638,7 +628,7 @@
 
 </main>
 
-<script src="script.js?v=55" defer></script>
-<script src="vendor/globe.js?v=2" defer></script>
+<script src="script.js?v=58" defer></script>
+<script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>

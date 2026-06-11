@@ -2044,6 +2044,12 @@
     const INTERVAL_MS      = 30;
     const FRAMES_PER_CHAR  = 3;
 
+    // Every non-space char span across all scramble hosts. We lock each to
+    // its natural (resolved-text) width so swapping in random glyphs during
+    // the scramble can't change a word's width — which otherwise jitters the
+    // right-aligned title horizontally and can flip the line-wrap vertically.
+    const allChars = [];
+
     targets.forEach((host) => {
       if (host.dataset.scrambleReady === '1') return;
       host.dataset.scrambleReady = '1';
@@ -2057,13 +2063,30 @@
 
       const row = document.createElement('span');
       row.className = 'text-scramble__row';
+      // Group chars into word spans so multi-word titles wrap at spaces
+      // (not mid-word) when the row is allowed to wrap; the space chars
+      // themselves stay as direct row children (the wrap points). charEls
+      // stays indexed per-character so the scramble loop is unchanged.
       const charEls = [];
+      let word = null;
       for (let i = 0; i < text.length; i++) {
         const span = document.createElement('span');
         span.className = 'text-scramble__char';
         span.style.transitionDelay = (i * 10) + 'ms';
         span.textContent = text[i];
-        row.appendChild(span);
+        if (text[i] === ' ') {
+          span.classList.add('text-scramble__space');
+          row.appendChild(span);
+          word = null;
+        } else {
+          if (!word) {
+            word = document.createElement('span');
+            word.className = 'text-scramble__word';
+            row.appendChild(word);
+          }
+          word.appendChild(span);
+          allChars.push(span);
+        }
         charEls.push(span);
       }
 
@@ -2120,6 +2143,31 @@
 
       host.addEventListener('mouseenter', scramble);
       host.addEventListener('focus',      scramble);
+    });
+
+    // Lock each char to its natural width (batched: clear → read → write to
+    // avoid layout thrash). Re-run after fonts load and on resize, since the
+    // title font-size is a vw-based clamp.
+    const lockWidths = () => {
+      if (!allChars.length) return;
+      allChars.forEach((el) => { el.style.width = ''; });
+      const widths = allChars.map((el) => el.getBoundingClientRect().width);
+      allChars.forEach((el, i) => {
+        if (widths[i] > 0) {
+          el.style.width = widths[i] + 'px';
+          el.style.textAlign = 'center';
+        }
+      });
+    };
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(lockWidths);
+    } else {
+      lockWidths();
+    }
+    let rzT = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(rzT);
+      rzT = setTimeout(lockWidths, 200);
     });
   }
 
@@ -2643,7 +2691,7 @@
     const barEl = xpx2.querySelector('.xpx2__bar i');
     const sceneEl = xpx2.querySelector('.xpx2__scene');
     const dots = [...xpx2.querySelectorAll('.xpx2__dot')];
-    const REVEAL = '.xpcard__line, .xpcard__tag, .xpcard__title, .xpcard__org, .xpcard__body, .xpcard__stats, .xpcard__points, .xpcard__cta';
+    const REVEAL = '.xpcard__num, .xpcard__title, .xpcard__sub, .xpcard__body, .xpcard__points';
 
     // Light the globe + HUD while the section is on screen, and pause the
     // globe\u2019s render loop (data-active) when it isn\u2019t — keeps it off the GPU

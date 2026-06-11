@@ -873,6 +873,7 @@ DAT.Globe = function (container, opts) {
   var BASE_SPIN = 0.0032;          // idle auto-rotation per frame
   var spinExtra = 0;               // scroll-driven boost (eased toward target)
   var lastScrollY = (typeof window !== "undefined" && window.scrollY) || 0;
+  var markers = [];                // blinking location pings (created in init)
 
   function init() {
     var shader, uniforms, material;
@@ -920,7 +921,51 @@ DAT.Globe = function (container, opts) {
     renderer.domElement.style.position = "absolute";
     container.appendChild(renderer.domElement);
 
+    createMarkers();
     window.addEventListener("resize", onWindowResize, false);
+  }
+
+  // Lat/lng → point on the globe surface (same convention as addPoint).
+  function latLngToXYZ(lat, lng, radius) {
+    var phi = (90 - lat) * Math.PI / 180, theta = (180 - lng) * Math.PI / 180;
+    return new THREE.Vector3(
+      radius * Math.sin(phi) * Math.cos(theta),
+      radius * Math.cos(phi),
+      radius * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+
+  // Two blinking cyan/white "ping" markers over the user's work locations.
+  function createMarkers() {
+    var locs = [
+      { lat: 15.9,  lng: 79.74 },    // Andhra Pradesh, India  (Blue Ocean Biotech)
+      { lat: 33.45, lng: -112.07 }   // Phoenix, Arizona, USA  (College of Health Solutions)
+    ];
+    var ringTex = new THREE.Texture(generateRingTexture()); ringTex.needsUpdate = true;
+    var dotTex  = new THREE.Texture(generateDotTexture());  dotTex.needsUpdate = true;
+    for (var i = 0; i < locs.length; i++) {
+      var pos = latLngToXYZ(locs[i].lat, locs[i].lng, 201);
+      var dir = pos.clone().normalize();
+
+      var dot = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: dotTex, transparent: true, blending: THREE.AdditiveBlending,
+        depthTest: false, depthWrite: false
+      }));
+      dot.position.copy(pos);
+      dot.scale.set(12, 12, 1);
+      scene.add(dot);
+
+      var ring = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: ringTex, transparent: true, blending: THREE.AdditiveBlending,
+        depthTest: false, depthWrite: false
+      }));
+      ring.position.copy(pos);
+      var ringBase = 15;
+      ring.scale.set(ringBase, ringBase, 1);
+      scene.add(ring);
+
+      markers.push({ dot: dot, ring: ring, dir: dir, ringBase: ringBase, phase: i * 0.5 });
+    }
   }
 
   function addData(data) {
@@ -994,6 +1039,32 @@ DAT.Globe = function (container, opts) {
     camera.position.y = distance * Math.sin(rotation.y);
     camera.position.z = distance * Math.cos(rotation.x) * Math.cos(rotation.y);
     camera.lookAt(mesh.position);
+
+    // Blinking location pings: each ring expands + fades on a repeating cycle,
+    // the core dot gently pulses, and both hide on the hemisphere facing away
+    // from the camera (fading out toward the limb so they don't pop).
+    if (markers.length) {
+      var now = performance.now();
+      var cl = Math.sqrt(camera.position.x * camera.position.x +
+                         camera.position.y * camera.position.y +
+                         camera.position.z * camera.position.z) || 1;
+      var cx = camera.position.x / cl, cy = camera.position.y / cl, cz = camera.position.z / cl;
+      var PERIOD = 1700;
+      for (var mi = 0; mi < markers.length; mi++) {
+        var m = markers[mi];
+        var facing = m.dir.x * cx + m.dir.y * cy + m.dir.z * cz;
+        var vis = facing > 0.02;
+        m.ring.visible = vis; m.dot.visible = vis;
+        if (!vis) continue;
+        var edge = Math.min(1, facing * 1.6);                 // fade near the limb
+        var p = ((now + m.phase * PERIOD) % PERIOD) / PERIOD; // 0..1 sawtooth
+        var s = m.ringBase * (1 + p * 1.5);
+        m.ring.scale.set(s, s, 1);
+        m.ring.material.opacity = (1 - p) * edge * 0.5;        // subtle ping
+        m.dot.material.opacity = (0.3 + 0.28 * Math.sin(now * 0.005 + mi * 2)) * edge;
+      }
+    }
+
     renderer.render(scene, camera);
   }
 
@@ -1020,6 +1091,33 @@ function generateTexture(alt) {
   else { gradient.addColorStop(0, 'transparent'); gradient.addColorStop(1, 'white'); }
   context.fillStyle = gradient; context.fill();
   return canvas;
+}
+
+/* Cyan/white ring texture for the expanding "ping" of a location marker. */
+function generateRingTexture() {
+  var s = 64, c = document.createElement('canvas'); c.width = c.height = s;
+  var ctx = c.getContext('2d');
+  ctx.strokeStyle = 'rgba(165,240,255,0.95)';
+  ctx.shadowColor = 'rgba(120,230,255,0.9)';
+  ctx.shadowBlur = 7;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(s / 2, s / 2, s / 2 - 7, 0, Math.PI * 2);
+  ctx.stroke();
+  return c;
+}
+
+/* White-cored cyan dot texture for the steady centre of a location marker. */
+function generateDotTexture() {
+  var s = 64, c = document.createElement('canvas'); c.width = c.height = s;
+  var ctx = c.getContext('2d');
+  var g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.32, 'rgba(175,242,255,0.95)');
+  g.addColorStop(0.7, 'rgba(95,205,255,0.28)');
+  g.addColorStop(1, 'rgba(95,205,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  return c;
 }
 
 /* ---- boot: wait for the container, then build + load data + spin ---- */
