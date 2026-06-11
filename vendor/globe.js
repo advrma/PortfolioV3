@@ -870,6 +870,9 @@ DAT.Globe = function (container, opts) {
   var rotation = { x: 0, y: 0 }, target = { x: Math.PI * 3 / 2, y: Math.PI / 6.0 };
   var distance = 1400, distanceTarget = 1050;
   var PI_HALF = Math.PI / 2;
+  var BASE_SPIN = 0.0032;          // idle auto-rotation per frame
+  var spinExtra = 0;               // scroll-driven boost (eased toward target)
+  var lastScrollY = (typeof window !== "undefined" && window.scrollY) || 0;
 
   function init() {
     var shader, uniforms, material;
@@ -978,7 +981,13 @@ DAT.Globe = function (container, opts) {
   }
 
   function render() {
-    rotation.x += 0.0032;                       // continuous auto-rotation
+    // Scroll velocity gives the spin a little kick, then eases back to idle —
+    // so the globe feels responsive to interaction.
+    var sy = (window.scrollY || window.pageYOffset || 0);
+    var dv = Math.abs(sy - lastScrollY); lastScrollY = sy;
+    var targetExtra = Math.min(dv * 0.0006, 0.03);   // faster scroll = bigger kick (capped)
+    spinExtra += (targetExtra - spinExtra) * 0.12;   // smooth accelerate / decelerate
+    rotation.x += BASE_SPIN + spinExtra;             // auto-rotation + scroll boost
     rotation.y += (target.y - rotation.y) * 0.1;
     distance += (distanceTarget - distance) * 0.1;
     camera.position.x = distance * Math.sin(rotation.x) * Math.cos(rotation.y);

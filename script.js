@@ -2745,14 +2745,20 @@
           onComplete: () => gsap.set(sweep, { opacity: 0 }) });
     };
 
+    const setDark = (on) => root.classList.toggle('is-dark', on);
+
+    // Dark mode is scoped to the experience section: the lights come on as you
+    // enter it and go back OFF once it's done — each crossing plays the same
+    // accent-blade sweep, always travelling in the scroll direction.
     ScrollTrigger.create({
       trigger: xp,
-      // Fire just as the experience section begins to enter the
-      // viewport — i.e. the moment we're leaving the gallery.
-      start: 'top 85%',
+      start: 'top 85%',      // entering the section (leaving the gallery)
+      end: 'bottom 15%',     // the section is done (heading into contact)
       invalidateOnRefresh: true,
-      onEnter:     () => { root.classList.add('is-dark');    fireSweep(1); },
-      onLeaveBack: () => { root.classList.remove('is-dark'); fireSweep(-1); },
+      onEnter:     () => { setDark(true);  fireSweep(1); },   // scroll down in  → dark
+      onLeaveBack: () => { setDark(false); fireSweep(-1); },  // scroll up out   → light
+      onLeave:     () => { setDark(false); fireSweep(1); },   // scroll down out → light
+      onEnterBack: () => { setDark(true);  fireSweep(-1); },  // scroll up in    → dark
     });
   }
 

@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=51" />
+<link rel="stylesheet" href="styles.css?v=53" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -506,6 +506,9 @@
     <span class="xp__frame-spark xp__frame-spark--l"></span>
   </div>
   <div class="xpx2" data-xpx2>
+    <!-- Depth layers behind the cards: drifting starfield + soft glow orbs -->
+    <div class="xpx2__stars" aria-hidden="true"></div>
+    <div class="xpx2__orbs" aria-hidden="true"></div>
     <!-- Rotating data-globe backdrop (self-contained vendor/globe.js, scoped old Three.js) -->
     <div id="xpGlobe" class="xpx2__globe" aria-hidden="true"></div>
     <div class="xpx2__vignette" aria-hidden="true"></div>
@@ -635,7 +638,7 @@
 
 </main>
 
-<script src="script.js?v=54" defer></script>
-<script src="vendor/globe.js?v=1" defer></script>
+<script src="script.js?v=55" defer></script>
+<script src="vendor/globe.js?v=2" defer></script>
 </body>
 </html>
