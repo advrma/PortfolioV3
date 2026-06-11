@@ -263,7 +263,9 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
    NAV
    ========================================================= */
 .nav {
-  position: fixed; top: 0; left: 0; right: 0;
+  /* Absolute (not fixed) so the whole top bar scrolls up and away with the
+     page instead of staying glued to the viewport. */
+  position: absolute; top: 0; left: 0; right: 0;
   z-index: 150;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -1169,23 +1171,38 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   height: 100svh;
   width: 100%;
   overflow: hidden;
-  /* Cream BG lives on the pin (the actual slid-up front layer), not
-     on the parent .hall — so during the slide-up transition the warp
-     behind is visible through the section, and only the pin itself
-     covers the warp as it translates into place. */
-  background: #F4F1EA;
-  /* Pivot the JS-driven rise tilt at the TOP edge — matches the
-     hero pin's setup so both transitions read the same way (a soft
-     negative rotateX makes the BOTTOM of the panel recede). */
+  /* Opaque cream ONLY during the slide-up entrance, to cover the dark skills
+     section rising behind it. Once that overlap is past, JS adds
+     .hall__pin--clear → transparent, so the gallery shows the SAME global
+     background (cream + fixed topo + grain) as the experience section — no
+     separate gallery surface, no seam. */
+  background-color: var(--cream);
+  /* Pivot the JS-driven rise tilt at the TOP edge. */
   transform-origin: 50% 0%;
-  /* Soft shadow at the TOP edge of the panel, falling UP onto the
-     skills layer that's still visible above the rising gallery. As
-     the panel translates from translateY(100vh) to 0, this shadow
-     rides the panel's top edge across the seam, giving a clear
-     depth separation between the front gallery and the back skills. */
-  box-shadow:
-    0 -26px 52px -14px rgba(0, 0, 0, 0.4),
-    0 -10px 22px  -8px rgba(0, 0, 0, 0.18);
+}
+/* Instant swap (no fade) the moment the slide-up overlap is past, so the topo
+   is simply present — it doesn't slowly fade in as you scroll. */
+.hall__pin--clear { background-color: transparent; }
+
+/* Ambient accent glow — two soft chartreuse pools, one behind the text panel
+   (left) and one behind the painting (right). Sits below the canvas (z 0 vs
+   z 1) so it reads as a halo: it bleeds around the painting's edges and washes
+   gently behind the text. Kept very low-alpha so it's barely-there premium
+   atmosphere on cream; the dark-mode variant lifts it just enough to glow
+   like neon without shouting. Static (no animation) so perf-lite is unaffected. */
+.hall__glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 48% at 23% 50%, rgba(216, 255, 56, 0.085), transparent 70%),
+    radial-gradient(44% 56% at 69% 50%, rgba(216, 255, 56, 0.07),  transparent 72%);
+}
+html.is-dark .hall__glow {
+  background:
+    radial-gradient(44% 50% at 23% 50%, rgba(216, 255, 56, 0.11), transparent 70%),
+    radial-gradient(48% 58% at 69% 50%, rgba(216, 255, 56, 0.19), transparent 72%);
 }
 .hall__canvas {
   position: absolute;
@@ -2020,6 +2037,235 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
 .exp-card__bullets li b { font-weight: 600; color: var(--ink); }
 
 /* =========================================================
+   EXPERIENCE — TERMINAL (left) + TIMELINE (right)
+   ========================================================= */
+.xp {
+  position: relative;
+  padding: var(--section-y) 0;
+  z-index: 1;
+}
+.xp__head {
+  max-width: 1180px;
+  margin: 0 auto clamp(40px, 6vh, 72px);
+  padding: 0 var(--gutter);
+}
+.xp__eyebrow {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.xp__lede {
+  margin: 14px 0 0;
+  max-width: 62ch;
+  font-family: var(--f-sans);
+  font-size: clamp(15.5px, 1.1vw, 18px);
+  line-height: 1.55;
+  color: var(--ink-mute);
+}
+/* Centered content block (terminal + timeline) so it reads balanced
+   instead of pinned to the edges. */
+.xp__grid {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  display: grid;
+  grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+  gap: clamp(32px, 5vw, 72px);
+  align-items: start;
+}
+
+/* ---- Terminal ---- */
+.term {
+  width: 100%;
+  max-width: 560px;
+  font-family: var(--f-mono);
+  font-size: 13.5px;
+}
+.term__win {
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid #262626;
+  background: #171717;
+  box-shadow: 0 40px 90px -45px rgba(12, 12, 10, 0.55);
+}
+.term__bar {
+  display: flex; align-items: center; gap: 8px;
+  background: #262626;
+  padding: 11px 14px;
+}
+.term__dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.term__dot--r { background: #ef4444; }
+.term__dot--y { background: #eab308; }
+.term__dot--g { background: #22c55e; }
+.term__title { flex: 1; text-align: center; font-size: 12px; color: #a3a3a3; }
+.term__bar-spacer { width: 52px; flex: none; }
+.term__screen {
+  height: 320px;
+  overflow-y: auto;
+  padding: 16px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #d4d4d4;
+  scrollbar-width: none;
+}
+.term__screen::-webkit-scrollbar { width: 0; height: 0; }
+.term__line { min-height: 1.65em; }
+/* prompt segments */
+.term__u { color: #0ea5e9; }
+.term__c { color: #059669; }
+.term__tilde { color: #38bdf8; }
+.term__d { color: #737373; }
+.term__out { color: #a3a3a3; }
+/* bash token colors */
+.t-command { color: #34d399; }
+.t-flag { color: #38bdf8; }
+.t-string { color: #fcd34d; }
+.t-number { color: #c084fc; }
+.t-operator { color: #f87171; }
+.t-path { color: #67e8f9; }
+.t-variable { color: #f472b6; }
+.t-comment { color: #737373; }
+.t-default { color: #d4d4d4; }
+.term__cursor {
+  display: inline-block;
+  width: 8px; height: 1em;
+  background: #d4d4d4;
+  vertical-align: text-bottom;
+  margin-left: 1px;
+  animation: termBlink 1.06s steps(1, end) infinite;
+}
+@keyframes termBlink { 50% { opacity: 0; } }
+body.perf-lite .term__cursor { animation: none; }
+
+/* ---- Timeline ---- */
+.tl {
+  position: relative;
+  display: flex; flex-direction: column;
+  gap: clamp(34px, 4.5vw, 56px);
+  padding-left: 30px;
+}
+.tl::before {
+  content: "";
+  position: absolute;
+  left: 6px; top: 6px; bottom: 6px;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--ink), var(--line-soft));
+}
+.tl__item { position: relative; }
+.tl__dot {
+  position: absolute;
+  left: -30px; top: 4px;
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 3px var(--cream), 0 0 0 4px var(--line-soft);
+}
+/* Current / in-flight role — accent node. */
+.tl__dot--live {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--cream), 0 0 0 4px var(--accent-deep);
+}
+.tl__when {
+  font-family: var(--f-mono);
+  font-size: 12.5px; letter-spacing: 0.18em;
+  color: var(--ink-mute);
+}
+.tl__role {
+  margin: 9px 0 7px;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(26px, 2.7vw, 37px);
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--ink);
+}
+.tl__org {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.tl__logo {
+  width: 36px; height: 36px; flex: none;
+  display: grid; place-items: center;
+  background: var(--ink); color: var(--accent);
+  border-radius: 10px;
+  font-family: var(--f-display);
+  font-size: 14px; letter-spacing: 0.02em;
+}
+.tl__org-name {
+  font-family: var(--f-sans);
+  font-size: clamp(16.5px, 1.2vw, 20px);
+  font-weight: 500;
+  color: var(--ink);
+}
+.tl__loc {
+  width: 100%;
+  font-family: var(--f-mono);
+  font-size: 11.5px; letter-spacing: 0.14em;
+  color: var(--ink-mute);
+}
+.tl__points { display: flex; flex-direction: column; gap: 10px; }
+.tl__points li {
+  position: relative;
+  padding-left: 20px;
+  font-family: var(--f-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.tl__points li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 9px;
+  width: 8px; height: 1.5px;
+  background: var(--accent-deep);
+}
+.tl__points li b { font-weight: 600; color: var(--ink); }
+
+@media (max-width: 900px) {
+  .xp__grid { grid-template-columns: 1fr; gap: 48px; }
+  .xp__left { position: static; }
+  .term { max-width: none; }
+}
+
+/* ---- Dark-mode veil + experience-section dark theme ----
+   The veil's opacity is scroll-driven, so the page fades light → dark as the
+   experience section scrolls in and back to light as it leaves. The section's
+   own content is styled light-on-dark to read against the veil. */
+/* Timeline scroll-in animation (armed by JS · initTimeline): the rail draws
+   downward and each entry + node staggers in. */
+.tl--anim::before {
+  transform: scaleY(0);
+  transform-origin: top center;
+  transition: transform 1s var(--ease-out-quart);
+}
+.tl--anim.is-active::before { transform: scaleY(1); }
+.tl__item:nth-child(1) { --i: 0; }
+.tl__item:nth-child(2) { --i: 1; }
+.tl__item:nth-child(3) { --i: 2; }
+.tl--anim .tl__item {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.7s var(--ease-out-quart), transform 0.7s var(--ease-out-quart);
+  transition-delay: calc(var(--i, 0) * 0.14s);
+}
+.tl--anim.is-active .tl__item { opacity: 1; transform: none; }
+.tl--anim .tl__dot {
+  transform: scale(0);
+  transition: transform 0.5s var(--ease-out-quart);
+  transition-delay: calc(var(--i, 0) * 0.14s + 0.15s);
+}
+.tl--anim.is-active .tl__dot { transform: scale(1); }
+@media (prefers-reduced-motion: reduce) {
+  .tl--anim .tl__item, .tl--anim .tl__dot, .tl--anim::before {
+    transition: none; opacity: 1; transform: none;
+  }
+}
+
+/* =========================================================
    PROJECTS
    ========================================================= */
 .projects {
@@ -2400,4 +2646,782 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
     scroll-behavior: auto !important;
   }
   .topo-bg { animation: none; }
+}
+
+/* =========================================================
+   DARK THEME — "lights off" as you scroll past the gallery
+   into the experience section. JS (initThemeShift) toggles
+   html.is-dark at that boundary; the palette variables flip and
+   the always-visible backdrop + experience/contact text fade
+   over a short, smooth transition (the cream/ink consumers
+   recolor automatically through their var() references).
+   ========================================================= */
+html.is-dark {
+  --cream:   #0C0E12;   /* page surface → near-black */
+  --cream-2: #14171D;
+  --cream-3: #1E222A;
+  --ink:     #ECE7DA;   /* text → warm off-white */
+  --ink-2:   #CBC5B7;
+  --ink-mute:#928B7C;
+  --line:    #39414B;
+  --line-soft:  rgba(236, 231, 218, 0.12);
+  --line-faint: rgba(236, 231, 218, 0.06);
+  --glass:        rgba(22, 25, 31, 0.55);
+  --glass-stroke: rgba(236, 231, 218, 0.10);
+}
+/* Contour lines are dark-on-cream by default; flip to light-on-dark
+   so they stay visible once the page goes dark. */
+html.is-dark .topo-bg { color: rgba(236, 231, 218, 0.14); }
+
+/* The project-gallery slide text uses hardcoded near-black colours (it was
+   only ever shown on cream). When the lights go off during the gallery →
+   experience hand-off the gallery is still on screen, so those darks vanish.
+   Flip them to light here — only while is-dark is active, so the gallery
+   reads normally (dark-on-cream) the rest of the time. */
+html.is-dark .hall-slide__desc { color: rgba(236, 231, 218, 0.72); }
+html.is-dark .hall-slide__num,
+html.is-dark .hall-slide__meta-label,
+html.is-dark .hall__hint { color: rgba(236, 231, 218, 0.5); }
+html.is-dark .hall-slide__num { border-bottom-color: rgba(236, 231, 218, 0.18); }
+/* Hide the scroll-hint once the lights are off — it reads as clutter against
+   the dark hand-off (the light gallery keeps it). */
+html.is-dark .hall__hint { opacity: 0; }
+html.is-dark .hall-slide__meta { border-top-color: rgba(236, 231, 218, 0.14); }
+/* Idle highlight words: the dark forest green is low-contrast on black —
+   lift to a brighter green so they still read as the accent. */
+html.is-dark .hyper-word.is-hl { color: #4ade80; }
+
+/* The fade itself. Only the layers that are actually on screen during
+   (and after) the flip get a transition — the rest sit off-screen and
+   never reveal a snap. Elements that already transition their own
+   color/background (contact email pill, social links) are left alone
+   so their existing easings are preserved. */
+/* Slower + staggered so the change cascades with depth: the background dips
+   first, the contour lines follow, then the text — read as one slow wave
+   rather than a flat simultaneous flip. The accent scan blade (.theme-sweep)
+   rides across on top of this. */
+html, body { transition: background-color .95s var(--ease-soft), color .95s var(--ease-soft); }
+.topo-bg { transition: color 1s var(--ease-soft) .12s; }
+.xp__eyebrow, .xp__lede,
+.tl__when, .tl__role, .tl__org-name, .tl__loc,
+.tl__points li, .tl__points li b,
+.contact__meta, .contact__num,
+.contact__headline, .contact__headline .italic,
+.contact__lede {
+  transition: background-color .9s var(--ease-soft) .22s, color .9s var(--ease-soft) .22s, border-color .9s var(--ease-soft) .22s;
+}
+
+/* =========================================================
+   THEME SWEEP — the "lights changing" scan blade.
+   A thin glowing accent blade sweeps vertically across the screen each time
+   the page flips light↔dark (fired by GSAP in initThemeShift), so the change
+   reads as a wave of energy passing through rather than a flat crossfade.
+   Pure transform/opacity, one shot per crossing. */
+.theme-sweep {
+  position: fixed;
+  left: -10vw; right: -10vw;
+  top: 0;
+  height: 100vh;
+  z-index: 210;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: linear-gradient(to bottom,
+    transparent 43%,
+    rgba(216, 255, 56, 0.04) 47.5%,
+    rgba(216, 255, 56, 0.90) 50%,
+    rgba(216, 255, 56, 0.04) 52.5%,
+    transparent 57%);
+  filter: drop-shadow(0 0 22px rgba(216, 255, 56, 0.55));
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-sweep { display: none; }
+}
+
+/* =========================================================
+   EXPERIENCE FRAME — scroll-drawn blueprint border
+   A thin frame draws itself around the experience section as you
+   scroll into it: two symmetric strokes start at the top centre, run
+   out to the corners, race down both sides and meet/close along the
+   bottom — so the line literally travels corner-to-corner with the
+   scroll. Accent brackets snap on as each corner is reached and a
+   small spark leads each drawing head. Dark-mode only (the section is
+   dark by the time it frames). JS · initXpFrame drives the draw.
+   ========================================================= */
+.xp__frame {
+  position: fixed;
+  top: clamp(16px, 3vh, 40px);
+  bottom: clamp(16px, 3vh, 40px);
+  left: clamp(16px, 3.5vw, 64px);
+  right: clamp(16px, 3.5vw, 64px);
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .55s var(--ease-soft);
+}
+/* Shown only while the experience section is in view AND the page is dark,
+   so the line frames the dark "page" (never the light sections above). */
+html.is-dark .xp__frame.xp__frame--active { opacity: 1; }
+.xp__frame-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.xp__frame-path {
+  stroke: rgba(236, 231, 218, 0.92);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  /* Hidden until JS measures each path and sets the real dash length +
+     offset (initThemeShift sibling · initXpFrame). Big defaults just keep
+     it hidden before that first measure, with no flash. */
+  stroke-dasharray: 4000;
+  stroke-dashoffset: 4000;
+  filter: drop-shadow(0 0 7px rgba(216, 255, 56, 0.18));
+}
+
+/* Accent L-brackets at the four corners — lit as the draw reaches them. */
+.xp__frame-corner {
+  position: absolute;
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--accent);
+  opacity: 0;
+  transform: scale(.55);
+  transition: opacity .35s ease, transform .4s var(--ease-out-quart);
+}
+.xp__frame-corner.is-lit { opacity: .92; transform: scale(1); }
+.xp__frame-corner--tl { top: -2px; left: -2px;  border-right: 0; border-bottom: 0; transform-origin: top left; }
+.xp__frame-corner--tr { top: -2px; right: -2px; border-left: 0;  border-bottom: 0; transform-origin: top right; }
+.xp__frame-corner--br { bottom: -2px; right: -2px; border-left: 0; border-top: 0;  transform-origin: bottom right; }
+.xp__frame-corner--bl { bottom: -2px; left: -2px;  border-right: 0; border-top: 0;  transform-origin: bottom left; }
+.xp__frame-corner.is-lit { transform: scale(1); }
+
+/* Leading spark at each drawing head — positioned by JS in % of the box. */
+.xp__frame-spark {
+  position: absolute;
+  width: 7px; height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px 2px rgba(216, 255, 56, 0.55);
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.xp__frame.is-drawing .xp__frame-spark { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .xp__frame-spark { display: none; }
+}
+
+/* =========================================================
+   EXPERIENCE — CINEMATIC NEURAL TIMELINE (rebuilt)
+   A diagonal zigzag "live wire" with flowing energy, floating
+   neon orb-nodes, glass cards, atmospheric depth + a particle
+   field. Dark / cyberpunk; orchestrated by JS (initXpTimeline).
+   Tokens local to this section so it reads the same regardless
+   of the page palette flip.
+   ========================================================= */
+.xpx {
+  --xn: #D8FF38;                 /* primary neon */
+  --xn-2: #6cf0ff;               /* cool accent for duotone depth */
+  --xn-dim: rgba(216,255,56,.32);
+  --xglass: rgba(20,26,30,.42);
+  --xstroke: rgba(216,255,56,.16);
+  --xtext: rgba(236,231,218,.92);
+  --xmute: rgba(236,231,218,.52);
+  position: relative;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  perspective: 1600px;
+}
+
+/* ---------- Sleek head ---------- */
+.xpx__head { text-align: center; max-width: 760px; }
+.xpx__head { margin-left: auto; margin-right: auto; }
+.xpx__title {
+  margin: 14px 0 0;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(40px, 6vw, 92px);
+  line-height: .92;
+  letter-spacing: -0.01em;
+  color: var(--xtext, #ECE7DA);
+  text-transform: uppercase;
+}
+.xpx__title em {
+  font-style: normal;
+  color: var(--xn, #D8FF38);
+  text-shadow: 0 0 26px rgba(216,255,56,.55);
+}
+
+/* ---------- Atmosphere ---------- */
+.xpx__atmos {
+  position: absolute;
+  inset: -6% -8%;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 28px;
+}
+.xpx__grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(216,255,56,.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(216,255,56,.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(120% 80% at 50% 42%, #000 30%, transparent 78%);
+          mask-image: radial-gradient(120% 80% at 50% 42%, #000 30%, transparent 78%);
+  transform: translate3d(var(--px,0), var(--py,0), 0);
+  opacity: .5;
+}
+.xpx__blob {
+  position: absolute;
+  width: 56vw; height: 56vw;
+  max-width: 760px; max-height: 760px;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: .55;
+  will-change: transform;
+}
+.xpx__blob--1 {
+  top: -8%; left: 8%;
+  background: radial-gradient(circle, rgba(216,255,56,.20), transparent 62%);
+  animation: xpxDrift1 26s ease-in-out infinite alternate;
+  transform: translate3d(calc(var(--px,0) * 2), calc(var(--py,0) * 2), 0);
+}
+.xpx__blob--2 {
+  bottom: -12%; right: 4%;
+  background: radial-gradient(circle, rgba(108,240,255,.13), transparent 64%);
+  animation: xpxDrift2 32s ease-in-out infinite alternate;
+  transform: translate3d(calc(var(--px,0) * -2.4), calc(var(--py,0) * -1.6), 0);
+}
+@keyframes xpxDrift1 { to { transform: translate3d(6%, 5%, 0) scale(1.12); } }
+@keyframes xpxDrift2 { to { transform: translate3d(-5%, -6%, 0) scale(1.15); } }
+.xpx__particles { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .7; }
+.xpx__scan {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(to bottom,
+    rgba(255,255,255,.022) 0px, rgba(255,255,255,.022) 1px,
+    transparent 2px, transparent 4px);
+  mix-blend-mode: overlay;
+  opacity: .5;
+  animation: xpxScan 8s linear infinite;
+}
+@keyframes xpxScan { to { background-position: 0 240px; } }
+.xpx__cursor {
+  position: absolute;
+  width: 520px; height: 520px;
+  left: var(--mx, 50%); top: var(--my, 40%);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(216,255,56,.10), transparent 60%);
+  opacity: 0;
+  transition: opacity .5s ease;
+}
+.xpx[data-hot] .xpx__cursor { opacity: 1; }
+body.perf-lite .xpx__blob,
+body.perf-lite .xpx__scan { animation: none; }
+body.perf-lite .xpx__particles { display: none; }
+
+/* ---------- The rail ---------- */
+.xpx__rail {
+  position: relative;
+  z-index: 1;
+  height: clamp(980px, 128vh, 1320px);
+  margin-top: clamp(40px, 6vh, 76px);
+  transform: rotateX(8deg) rotateZ(-1.2deg);
+  transform-style: preserve-3d;
+}
+@media (max-width: 900px) { .xpx__rail { transform: none; } }
+
+.xpx__line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.xpx__line-base {
+  stroke: rgba(216,255,56,.22);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(216,255,56,.25));
+}
+.xpx__line-flow {
+  stroke: var(--xn, #D8FF38);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 10px rgba(216,255,56,.9));
+  animation: xpxFlow 2.4s linear infinite;
+}
+@keyframes xpxFlow { to { stroke-dashoffset: -120; } }
+body.perf-lite .xpx__line-flow { animation: none; }
+
+/* ---------- Nodes ---------- */
+.xpn {
+  position: absolute;
+  left: var(--x); top: var(--y);
+  width: 0; height: 0;
+  z-index: 2;
+}
+.xpn__orb {
+  position: absolute;
+  left: 0; top: 0;
+  /* Centre the 26px orb on the node point via margin, so `transform` is free
+     for scale only (no translate to fight GSAP / the proximity var). */
+  margin: -13px 0 0 -13px;
+  width: 26px; height: 26px;
+  --orb: 1; --prox: 0;
+  transform: scale(calc(var(--orb) + var(--prox) * 0.5));
+  transition: transform .45s cubic-bezier(.22,1,.36,1);
+}
+.xpn__orb i {  /* core */
+  position: absolute; inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #fff, var(--xn) 58%, #9bc400 100%);
+  box-shadow: 0 0 16px 2px rgba(216,255,56,.8), 0 0 40px 6px rgba(216,255,56,.35);
+}
+.xpn__orb b {  /* halo ring */
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(216,255,56,.5);
+  animation: xpxPulse 2.8s ease-out infinite;
+}
+@keyframes xpxPulse {
+  0%   { transform: scale(1);   opacity: .8; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.xpn__orb::after { /* float wrapper handled via animation on orb */ }
+.xpn { animation: xpxFloat 6s ease-in-out infinite; animation-delay: calc(var(--i) * -2s); }
+@keyframes xpxFloat { 50% { transform: translateY(-10px); } }
+body.perf-lite .xpn { animation: none; }
+body.perf-lite .xpn__orb b { animation: none; opacity: .35; }
+
+/* glow line from orb to card */
+.xpn__card {
+  position: absolute;
+  top: 50%;
+  width: clamp(300px, 30vw, 408px);
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: var(--xglass);
+  border: 1px solid var(--xstroke);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+          backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow:
+    0 30px 70px -30px rgba(0,0,0,.7),
+    inset 0 1px 0 rgba(255,255,255,.06),
+    0 0 0 0 rgba(216,255,56,0);
+  transform: translateY(-50%) translateZ(0);
+  transition: transform .5s cubic-bezier(.22,1,.36,1),
+              box-shadow .5s ease, border-color .5s ease, opacity .6s ease;
+}
+.xpn--right .xpn__card { left: 30px; }
+.xpn--left  .xpn__card { right: 30px; }
+/* a faint connector from the orb into the card */
+.xpn__card::before {
+  content: "";
+  position: absolute; top: 50%;
+  width: 30px; height: 1px;
+  background: linear-gradient(90deg, var(--xn), transparent);
+}
+.xpn--right .xpn__card::before { left: -30px; }
+.xpn--left  .xpn__card::before { right: -30px; transform: scaleX(-1); }
+
+.xpn__tag {
+  position: absolute; top: -10px;
+  right: 18px;
+  font-family: var(--f-mono);
+  font-size: 9.5px; letter-spacing: .2em;
+  padding: 3px 8px;
+  color: #10160a;
+  background: var(--xn);
+  border-radius: 999px;
+  box-shadow: 0 0 16px rgba(216,255,56,.6);
+}
+.xpn__tag--ghost { display: none; }
+.xpn__when {
+  font-family: var(--f-mono);
+  font-size: 11.5px; letter-spacing: .18em;
+  color: var(--xn);
+  opacity: .85;
+}
+.xpn__role {
+  margin: 8px 0 10px;
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(22px, 2.3vw, 30px);
+  line-height: 1.02;
+  letter-spacing: .005em;
+  color: var(--xtext);
+}
+.xpn__org { display: flex; align-items: center; gap: 10px; }
+.xpn__logo {
+  width: 30px; height: 30px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: rgba(216,255,56,.12);
+  border: 1px solid rgba(216,255,56,.3);
+  color: var(--xn);
+  font-family: var(--f-display); font-size: 12px; letter-spacing: .02em;
+}
+.xpn__org-name {
+  font-family: var(--f-sans); font-weight: 500;
+  font-size: clamp(15px, 1.2vw, 18px);
+  color: var(--xtext);
+}
+.xpn__loc {
+  margin-top: 6px;
+  font-family: var(--f-mono);
+  font-size: 10.5px; letter-spacing: .14em;
+  color: var(--xmute);
+}
+.xpn__points {
+  margin: 16px 0 0;
+  display: flex; flex-direction: column; gap: 9px;
+  /* details "expand" — compact + dimmed until the node is active/hovered */
+  opacity: .42;
+  max-height: 4.4em;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+          mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  overflow: hidden;
+  transition: opacity .5s ease, max-height .6s cubic-bezier(.22,1,.36,1);
+}
+.xpn__points li {
+  position: relative;
+  padding-left: 16px;
+  font-family: var(--f-sans);
+  font-size: 13.5px; line-height: 1.5;
+  color: rgba(236,231,218,.8);
+}
+.xpn__points li::before {
+  content: ""; position: absolute; left: 0; top: 8px;
+  width: 7px; height: 1.5px; background: var(--xn);
+  box-shadow: 0 0 6px rgba(216,255,56,.8);
+}
+.xpn__points li b { color: #fff; font-weight: 600; }
+
+/* Active (in view) OR hovered → expand + brighten + lift in 3D */
+.xpn.is-active .xpn__points,
+.xpn:hover .xpn__points {
+  opacity: 1;
+  max-height: 22em;
+  -webkit-mask-image: none; mask-image: none;
+}
+.xpn.is-active .xpn__card,
+.xpn:hover .xpn__card {
+  transform: translateY(-50%) translateZ(48px) scale(1.018);
+  border-color: rgba(216,255,56,.42);
+  box-shadow:
+    0 44px 90px -34px rgba(0,0,0,.8),
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 0 34px -2px rgba(216,255,56,.26);
+}
+.xpn.is-active .xpn__orb { --orb: 1.28; }
+.xpn.is-active .xpn__orb i { box-shadow: 0 0 26px 5px rgba(216,255,56,.95), 0 0 64px 12px rgba(216,255,56,.5); }
+
+@media (prefers-reduced-motion: reduce) {
+  .xpn, .xpn__orb b, .xpx__blob, .xpx__scan, .xpx__line-flow { animation: none !important; }
+  .xpn__points { opacity: 1; max-height: none; -webkit-mask-image: none; mask-image: none; }
+}
+
+/* ---------- Responsive: stack into a single clean column ---------- */
+@media (max-width: 900px) {
+  .xpx__rail { height: auto; display: flex; flex-direction: column; gap: 26px; padding-left: 22px; }
+  .xpx__line { display: none; }
+  .xpn { position: relative; left: auto !important; top: auto !important; width: auto; height: auto; animation: none; }
+  .xpn__orb { position: absolute; left: -22px; top: 30px; }
+  .xpn__card { position: relative; top: auto; left: auto !important; right: auto !important; width: auto; transform: none !important; }
+  .xpn__card::before { display: none; }
+  .xpn__points { opacity: 1; max-height: none; -webkit-mask-image: none; mask-image: none; }
+}
+
+/* =========================================================
+   EXPERIENCE — 3D PERSPECTIVE TIMELINE (overrides the vertical
+   version). The three roles recede into the screen: newest in
+   front (large), oldest at the back (small + dim). Only the
+   title sits by each orb; the full detail reveals on hover.
+   The connecting wire is a 2D overlay redrawn from the orbs'
+   projected screen positions (JS · initXpTimeline).
+   ========================================================= */
+.xpx { perspective: 1150px; perspective-origin: 50% 46%; }
+
+.xpx__wire {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1; overflow: visible; pointer-events: none;
+}
+.xpx__wire-base {
+  fill: none; stroke: rgba(216,255,56,.22); stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(216,255,56,.25));
+}
+.xpx__wire-flow {
+  fill: none; stroke: var(--xn, #D8FF38); stroke-width: 2.4;
+  stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 10px rgba(216,255,56,.9));
+  animation: xpxFlow 2.4s linear infinite;
+}
+body.perf-lite .xpx__wire-flow { animation: none; }
+
+.xpx__stage {
+  position: relative; z-index: 2;
+  height: clamp(480px, 66vh, 700px);
+  margin-top: clamp(8px, 2.5vh, 32px);
+  transform-style: preserve-3d;
+  transition: transform .35s cubic-bezier(.22,1,.36,1);
+  will-change: transform;
+}
+
+/* Node placed in 3D — perspective makes the front one large, the back one
+   small, with no manual scaling. */
+.xpn {
+  position: absolute;
+  left: var(--ax); top: var(--ay);
+  width: 0; height: 0;
+  transform: translate(-50%, -50%) translateZ(var(--tz, 0px));
+  transform-style: preserve-3d;
+  animation: none;
+}
+.xpn[data-depth="back"]  { opacity: .8;  filter: blur(.7px); }
+.xpn[data-depth="mid"]   { opacity: .93; }
+.xpn[data-depth="front"] { opacity: 1; }
+.xpn:hover { z-index: 6; }
+
+/* Title-card: compact, centred beneath the orb. Points hidden until hover. */
+.xpn__card,
+.xpn--right .xpn__card,
+.xpn--left  .xpn__card {
+  position: absolute;
+  left: 50%; right: auto; top: 26px;
+  width: 248px;
+  transform: translateX(-50%);
+  text-align: center;
+  padding: 14px 16px 15px;
+}
+.xpn__card::before { display: none; }
+.xpn__tag { right: 14px; }
+.xpn__org { justify-content: center; }
+.xpn__loc { text-align: center; }
+.xpn__points {
+  text-align: left;
+  opacity: 0; max-height: 0; margin-top: 0;
+  -webkit-mask-image: none; mask-image: none;
+  overflow: hidden;
+  transition: opacity .4s ease, max-height .55s cubic-bezier(.22,1,.36,1), margin-top .4s ease;
+}
+.xpn:hover .xpn__points,
+.xpn.is-active .xpn__points {
+  opacity: 1; max-height: 24em; margin-top: 14px;
+}
+.xpn:hover .xpn__card,
+.xpn.is-active .xpn__card {
+  transform: translateX(-50%) scale(1.05);
+  border-color: rgba(216,255,56,.42);
+  box-shadow:
+    0 44px 90px -34px rgba(0,0,0,.8),
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 0 34px -2px rgba(216,255,56,.28);
+}
+
+/* Reveal arm state (JS / GSAP handles the fly-in; this is the no-GSAP guard). */
+@media (prefers-reduced-motion: reduce) {
+  .xpn__points { opacity: 1; max-height: none; margin-top: 14px; }
+}
+
+/* Mobile: drop the 3D, stack as a clean vertical list. */
+@media (max-width: 900px) {
+  .xpx { perspective: none; }
+  .xpx__wire { display: none; }
+  .xpx__stage { height: auto; display: flex; flex-direction: column; gap: 22px; transform: none !important; }
+  .xpn {
+    position: relative; left: auto; top: auto; width: auto; height: auto;
+    transform: none !important; opacity: 1 !important; filter: none !important;
+    padding-left: 30px;
+  }
+  .xpn[data-depth] { opacity: 1 !important; }
+  .xpn__orb { position: absolute; left: 0; top: 16px; margin: 0; }
+  .xpn__card,
+  .xpn--right .xpn__card, .xpn--left .xpn__card {
+    position: relative; left: auto; top: auto; width: auto;
+    transform: none !important; text-align: left;
+  }
+  .xpn__org, .xpn__loc { justify-content: flex-start; text-align: left; }
+  .xpn__points { opacity: 1; max-height: none; margin-top: 14px; }
+}
+
+/* =========================================================
+   EXPERIENCE — DATA-GLOBE SHOWCASE (rebuilt)
+   A rotating WebGL data-globe (vendor/globe.js) is the persistent
+   backdrop; experiences scroll past as glass panels with a HUD,
+   scene strip and reveal-on-scroll, à la the scroll-sync template
+   — but scoped (no global scroll hijack). Driven by initXpShowcase.
+   ========================================================= */
+.xpx2 { position: relative; z-index: 1; }
+
+/* --- rotating globe backdrop (fixed; appears once you're mostly into the
+   section and powers down when it ends — scale + blur + fade "materialise"). --- */
+.xpx2__globe {
+  position: fixed; inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.74);
+  transform-origin: 50% 48%;
+  filter: blur(12px) brightness(0.4) saturate(0.7);
+  transition: opacity .9s ease, transform 1.1s cubic-bezier(.16,1,.3,1),
+              filter 1s ease;
+  will-change: opacity, transform, filter;
+}
+.xpx2__globe canvas { display: block; }
+.xpx2__vignette {
+  position: fixed; inset: 0;
+  z-index: 1; pointer-events: none; opacity: 0;
+  transition: opacity .9s ease;
+  background:
+    radial-gradient(58% 58% at 50% 46%, transparent 42%, rgba(5,6,10,.62) 100%),
+    linear-gradient(to bottom, rgba(5,6,10,.5), transparent 18%, transparent 82%, rgba(5,6,10,.5));
+}
+.xpx2.is-on .xpx2__globe {
+  opacity: 1; transform: scale(1); filter: blur(0) brightness(1) saturate(1);
+}
+.xpx2.is-on .xpx2__vignette { opacity: 1; }
+body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
+
+/* --- HUD (top-right) + scene strip (left) --- */
+.xpx2__hud, .xpx2__strip {
+  position: fixed; z-index: 5;
+  opacity: 0; pointer-events: none;
+  transition: opacity .5s ease;
+  font-family: var(--f-mono);
+}
+.xpx2.is-on .xpx2__hud, .xpx2.is-on .xpx2__strip { opacity: 1; }
+.xpx2__hud {
+  top: clamp(54px, 8vh, 92px); right: clamp(28px, 4vw, 66px);
+  text-align: right; color: rgba(236,231,218,.5);
+}
+.xpx2__pct { font-size: 12px; letter-spacing: .18em; }
+.xpx2__bar {
+  width: 120px; height: 1px; margin: 8px 0 6px auto;
+  background: rgba(236,231,218,.22); position: relative; overflow: hidden;
+}
+.xpx2__bar i { position: absolute; inset: 0 auto 0 0; width: 0%; background: var(--accent); box-shadow: 0 0 8px var(--accent); transition: width .15s linear; }
+.xpx2__scene { font-size: 10px; letter-spacing: .22em; color: var(--accent); }
+.xpx2__strip {
+  left: clamp(26px, 4vw, 58px); top: 50%; translate: 0 -50%;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.xpx2__dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(236,231,218,.28); transition: background .3s, scale .3s, box-shadow .3s; }
+.xpx2__dot.is-on { background: var(--accent); scale: 1.9; box-shadow: 0 0 10px var(--accent); }
+
+/* --- panels --- */
+.xpx2__scroll { position: relative; z-index: 2; }
+.xpp {
+  min-height: 100vh;
+  display: flex; align-items: center;
+  padding: clamp(80px, 12vh, 150px) clamp(28px, 8vw, 130px);
+}
+
+.xpcard {
+  max-width: 440px;
+  padding: 30px 30px 32px;
+  background: rgba(8, 10, 15, 0.55);
+  border-left: 1px solid rgba(216,255,56,.28);
+  -webkit-backdrop-filter: blur(14px) saturate(1.05);
+          backdrop-filter: blur(14px) saturate(1.05);
+  box-shadow: 0 40px 90px -40px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.05);
+  border-radius: 2px;
+}
+.xpcard.right { margin-left: auto; text-align: right; border-left: none; border-right: 1px solid rgba(216,255,56,.28); }
+.xpcard.center { margin: 0 auto; text-align: center; border-left: none; border-top: 1px solid rgba(216,255,56,.28); max-width: 540px; }
+
+.xpcard__line { display: block; width: 52px; height: 1px; background: var(--accent); margin-bottom: 18px; opacity: 0; scale: 0 1; transform-origin: left; transition: opacity .4s ease, scale .5s cubic-bezier(.22,1,.36,1); }
+.xpcard.right .xpcard__line { margin-left: auto; transform-origin: right; }
+.xpcard.center .xpcard__line { margin: 0 auto 18px; transform-origin: center; }
+.xpcard__line.visible { opacity: 1; scale: 1 1; }
+
+.xpcard__tag {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 14px;
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease, translate .5s ease;
+}
+.xpcard__tag em { font-style: normal; color: #fff; background: var(--accent); color: #10160a; padding: 2px 7px; border-radius: 999px; box-shadow: 0 0 14px rgba(216,255,56,.55); }
+.xpcard__title {
+  margin: 0;
+  font-family: var(--f-display); font-weight: 400;
+  font-size: clamp(40px, 6.5vw, 86px); line-height: .9; letter-spacing: .01em;
+  text-transform: uppercase; color: #F4F1EA;
+  opacity: 0; translate: 0 18px; transition: opacity .5s ease .08s, translate .5s ease .08s;
+}
+.xpcard__title em { font-style: normal; color: var(--accent); text-shadow: 0 0 26px rgba(216,255,56,.5); }
+.xpcard__title.visible, .xpcard__tag.visible { opacity: 1; translate: 0 0; }
+.xpcard__org {
+  display: inline-flex; align-items: center; gap: 9px;
+  margin-top: 14px;
+  font-family: var(--f-sans); font-weight: 500; font-size: 14px;
+  color: rgba(236,231,218,.82);
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease .16s, translate .5s ease .16s;
+}
+.xpcard.right .xpcard__org { flex-direction: row-reverse; }
+.xpcard.center .xpcard__org { justify-content: center; }
+.xpcard__org.visible { opacity: 1; translate: 0 0; }
+.xpcard__logo {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  border-radius: 7px; background: rgba(216,255,56,.12); border: 1px solid rgba(216,255,56,.3);
+  color: var(--accent); font-family: var(--f-display); font-size: 11px;
+}
+.xpcard__body {
+  margin: 16px 0 0;
+  font-family: var(--f-sans); font-size: 14.5px; line-height: 1.65;
+  color: rgba(236,231,218,.62);
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease .22s, translate .5s ease .22s;
+}
+.xpcard__body.visible { opacity: 1; translate: 0 0; }
+.xpcard__body b { color: #fff; font-weight: 600; }
+
+.xpcard__stats {
+  display: flex; gap: 26px; flex-wrap: wrap; margin-top: 22px;
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease .3s, translate .5s ease .3s;
+}
+.xpcard.right .xpcard__stats { justify-content: flex-end; }
+.xpcard.center .xpcard__stats { justify-content: center; }
+.xpcard__stats.visible { opacity: 1; translate: 0 0; }
+.xpstat { display: flex; flex-direction: column; gap: 3px; }
+.xpstat__n { font-family: var(--f-display); font-size: 30px; line-height: 1; color: var(--accent); }
+.xpstat__n i { font-style: normal; font-size: .6em; }
+.xpstat__l { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: rgba(236,231,218,.45); }
+
+.xpcard__points {
+  margin: 20px 0 0; display: flex; flex-direction: column; gap: 9px;
+  opacity: 0; translate: 0 10px; transition: opacity .5s ease .36s, translate .5s ease .36s;
+}
+.xpcard__points.visible { opacity: 1; translate: 0 0; }
+.xpcard__points li {
+  position: relative; padding-left: 16px;
+  font-family: var(--f-sans); font-size: 13px; line-height: 1.55;
+  color: rgba(236,231,218,.72); text-align: left;
+}
+.xpcard.right .xpcard__points li { padding-left: 0; padding-right: 16px; text-align: right; }
+.xpcard__points li::before { content: ""; position: absolute; left: 0; top: 8px; width: 7px; height: 1.5px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.xpcard.right .xpcard__points li::before { left: auto; right: 0; }
+.xpcard__points li b { color: #fff; font-weight: 600; }
+
+.xpcard__cta {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 24px;
+  padding: 9px 18px; border: 1px solid var(--accent); color: var(--accent);
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  text-decoration: none; border-radius: 2px;
+  opacity: 0; translate: 0 10px;
+  transition: opacity .5s ease .34s, translate .5s ease .34s, background .25s, color .25s;
+}
+.xpcard__cta.visible { opacity: 1; translate: 0 0; }
+.xpcard__cta:hover { background: var(--accent); color: #0a0c08; }
+.xpcard__cta svg { width: 11px; height: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .xpcard__tag, .xpcard__title, .xpcard__org, .xpcard__body, .xpcard__stats, .xpcard__points, .xpcard__cta, .xpcard__line {
+    opacity: 1 !important; translate: 0 0 !important; scale: 1 1 !important;
+  }
+}
+@media (max-width: 760px) {
+  .xpx2__strip { display: none; }
+  .xpp { padding: 90px 20px; }
+  .xpcard, .xpcard.right, .xpcard.center { max-width: 100%; text-align: left; }
+  .xpcard.right { margin-left: 0; border-right: none; border-left: 1px solid rgba(216,255,56,.28); }
+  .xpcard.right .xpcard__org { flex-direction: row; }
+  .xpcard.right .xpcard__stats { justify-content: flex-start; }
+  .xpcard.right .xpcard__points li { padding-left: 16px; padding-right: 0; text-align: left; }
+  .xpcard.right .xpcard__points li::before { left: 0; right: auto; }
 }

@@ -1742,6 +1742,29 @@
     }
     window.addEventListener('resize', resize);
 
+    // ----- Theme-aware wall lines -----
+    // The thin "wall lines" between paintings are a light cream-gray so they
+    // read as faint seams against the cream backdrop. Once the page flips to
+    // dark (scrolling into the experience section) the transparent gallery
+    // canvas shows the dark page through it, and that light line suddenly
+    // stands out as a bright diagonal. Swap the line color to the dark page
+    // tone whenever html.is-dark is active so it stays invisible, and force an
+    // immediate repaint — the render loop is often idle by the time the page
+    // has gone dark, so it wouldn't otherwise pick up the color change.
+    const applyHallTheme = () => {
+      const dark = document.documentElement.classList.contains('is-dark');
+      // Light: faint cream wall lines. Dark: hide them entirely — against the
+      // dark page they only read as a stray diagonal across the screen.
+      lineMat.color.set(0xDED7C8);
+      lineMat.transparent = true;
+      lineMat.opacity = dark ? 0 : 1;
+      renderer.render(scene, camera);
+    };
+    new MutationObserver(applyHallTheme).observe(document.documentElement, {
+      attributes: true, attributeFilter: ['class']
+    });
+    applyHallTheme();
+
     // ----- Free-scroll camera pan with per-project hold zones -----
     // The page scroll is NEVER locked or hijacked, so the section can
     // never trap you. The camera is tied DIRECTLY to scroll progress
@@ -1830,6 +1853,20 @@
             }
           }
         );
+      }
+
+      // The pin is opaque cream while the dark skills section is still behind
+      // it (the slide-up + overlap, ~first 2 viewports of this section). Once
+      // that's past, turn it transparent (.hall__pin--clear) so the gallery
+      // shows the SAME global cream+topo background as every other section.
+      if (hallPin) {
+        ScrollTrigger.create({
+          trigger: section,
+          start: () => 'top top-=' + (window.innerHeight * 2),
+          invalidateOnRefresh: true,
+          onEnter: () => hallPin.classList.add('hall__pin--clear'),
+          onLeaveBack: () => hallPin.classList.remove('hall__pin--clear'),
+        });
       }
 
       // Camera scroll trigger. The trigger range covers BOTH the slide-up
@@ -2444,6 +2481,436 @@
     }, SETTLE);
   }
 
+  /* -------------------------------------------------------
+     initTerminal — vanilla port of the shadcn "Terminal".
+     Types each command character-by-character with bash
+     syntax highlighting, prints its outputs, then advances to
+     the next; starts when scrolled into view. Config (commands,
+     outputs, speeds) lives in the .term__config JSON in the
+     markup. Keyboard audio from the original is intentionally
+     dropped (no sound asset). Reduced motion renders instantly.
+     ------------------------------------------------------- */
+  function initTerminal() {
+    const root = document.querySelector('[data-terminal]');
+    if (!root) return;
+    const screen = root.querySelector('.term__screen');
+    const cfgEl = root.querySelector('.term__config');
+    if (!screen || !cfgEl) return;
+    let cfg;
+    try { cfg = JSON.parse(cfgEl.textContent); } catch (e) { return; }
+
+    const commands = cfg.commands || [];
+    const outputs = cfg.outputs || {};
+    const typingSpeed = cfg.typingSpeed || 50;
+    const delayBetween = cfg.delayBetweenCommands || 800;
+    const initialDelay = cfg.initialDelay || 500;
+    const username = cfg.username || 'guest';
+
+    const esc = (s) => String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const PROMPT =
+      '<span class="term__u">' + esc(username) + '</span>' +
+      '<span class="term__c">:</span><span class="term__tilde">~</span>' +
+      '<span class="term__d">$</span> ';
+    const CURSOR = '<span class="term__cursor"></span>';
+
+    // Port of tokenizeBash: classify each whitespace-split word.
+    function tokenize(text) {
+      const out = [];
+      let first = true;
+      text.split(/(\s+)/).forEach((w) => {
+        if (w === '') return;
+        if (/^\s+$/.test(w)) { out.push(['default', w]); return; }
+        if (w.startsWith('#')) { out.push(['comment', w]); return; }
+        if (w.startsWith('$')) { out.push(['variable', w]); first = false; return; }
+        if (w.startsWith('-')) { out.push(['flag', w]); first = false; return; }
+        if (/^["'].*["']$/.test(w)) { out.push(['string', w]); first = false; return; }
+        if (/^\d+$/.test(w)) { out.push(['number', w]); first = false; return; }
+        if (/^[|>&<]+$/.test(w)) { out.push(['operator', w]); first = true; return; }
+        if (w.indexOf('/') !== -1 || w.startsWith('.') || w.startsWith('~')) {
+          out.push(['path', w]); first = false; return;
+        }
+        if (first) { out.push(['command', w]); first = false; return; }
+        out.push(['default', w]);
+      });
+      return out;
+    }
+    const highlight = (text) => tokenize(text)
+      .map(([type, val]) => '<span class="t-' + type + '">' + esc(val) + '</span>')
+      .join('');
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    function addLine(html) {
+      const d = document.createElement('div');
+      d.className = 'term__line';
+      d.innerHTML = html;
+      screen.appendChild(d);
+      screen.scrollTop = screen.scrollHeight;
+      return d;
+    }
+    const outsFor = (i) => outputs[i] || outputs[String(i)] || [];
+
+    async function run() {
+      // Reduced motion: print the whole session at once, no typing.
+      if (reduceMotionMQ && reduceMotionMQ.matches) {
+        commands.forEach((cmd, ci) => {
+          addLine(PROMPT + highlight(cmd));
+          outsFor(ci).forEach((o) => addLine('<span class="term__out">' + esc(o) + '</span>'));
+        });
+        addLine(PROMPT + CURSOR);
+        return;
+      }
+      await sleep(initialDelay);
+      for (let ci = 0; ci < commands.length; ci++) {
+        const cmd = commands[ci];
+        const line = addLine(PROMPT + CURSOR);
+        for (let k = 1; k <= cmd.length; k++) {
+          line.innerHTML = PROMPT + highlight(cmd.slice(0, k)) + CURSOR;
+          screen.scrollTop = screen.scrollHeight;
+          await sleep(typingSpeed + Math.random() * 30);
+        }
+        line.innerHTML = PROMPT + highlight(cmd);     // commit, drop cursor
+        const outs = outsFor(ci);
+        for (let oi = 0; oi < outs.length; oi++) {
+          await sleep(150);
+          addLine('<span class="term__out">' + esc(outs[oi]) + '</span>');
+        }
+        if (ci < commands.length - 1) await sleep(delayBetween);
+      }
+      addLine(PROMPT + CURSOR);                        // idle prompt
+    }
+
+    let started = false;
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !started) {
+          started = true;
+          io.disconnect();
+          run();
+        }
+      }, { threshold: 0.25 });
+      io.observe(root);
+    } else {
+      run();
+    }
+  }
+
+  /* -------------------------------------------------------
+     initTimeline — scroll-in animation for the experience
+     timeline. Arms the CSS (.tl--anim hides items + collapses
+     the rail), then adds .is-active when the timeline scrolls
+     into view so the rail draws and the entries stagger in.
+     Progressive enhancement: without JS the timeline is fully
+     visible (no .tl--anim).
+     ------------------------------------------------------- */
+  function initTimeline() {
+    const tl = document.querySelector('.tl');
+    if (!tl) return;
+    tl.classList.add('tl--anim');
+    if (reduceMotionMQ && reduceMotionMQ.matches) {
+      tl.classList.add('is-active');
+      return;
+    }
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          tl.classList.add('is-active');
+          io.disconnect();
+        }
+      }, { threshold: 0.15 });
+      io.observe(tl);
+    } else {
+      tl.classList.add('is-active');
+    }
+  }
+
+  /* ------------------------------------------------------------
+     initXpTimeline — cinematic neural timeline (rebuilt).
+     Builds the zigzag "live wire" path in real pixels, plays a
+     sequenced reveal (line draws → orbs pop → cards + content
+     slide in), keeps the wire's energy flowing, activates each
+     node as it enters the viewport, and wires up mouse parallax /
+     cursor glow / orb proximity + a light particle field. Degrades
+     to a clean static layout under reduced-motion / no-GSAP.
+     ------------------------------------------------------------ */
+  function initXpShowcase() {
+    const xpx2 = document.querySelector('[data-xpx2]');
+    if (!xpx2) return;
+    const globe = document.getElementById('xpGlobe');
+    const section = document.getElementById('experience');
+    const panels = [...xpx2.querySelectorAll('[data-xpp]')];
+    const pctEl = xpx2.querySelector('.xpx2__pct');
+    const barEl = xpx2.querySelector('.xpx2__bar i');
+    const sceneEl = xpx2.querySelector('.xpx2__scene');
+    const dots = [...xpx2.querySelectorAll('.xpx2__dot')];
+    const REVEAL = '.xpcard__line, .xpcard__tag, .xpcard__title, .xpcard__org, .xpcard__body, .xpcard__stats, .xpcard__points, .xpcard__cta';
+
+    // Light the globe + HUD while the section is on screen, and pause the
+    // globe\u2019s render loop (data-active) when it isn\u2019t — keeps it off the GPU
+    // everywhere else on the page.
+    const setGlobe = (on) => {
+      xpx2.classList.toggle('is-on', on);
+      if (!globe) return;
+      clearTimeout(globe.__pauseT);
+      if (on) {
+        globe.setAttribute('data-active', '1');
+      } else {
+        globe.__pauseT = setTimeout(() => globe.setAttribute('data-active', '0'), 1300);
+      }
+    };
+    if (typeof ScrollTrigger !== 'undefined' && section) {
+      ScrollTrigger.create({
+        trigger: section,
+        start: 'top 30%',     // appears once the section mostly fills the view
+        end: 'bottom 18%',    // powers down only as the whole section ends
+        onToggle: (self) => setGlobe(self.isActive),
+      });
+    } else if ('IntersectionObserver' in window && section) {
+      new IntersectionObserver((es) => setGlobe(es[0].isIntersecting), { threshold: 0 }).observe(section);
+    } else {
+      setGlobe(true);
+    }
+
+    // Per-panel reveal + active scene / dot.
+    if ('IntersectionObserver' in window) {
+      const ioReveal = new IntersectionObserver((es) => {
+        es.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.querySelectorAll(REVEAL).forEach((el) => el.classList.add('visible'));
+            ioReveal.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.28 });
+      panels.forEach((p) => ioReveal.observe(p));
+
+      const ioScene = new IntersectionObserver((es) => {
+        es.forEach((e) => {
+          if (!e.isIntersecting) return;
+          const i = panels.indexOf(e.target);
+          if (sceneEl) sceneEl.textContent = e.target.getAttribute('data-scene') || '';
+          dots.forEach((d, k) => d.classList.toggle('is-on', k === i));
+        });
+      }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+      panels.forEach((p) => ioScene.observe(p));
+    } else {
+      panels.forEach((p) => p.querySelectorAll(REVEAL).forEach((el) => el.classList.add('visible')));
+    }
+
+    // Scroll progress \u2192 HUD percentage + bar.
+    if (typeof ScrollTrigger !== 'undefined') {
+      ScrollTrigger.create({
+        trigger: xpx2, start: 'top top', end: 'bottom bottom', invalidateOnRefresh: true,
+        onUpdate: (self) => {
+          const pct = Math.round(self.progress * 100);
+          if (pctEl) pctEl.textContent = String(pct).padStart(3, '0') + '%';
+          if (barEl) barEl.style.width = pct + '%';
+        },
+      });
+    }
+
+    // Intro CTA scrolls to the first role (native smooth scroll, no hijack).
+    const cta = xpx2.querySelector('.xpcard__cta');
+    if (cta) cta.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (panels[1]) panels[1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+  /* ------------------------------------------------------------
+     initThemeShift — "lights off" dark mode.
+     As the page scrolls past the project gallery into the
+     experience section, flip html.is-dark on. The palette
+     variables swap and the backdrop + experience/contact content
+     fade light → dark over a short CSS transition. Scrolling back
+     up past the boundary returns it to light. Discrete toggle
+     (not scrubbed) so the fade reads as one clean, short sweep.
+     ------------------------------------------------------------ */
+  function initThemeShift() {
+    if (typeof ScrollTrigger === 'undefined') return;
+    const xp = document.getElementById('experience');
+    if (!xp) return;
+    const root = document.documentElement;
+    const sweep = document.querySelector('.theme-sweep');
+    const reduce = reduceMotionMQ && reduceMotionMQ.matches;
+
+    // A glowing accent blade sweeps across the screen as the lights change —
+    // downward when going dark, upward when coming back to light — so the
+    // theme flip reads as a wave passing through, not a flat crossfade. The
+    // staggered CSS colour transition morphs underneath it.
+    const fireSweep = (dir) => {
+      if (!sweep || reduce || typeof gsap === 'undefined') return;
+      gsap.killTweensOf(sweep);
+      gsap.fromTo(sweep,
+        { yPercent: dir > 0 ? -120 : 120, opacity: 1 },
+        { yPercent: dir > 0 ? 120 : -120, duration: 1.05, ease: 'power2.inOut',
+          onComplete: () => gsap.set(sweep, { opacity: 0 }) });
+    };
+
+    ScrollTrigger.create({
+      trigger: xp,
+      // Fire just as the experience section begins to enter the
+      // viewport — i.e. the moment we're leaving the gallery.
+      start: 'top 85%',
+      invalidateOnRefresh: true,
+      onEnter:     () => { root.classList.add('is-dark');    fireSweep(1); },
+      onLeaveBack: () => { root.classList.remove('is-dark'); fireSweep(-1); },
+    });
+  }
+
+  /* ------------------------------------------------------------
+     initXpFrame — scroll-drawn frame around the experience page.
+     Two symmetric half-strokes (left + right) start at the top
+     centre, run out to the corners, down both sides and close at
+     the bottom centre. The draw is scrubbed to the section's own
+     scroll, so the line travels corner-to-corner as you move down
+     the page — the gallery's diagonal "continuing" to wrap this
+     section in a blueprint frame. Accent L-brackets snap on as each
+     corner is reached and a small accent spark leads each drawing
+     head. The frame itself is shown only in dark mode (CSS).
+     ------------------------------------------------------------ */
+  function initXpFrame() {
+    if (typeof ScrollTrigger === 'undefined') return;
+    const xp = document.getElementById('experience');
+    const frame = xp && xp.querySelector('.xp__frame');
+    if (!frame) return;
+    const pathR  = frame.querySelector('.xp__frame-path--r');
+    const pathL  = frame.querySelector('.xp__frame-path--l');
+    const sparkR = frame.querySelector('.xp__frame-spark--r');
+    const sparkL = frame.querySelector('.xp__frame-spark--l');
+    const corners = {
+      tl: frame.querySelector('.xp__frame-corner--tl'),
+      tr: frame.querySelector('.xp__frame-corner--tr'),
+      br: frame.querySelector('.xp__frame-corner--br'),
+      bl: frame.querySelector('.xp__frame-corner--bl'),
+    };
+    if (!pathR || !pathL) return;
+    const svg = frame.querySelector('.xp__frame-svg');
+
+    let lenR = 0, lenL = 0, boxW = 0, boxH = 0, curP = 0, topAt = 0.25, botAt = 0.95;
+    const INSET = 1.5;
+
+    // Build the two half-paths in REAL pixel coords with a 1:1 viewBox. The
+    // frame box is non-square, so a fixed square viewBox (stretched via
+    // preserveAspectRatio="none") makes the non-scaling-stroke dash measure in
+    // a different scale than getTotalLength — which left the final (bottom)
+    // segment permanently in the dash "gap", i.e. never drawn, giving a
+    // U-shaped frame. Matching px coords fixes that and keeps the stroke an
+    // even width on every side.
+    function buildPaths() {
+      boxW = svg.clientWidth;
+      boxH = svg.clientHeight;
+      if (!boxW || !boxH) return;
+      svg.setAttribute('viewBox', '0 0 ' + boxW + ' ' + boxH);
+      const i = INSET, mx = boxW / 2, r = boxW - i, bt = boxH - i;
+      // Right half: bottom-centre → bottom-right → up → top-centre.
+      pathR.setAttribute('d', 'M ' + mx + ' ' + bt + ' L ' + r + ' ' + bt + ' L ' + r + ' ' + i + ' L ' + mx + ' ' + i);
+      // Left half: bottom-centre → bottom-left → up → top-centre.
+      pathL.setAttribute('d', 'M ' + mx + ' ' + bt + ' L ' + i + ' ' + bt + ' L ' + i + ' ' + i + ' L ' + mx + ' ' + i);
+      lenR = pathR.getTotalLength();
+      lenL = pathL.getTotalLength();
+      pathR.style.strokeDasharray = lenR;
+      pathL.style.strokeDasharray = lenL;
+      // Corner-lit thresholds follow the actual segment proportions — the
+      // draw now originates at the bottom, so the bottom corners are reached
+      // first and the top corners last.
+      const half = mx - i, side = bt - i;
+      botAt = half / lenR;
+      topAt = (half + side) / lenR;
+      draw(curP);
+    }
+
+    const place = (spark, path, len, p) => {
+      const pt = path.getPointAtLength(p * len);
+      spark.style.left = (pt.x / boxW * 100) + '%';
+      spark.style.top  = (pt.y / boxH * 100) + '%';
+    };
+
+    function draw(p) {
+      curP = p;
+      pathR.style.strokeDashoffset = lenR * (1 - p);
+      pathL.style.strokeDashoffset = lenL * (1 - p);
+      const drawing = p > 0.002 && p < 0.998;
+      frame.classList.toggle('is-drawing', drawing);
+      if (drawing) {
+        place(sparkR, pathR, lenR, p);
+        place(sparkL, pathL, lenL, p);
+      }
+      corners.tl.classList.toggle('is-lit', p >= topAt);
+      corners.tr.classList.toggle('is-lit', p >= topAt);
+      corners.br.classList.toggle('is-lit', p >= botAt);
+      corners.bl.classList.toggle('is-lit', p >= botAt);
+    }
+
+    // Exit erase — removes the frame from the BOTTOM up, so the animation ENDS
+    // at the top (a continuation of the upward sweep rather than a reverse).
+    // q: 0 = full frame, 1 = gone. Negative dashoffset anchors the visible
+    // span at the top end and walks the erase head up from the bottom.
+    function drawExit(q) {
+      pathR.style.strokeDashoffset = -(lenR * q);
+      pathL.style.strokeDashoffset = -(lenL * q);
+      const erasing = q > 0.002 && q < 0.998;
+      frame.classList.toggle('is-drawing', erasing);
+      if (erasing) {
+        place(sparkR, pathR, lenR, q);
+        place(sparkL, pathL, lenL, q);
+      }
+      // Each corner stays lit until the rising erase head passes it — bottom
+      // corners go dark first, the top corners last.
+      corners.bl.classList.toggle('is-lit', botAt >= q);
+      corners.br.classList.toggle('is-lit', botAt >= q);
+      corners.tl.classList.toggle('is-lit', topAt >= q);
+      corners.tr.classList.toggle('is-lit', topAt >= q);
+    }
+
+    buildPaths();
+    window.addEventListener('resize', buildPaths);
+
+    if (reduceMotionMQ && reduceMotionMQ.matches) { draw(1); return; }
+
+    draw(0);
+
+    // Visibility spans the frame's whole presence — from the moment we begin
+    // leaving the gallery (lights go off) until the experience section has
+    // fully scrolled past.
+    ScrollTrigger.create({
+      trigger: xp,
+      start: 'top 85%',
+      end: 'bottom top',
+      invalidateOnRefresh: true,
+      onToggle: (self) => frame.classList.toggle('xp__frame--active', self.isActive),
+    });
+
+    // ENTRANCE — the frame draws itself ON right after the screen turns dark
+    // (the dark flip fires at 'top 85%', so the draw begins just after, at
+    // 'top 75%') and is fully complete by the time the experience page fills
+    // the viewport ('top top').
+    ScrollTrigger.create({
+      trigger: xp,
+      start: 'top 75%',
+      end: 'top top',
+      invalidateOnRefresh: true,
+      onUpdate: (self) => draw(self.progress),
+      onLeave: () => draw(1),        // settle complete for the hold
+      onLeaveBack: () => draw(0),    // scrolled back above → cleared
+    });
+
+    // HOLD — between 'top top' and 'bottom bottom' neither entrance nor exit
+    // is active, so the frame simply stays fully drawn the entire time the
+    // experience page is in view.
+
+    // EXIT — as the section scrolls away the frame erases from the bottom up,
+    // so the animation ENDS at the top ('bottom bottom' = fully read →
+    // 'bottom top' = section gone).
+    ScrollTrigger.create({
+      trigger: xp,
+      start: 'bottom bottom',
+      end: 'bottom top',
+      invalidateOnRefresh: true,
+      onUpdate: (self) => drawExit(self.progress),
+      onLeaveBack: () => draw(1),    // back up into the hold → full again
+      onLeave: () => drawExit(1),    // fully past → erased (ended at top)
+    });
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -2453,6 +2920,20 @@
       try { history.scrollRestoration = 'manual'; } catch (e) {}
     }
     window.scrollTo(0, 0);
+
+    // Belt-and-suspenders so a reload from ANY section lands on the hero with
+    // the full intro: re-assert the top after the load event (defeats any late
+    // browser scroll-restore), and on back/forward-cache restore reload the
+    // page so the whole intro replays instead of showing a frozen mid-page.
+    // (Skipped when the ?scroll debug param is positioning the page.)
+    if (!new URLSearchParams(location.search).has('scroll')) {
+      const toTop = () => window.scrollTo(0, 0);
+      window.addEventListener('load', () => { toTop(); requestAnimationFrame(toTop); });
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) { location.reload(); return; }
+        toTop();
+      });
+    }
 
     // Initial canvas sizing right away so first frame fills.
     sizeCanvas(cinemaCanvas);
@@ -2514,6 +2995,18 @@
     // Build the per-character scramble titles in the gallery
     // (vanilla port of text-scramble.tsx).
     initTextScramble();
+
+    // Self-typing terminal in the experience section (left of the timeline).
+    initTerminal();
+
+    // Data-globe experience showcase.
+    initXpShowcase();
+
+    // Light → dark "lights off" theme flip at the gallery→experience boundary.
+    initThemeShift();
+
+    // Scroll-drawn blueprint frame that wraps the experience page.
+    initXpFrame();
 
     // Paint frame 0 right away so the hero never looks empty.
     renderFrame(0, false);

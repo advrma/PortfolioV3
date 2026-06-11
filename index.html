@@ -4,6 +4,15 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
 <meta name="theme-color" content="#F4F1EA" />
+
+<!-- Always (re)start at the very top with the full intro on every reload,
+     no matter which section the user reloaded from. Runs before first paint
+     so the browser's scroll restoration never kicks in. -->
+<script>
+  if ('scrollRestoration' in history) { try { history.scrollRestoration = 'manual'; } catch (e) {} }
+  window.scrollTo(0, 0);
+</script>
+
 <title>Aditya Verma — Software Engineer / Builder of AI Interfaces</title>
 <meta name="description" content="Aditya Verma is a software engineer at Arizona State University building polished AI interfaces and full-stack products. Currently shipping Stealth, an AI internship radar." />
 
@@ -11,13 +20,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500&family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Dancing+Script:wght@400..700&display=swap" />
 
-<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0001.png" />
-<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0150.png" />
-<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0220.png" />
-<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0270.png" />
-<link rel="preload" as="image" href="CYBERFICTION-IMAGES/male0300.png" />
+<!-- First hero frame only; the rest stream in behind the preloader screen.
+     (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
+<link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=24" />
+<link rel="stylesheet" href="styles.css?v=51" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -138,15 +145,14 @@
 </section>
 
 <!-- ============= AMBIENT BACKGROUND LAYERS ============= -->
-<div class="aurora" aria-hidden="true"></div>
+<!-- Aurora removed: it's a fixed colored-light layer that the opaque project-
+     gallery pin covered but every other section showed through, so the gallery
+     read a different tone than the rest — a visible seam at the boundary.
+     Dropping it keeps one coherent cream + topo background across all sections. -->
 <div class="grain" aria-hidden="true"></div>
+<!-- Accent scan blade for the light↔dark theme change (GSAP · initThemeShift). -->
+<div class="theme-sweep" aria-hidden="true"></div>
 <svg class="topo-bg" aria-hidden="true" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice">
-  <defs>
-    <radialGradient id="topoFade" cx="50%" cy="50%" r="60%">
-      <stop offset="0%" stop-color="#000" stop-opacity="0.06" />
-      <stop offset="100%" stop-color="#000" stop-opacity="0" />
-    </radialGradient>
-  </defs>
   <g stroke="currentColor" fill="none" stroke-width="0.6" opacity="0.35">
     <path d="M-100,640 Q200,500 420,580 T880,520 T1300,640 T1750,540" />
     <path d="M-100,700 Q220,560 460,640 T920,580 T1340,700 T1750,620" />
@@ -159,7 +165,6 @@
     <path d="M-100,400 Q220,260 460,340 T920,280 T1340,400 T1750,320" />
     <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
   </g>
-  <rect width="1600" height="1200" fill="url(#topoFade)" />
 </svg>
 
 <!-- ============= SCROLL PROGRESS ============= -->
@@ -180,9 +185,9 @@
   </a>
 
   <div class="nav__right">
-    <a href="mailto:averm118@asu.edu" class="nav__cta">
+    <a href="/TheResume.pdf" class="nav__cta" target="_blank" rel="noopener">
       <span class="nav__cta-dot"></span>
-      <span>CONTACT</span>
+      <span>RESUME</span>
     </a>
     <button class="nav__menu" aria-label="Menu">
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -309,7 +314,7 @@
 
       <!-- Scroll hint row -->
       <div class="hero__bottom">
-        <a href="#highlights" class="hero__scroll" aria-label="Scroll to read more">
+        <a href="#experience" class="hero__scroll" aria-label="Scroll to read more">
           <span>SCROLL</span>
           <svg viewBox="0 0 16 24" aria-hidden="true">
             <path d="M8 2 V20 M3 15 L8 21 L13 15" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="square"/>
@@ -400,24 +405,11 @@
 ====================================================== -->
 <section class="hall" id="projects">
   <div class="hall__pin">
-    <!-- Topo contour pattern — same SVG the body's .topo-bg layer
-         uses, cloned INSIDE the pin so the gallery shares the cream
-         paper texture of the rest of the page. First child + z-index:0
-         keeps it behind the (now transparent) 3D canvas and the UI. -->
-    <svg class="pin-topo" aria-hidden="true" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice">
-      <g stroke="currentColor" fill="none" stroke-width="0.6" opacity="0.35">
-        <path d="M-100,640 Q200,500 420,580 T880,520 T1300,640 T1750,540" />
-        <path d="M-100,700 Q220,560 460,640 T920,580 T1340,700 T1750,620" />
-        <path d="M-100,760 Q240,620 500,700 T960,640 T1380,760 T1750,700" />
-        <path d="M-100,820 Q260,680 540,760 T1000,700 T1420,820 T1750,780" />
-        <path d="M-100,880 Q280,740 580,820 T1040,760 T1460,880 T1750,860" />
-        <path d="M-100,580 Q220,440 460,520 T920,460 T1340,580 T1750,500" />
-        <path d="M-100,520 Q220,380 460,460 T920,400 T1340,520 T1750,440" />
-        <path d="M-100,460 Q220,320 460,400 T920,340 T1340,460 T1750,380" />
-        <path d="M-100,400 Q220,260 460,340 T920,280 T1340,400 T1750,320" />
-        <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
-      </g>
-    </svg>
+    <!-- No cloned topo here — the gallery pin is transparent, so the body's
+         fixed .topo-bg shows through directly (same paper as every section). -->
+    <!-- Soft accent glow pools — one behind the text, one behind the painting.
+         Sits below the canvas so it reads as an ambient halo (CSS · .hall__glow). -->
+    <div class="hall__glow" aria-hidden="true"></div>
     <div class="hall__canvas" id="hallCanvas" aria-hidden="true"></div>
 
     <div class="hall__chrome">
@@ -496,221 +488,103 @@
   </div>
 </section>
 
+<!-- ============= EXPERIENCE — TERMINAL + TIMELINE ============= -->
+<section class="xp" id="experience">
+  <!-- Scroll-drawn frame: two symmetric strokes start at the top, race
+       down both sides and close at the bottom as you scroll the section,
+       wrapping the experience "page" in a blueprint frame (JS · initXpFrame). -->
+  <div class="xp__frame" aria-hidden="true">
+    <svg class="xp__frame-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" fill="none">
+      <path class="xp__frame-path xp__frame-path--r" d="M500 4 L996 4 L996 996 L500 996" />
+      <path class="xp__frame-path xp__frame-path--l" d="M500 4 L4 4 L4 996 L500 996" />
+    </svg>
+    <i class="xp__frame-corner xp__frame-corner--tl"></i>
+    <i class="xp__frame-corner xp__frame-corner--tr"></i>
+    <i class="xp__frame-corner xp__frame-corner--br"></i>
+    <i class="xp__frame-corner xp__frame-corner--bl"></i>
+    <span class="xp__frame-spark xp__frame-spark--r"></span>
+    <span class="xp__frame-spark xp__frame-spark--l"></span>
+  </div>
+  <div class="xpx2" data-xpx2>
+    <!-- Rotating data-globe backdrop (self-contained vendor/globe.js, scoped old Three.js) -->
+    <div id="xpGlobe" class="xpx2__globe" aria-hidden="true"></div>
+    <div class="xpx2__vignette" aria-hidden="true"></div>
+
+    <!-- HUD + scene strip (shown only while the section is on screen) -->
+    <div class="xpx2__hud" aria-hidden="true">
+      <div class="xpx2__pct">000%</div>
+      <div class="xpx2__bar"><i></i></div>
+      <div class="xpx2__scene">INTRO</div>
+    </div>
+    <div class="xpx2__strip" aria-hidden="true">
+      <span class="xpx2__dot"></span>
+      <span class="xpx2__dot"></span>
+      <span class="xpx2__dot"></span>
+    </div>
+
+    <div class="xpx2__scroll">
+      <section class="xpp" data-xpp data-scene="FOUNDING ENGINEER">
+        <div class="xpcard right">
+          <span class="xpcard__line"></span>
+          <span class="xpcard__tag">FEB 2026 &#8594; PRESENT · <em>NOW</em></span>
+          <h2 class="xpcard__title">Founding<br>Engineer</h2>
+          <div class="xpcard__org"><span class="xpcard__logo">ST</span> Stealth — Founder-led</div>
+          <p class="xpcard__body">An <b>AI internship radar</b>: Playwright + BeautifulSoup scrape company portals and <b>LLMs score every listing</b> against your resume.</p>
+          <ul class="xpcard__points">
+            <li>Built <b>one-click AI tailoring</b> that rewrites your <b>resume &amp; cover letter</b> per posting — hours collapsed into one button.</li>
+            <li>Shipped end-to-end on <b>Next.js · TypeScript · Supabase</b>, dashboard in Tailwind &amp; Framer Motion.</li>
+            <li>Own the architecture, <b>semantic matching</b> &amp; scraping pipeline — <b>zero &#8594; live product</b>.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="xpp" data-xpp data-scene="SOFTWARE ENGINEER">
+        <div class="xpcard left">
+          <span class="xpcard__line"></span>
+          <span class="xpcard__tag">MAY 2025 &#8594; AUG 2025</span>
+          <h2 class="xpcard__title">Software Eng.<br>Intern</h2>
+          <div class="xpcard__org"><span class="xpcard__logo">BO</span> Blue Ocean Biotech — Andhra Pradesh, IN</div>
+          <p class="xpcard__body">Backend + data tooling that put real-time visibility into production &amp; QA.</p>
+          <div class="xpcard__stats">
+            <div class="xpstat"><span class="xpstat__n">50<i>%</i></span><span class="xpstat__l">Data visibility</span></div>
+            <div class="xpstat"><span class="xpstat__n">40<i>%</i></span><span class="xpstat__l">Less manual entry</span></div>
+            <div class="xpstat"><span class="xpstat__n">2h&#8594;10m</span><span class="xpstat__l">Report latency</span></div>
+          </div>
+          <ul class="xpcard__points">
+            <li><b>Java REST services</b> automating production &amp; inventory; <b>Python + SQL</b> ingestion pipelines for QA telemetry.</li>
+            <li>Stood up the team’s <b>Git CI workflows</b> &amp; modular architecture.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="xpp" data-xpp data-scene="VR SIMULATION">
+        <div class="xpcard right">
+          <span class="xpcard__line"></span>
+          <span class="xpcard__tag">AUG 2024 &#8594; DEC 2024</span>
+          <h2 class="xpcard__title">VR Simulation<br>Asst · SW III</h2>
+          <div class="xpcard__org"><span class="xpcard__logo">CH</span> College of Health Solutions — Phoenix, AZ</div>
+          <p class="xpcard__body">Engine work + immersive training sims for healthcare cohorts.</p>
+          <div class="xpcard__stats">
+            <div class="xpstat"><span class="xpstat__n">+35<i>%</i></span><span class="xpstat__l">Physics / load</span></div>
+            <div class="xpstat"><span class="xpstat__n">+40<i>%</i></span><span class="xpstat__l">Engagement</span></div>
+            <div class="xpstat"><span class="xpstat__n">500+</span><span class="xpstat__l">Sessions, 0 downtime</span></div>
+          </div>
+          <ul class="xpcard__points">
+            <li>Wrote <b>C++ modules</b> in the SimX VR engine; built immersive <b>Unity</b> environments.</li>
+            <li>Authored a 25-page onboarding manual — new-hire ramp <b>&#8722;50%</b>.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+
 <!-- ============= INTER-SECTION DIVIDER ============= -->
 <div class="seam" aria-hidden="true">
   <span class="seam__line"></span>
   <span class="seam__chip">·</span>
   <span class="seam__line"></span>
 </div>
-
-<!-- ============= HIGHLIGHTS / STATS ============= -->
-<section class="highlights" id="highlights">
-  <div class="section-head">
-    <div class="section-head__num">02</div>
-    <h2 class="section-head__title">
-      Numbers <span class="italic">that&nbsp;move</span>
-    </h2>
-    <p class="section-head__lede">A short ledger of the work so far — internships, products,
-      audiences, and the quiet metrics behind them.</p>
-  </div>
-
-  <div class="highlights__grid">
-    <article class="stat-card reveal">
-      <span class="stat-card__label">YOUTUBE AUDIENCE</span>
-      <span class="stat-card__num"><span class="stat-num" data-to="1500000" data-suffix="+">0</span></span>
-      <span class="stat-card__unit">organic views on 3D animation</span>
-      <span class="stat-card__bar"><i></i></span>
-    </article>
-    <article class="stat-card stat-card--accent reveal">
-      <span class="stat-card__label">SUBSCRIBERS</span>
-      <span class="stat-card__num"><span class="stat-num" data-to="15000" data-suffix="+">0</span></span>
-      <span class="stat-card__unit">creators grown from zero</span>
-      <span class="stat-card__bar"><i></i></span>
-    </article>
-    <article class="stat-card reveal">
-      <span class="stat-card__label">VR SESSIONS</span>
-      <span class="stat-card__num"><span class="stat-num" data-to="500" data-suffix="+">0</span></span>
-      <span class="stat-card__unit">medical training runs supported</span>
-      <span class="stat-card__bar"><i></i></span>
-    </article>
-    <article class="stat-card reveal">
-      <span class="stat-card__label">LATENCY CUT</span>
-      <span class="stat-card__num"><span class="stat-num" data-to="92" data-suffix="%">0</span></span>
-      <span class="stat-card__unit">reporting pipeline → 2h to 10 min</span>
-      <span class="stat-card__bar"><i></i></span>
-    </article>
-  </div>
-
-  <div class="ticker" aria-hidden="true">
-    <div class="ticker__track">
-      <span>NEXT.JS</span><span>·</span><span>CONVEX</span><span>·</span><span>PYTORCH</span><span>·</span><span>SUPABASE</span><span>·</span><span>AWS</span><span>·</span><span>TYPESCRIPT</span><span>·</span><span>PYTHON</span><span>·</span><span>JAVA</span><span>·</span><span>UNITY</span><span>·</span><span>C++</span><span>·</span><span>RAG</span><span>·</span><span>LLMs</span><span>·</span><span>DOCKER</span><span>·</span>
-      <span>NEXT.JS</span><span>·</span><span>CONVEX</span><span>·</span><span>PYTORCH</span><span>·</span><span>SUPABASE</span><span>·</span><span>AWS</span><span>·</span><span>TYPESCRIPT</span><span>·</span><span>PYTHON</span><span>·</span><span>JAVA</span><span>·</span><span>UNITY</span><span>·</span><span>C++</span><span>·</span><span>RAG</span><span>·</span><span>LLMs</span><span>·</span><span>DOCKER</span><span>·</span>
-    </div>
-  </div>
-</section>
-
-<!-- ============= EXPERIENCE ============= -->
-<section class="experience" id="experience">
-  <div class="section-head">
-    <div class="section-head__num">04</div>
-    <h2 class="section-head__title">
-      Where I've <span class="italic">put&nbsp;hours&nbsp;in</span>
-    </h2>
-    <p class="section-head__lede">Two roles where I shipped real code into production for real people.</p>
-  </div>
-
-  <div class="experience__list">
-
-    <article class="exp-card reveal">
-      <div class="exp-card__rail">
-        <span class="exp-card__rail-dot"></span>
-        <span class="exp-card__rail-line"></span>
-      </div>
-      <header class="exp-card__head">
-        <div class="exp-card__company">
-          <span class="exp-card__logo">BO</span>
-          <div>
-            <h3>Blue Ocean Biotech</h3>
-            <span class="exp-card__loc">Andhra Pradesh, India · On-site</span>
-          </div>
-        </div>
-        <div class="exp-card__meta">
-          <span class="exp-card__role">SOFTWARE ENGINEERING INTERN</span>
-          <span class="exp-card__dates">MAY 2025 → AUG 2025</span>
-        </div>
-      </header>
-      <ul class="exp-card__bullets">
-        <li><b>Java REST services</b> automating production &amp; inventory — operational data visibility up <b>50%</b>.</li>
-        <li>Python + SQL <b>ingestion pipelines</b> for QA telemetry, cutting manual entry <b>40%</b>.</li>
-        <li>Real-time reporting that took reporting <b>latency from 2 hours → 10 minutes</b>.</li>
-        <li>Set up the team's <b>Git CI workflows</b> and modular code architecture.</li>
-      </ul>
-    </article>
-
-    <article class="exp-card reveal">
-      <div class="exp-card__rail">
-        <span class="exp-card__rail-dot"></span>
-        <span class="exp-card__rail-line"></span>
-      </div>
-      <header class="exp-card__head">
-        <div class="exp-card__company">
-          <span class="exp-card__logo">CH</span>
-          <div>
-            <h3>College of Health Solutions</h3>
-            <span class="exp-card__loc">Phoenix, AZ · Hybrid</span>
-          </div>
-        </div>
-        <div class="exp-card__meta">
-          <span class="exp-card__role">VR SIMULATION ASST · SW III</span>
-          <span class="exp-card__dates">AUG 2024 → DEC 2024</span>
-        </div>
-      </header>
-      <ul class="exp-card__bullets">
-        <li>Wrote <b>C++ modules</b> in the SimX VR engine, optimizing physics &amp; loading <b>35%</b>.</li>
-        <li>Built immersive Unity environments that lifted trainee engagement <b>40%</b>.</li>
-        <li>Kept the hardware happy across <b>500+ training sessions</b>, no downtime.</li>
-        <li>Authored a 25-page onboarding manual; new-hire ramp dropped <b>50%</b>.</li>
-      </ul>
-    </article>
-
-  </div>
-</section>
-
-<!-- ============= PROJECTS ============= -->
-<section class="projects" id="projects">
-  <div class="section-head">
-    <div class="section-head__num">05</div>
-    <h2 class="section-head__title">
-      Selected <span class="italic">things&nbsp;I've&nbsp;made</span>
-    </h2>
-    <p class="section-head__lede">Three personal products. Each one taught me something the next one needed.</p>
-  </div>
-
-  <div class="projects__list">
-
-    <article class="proj reveal">
-      <a class="proj__inner" href="#">
-        <div class="proj__index">
-          <span>01</span>
-          <span class="proj__status">SHIPPED</span>
-        </div>
-        <div class="proj__body">
-          <div class="proj__meta">
-            <span>AUG 2025 → NOV 2025</span>
-            <span>·</span>
-            <span>NEXT.JS · CONVEX · PYTHON</span>
-          </div>
-          <h3 class="proj__title">Splitz <span class="italic">— AI expense splitting, made calm.</span></h3>
-          <p class="proj__desc">A real-time distributed transaction system for 2–20 concurrent users with sub-100&nbsp;ms sync.
-            A graph-based debt simplification algorithm cuts settlement transactions by <b>60%</b>, and a Python
-            ML pipeline turns spending patterns into predictive insights.</p>
-          <ul class="proj__tags">
-            <li>Real-time sync</li><li>Graph algorithms</li><li>Convex</li><li>ML pipeline</li>
-          </ul>
-        </div>
-        <div class="proj__cta">
-          <span>CASE STUDY</span>
-          <svg viewBox="0 0 24 12" aria-hidden="true"><path d="M0 6 H22 M16 1 L22 6 L16 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="square"/></svg>
-        </div>
-      </a>
-    </article>
-
-    <article class="proj reveal">
-      <a class="proj__inner" href="#">
-        <div class="proj__index">
-          <span>02</span>
-          <span class="proj__status">SHIPPED</span>
-        </div>
-        <div class="proj__body">
-          <div class="proj__meta">
-            <span>NOV 2025 → FEB 2026</span>
-            <span>·</span>
-            <span>NEXT.JS 15 · OPENAI · ML</span>
-          </div>
-          <h3 class="proj__title">CareerLens <span class="italic">— an AI career coach that actually coaches.</span></h3>
-          <p class="proj__desc">Personalized dashboards with role-specific skill demand and salary trends. AI resume &amp;
-            cover-letter generation lifts ATS alignment <b>30–40%</b>. A mock-interview engine tracks performance
-            over time. Event-driven AI workflows shrink perceived latency by <b>~60%</b>.</p>
-          <ul class="proj__tags">
-            <li>OpenAI API</li><li>Event-driven AI</li><li>ATS analysis</li><li>Next.js&nbsp;15</li>
-          </ul>
-        </div>
-        <div class="proj__cta">
-          <span>CASE STUDY</span>
-          <svg viewBox="0 0 24 12" aria-hidden="true"><path d="M0 6 H22 M16 1 L22 6 L16 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="square"/></svg>
-        </div>
-      </a>
-    </article>
-
-    <article class="proj proj--featured reveal">
-      <a class="proj__inner" href="#">
-        <div class="proj__index">
-          <span>03</span>
-          <span class="proj__status proj__status--live">IN&nbsp;FLIGHT</span>
-        </div>
-        <div class="proj__body">
-          <div class="proj__meta">
-            <span>FEB 2026 → PRESENT</span>
-            <span>·</span>
-            <span>NEXT.JS · TS · SUPABASE · PLAYWRIGHT</span>
-          </div>
-          <h3 class="proj__title">Stealth <span class="italic">— the internship radar I wish I had.</span></h3>
-          <p class="proj__desc">An AI-powered internship discovery platform that matches students to high-fit opportunities.
-            Playwright + BeautifulSoup scrape company portals, LLMs score every listing against your resume,
-            and the dashboard makes it look effortless. Minimalist SaaS UI in Tailwind &amp; Framer Motion.</p>
-          <ul class="proj__tags">
-            <li>Semantic matching</li><li>Web scraping</li><li>Supabase</li><li>Framer Motion</li>
-          </ul>
-        </div>
-        <div class="proj__cta">
-          <span>CASE STUDY</span>
-          <svg viewBox="0 0 24 12" aria-hidden="true"><path d="M0 6 H22 M16 1 L22 6 L16 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="square"/></svg>
-        </div>
-      </a>
-    </article>
-
-  </div>
-</section>
 
 <!-- ============= CONTACT ============= -->
 <section class="contact" id="contact">
@@ -761,6 +635,7 @@
 
 </main>
 
-<script src="script.js?v=24" defer></script>
+<script src="script.js?v=54" defer></script>
+<script src="vendor/globe.js?v=1" defer></script>
 </body>
 </html>
