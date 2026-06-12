@@ -3494,11 +3494,14 @@ html.is-dark .xpcard .text-scramble__underline-base { background: rgba(236,231,2
 .xpx2.is-on .xpx2__stars { opacity: 1; }
 .xpx2.is-on .xpx2__orbs { opacity: 1; }
 
-/* Two parallax star layers (far + near) drifting at different rates. */
+/* Two parallax star layers (far + near). Their vertical position is driven by
+   scroll via --starY (set in JS): the repeating background tiles infinitely, so
+   as the page scrolls down the stars slide up and new ones wrap in from the
+   bottom. The near layer moves faster than the far one for depth. */
 .xpx2__stars::before, .xpx2__stars::after {
-  content: ""; position: absolute; inset: -30%;
+  content: ""; position: absolute; inset: 0;
   background-repeat: repeat;
-  will-change: transform;
+  will-change: background-position;
 }
 .xpx2__stars::before {
   background-image:
@@ -3511,8 +3514,9 @@ html.is-dark .xpcard .text-scramble__underline-base { background: rgba(236,231,2
     radial-gradient(1.3px 1.3px at 22% 80%, rgba(255,255,255,.6), transparent),
     radial-gradient(1px 1px at 92% 12%, rgba(255,255,255,.6), transparent);
   background-size: 320px 320px;
+  background-position: 0 calc(var(--starY, 0) * -0.30px);
   opacity: .95;
-  animation: xpxStars1 140s linear infinite, xpxTwinkle 6s ease-in-out infinite;
+  animation: xpxTwinkle 6s ease-in-out infinite;
 }
 .xpx2__stars::after {
   background-image:
@@ -3523,11 +3527,10 @@ html.is-dark .xpcard .text-scramble__underline-base { background: rgba(236,231,2
     radial-gradient(1.6px 1.6px at 8% 60%, rgba(255,255,255,.8), transparent),
     radial-gradient(2.2px 2.2px at 92% 40%, rgba(216,255,56,.6), transparent);
   background-size: 520px 520px;
+  background-position: 0 calc(var(--starY, 0) * -0.52px);
   opacity: .85;
-  animation: xpxStars2 95s linear infinite, xpxTwinkle 8s ease-in-out infinite reverse;
+  animation: xpxTwinkle 8s ease-in-out infinite reverse;
 }
-@keyframes xpxStars1 { to { transform: translate3d(-180px, -120px, 0); } }
-@keyframes xpxStars2 { to { transform: translate3d(160px, -90px, 0); } }
 @keyframes xpxTwinkle { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
 
 /* Soft drifting glow orbs — both accent green, blurred for atmosphere. */

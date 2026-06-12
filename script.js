@@ -2691,6 +2691,8 @@
     const barEl = xpx2.querySelector('.xpx2__bar i');
     const sceneEl = xpx2.querySelector('.xpx2__scene');
     const dots = [...xpx2.querySelectorAll('.xpx2__dot')];
+    const starsEl = xpx2.querySelector('.xpx2__stars');
+    const starsScroll = !(reduceMotionMQ && reduceMotionMQ.matches);
     const REVEAL = '.xpcard__num, .xpcard__title, .xpcard__sub, .xpcard__body, .xpcard__points';
 
     // Light the globe + HUD while the section is on screen, and pause the
@@ -2752,6 +2754,13 @@
           const pct = Math.round(self.progress * 100);
           if (pctEl) pctEl.textContent = String(pct).padStart(3, '0') + '%';
           if (barEl) barEl.style.width = pct + '%';
+          // Drive the starfield from scroll: the px scrolled through the
+          // section feeds a repeating-background offset, so as you scroll
+          // down the stars slide up and new ones tile in from the bottom.
+          if (starsEl && starsScroll) {
+            const scrolledPx = self.progress * (self.end - self.start);
+            starsEl.style.setProperty('--starY', scrolledPx.toFixed(1));
+          }
         },
       });
     }
