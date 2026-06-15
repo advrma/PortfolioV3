@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=71" />
+<link rel="stylesheet" href="styles.css?v=90" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -346,14 +346,54 @@
         <span></span><span></span><span></span><span></span>
       </div>
 
+      <!-- "Calling card" — a dictionary-style intro upper-left of the character,
+           with a hand-drawn arrow curving down toward the figure. Decorative
+           (the real intro lives in the hero UI); fades in with the cinema HUD. -->
+      <figure class="callcard" aria-hidden="true">
+        <p class="callcard__def" id="callcardType"></p>
+        <svg class="callcard__arrow" viewBox="0 0 150 110" fill="none" aria-hidden="true">
+          <path pathLength="1" d="M14 14 C 30 64, 62 92, 120 90" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <path pathLength="1" d="M99 76 L122 91 L101 99" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </figure>
+
       <!-- Side statement (blur-text reveal). Sits opposite the
            character: shown on the RIGHT while the character is on the
            left, and on the LEFT while it's on the right. The word
            spans + per-word blur values are built in initBlurAside; the
            reveal is toggled from motionTick by the sign of the
            character's scroll-X. -->
-      <p class="cinema__aside cinema__aside--right" id="cinemaAsideRight" aria-hidden="true">I blend <em>AI</em>, full-stack engineering, and <em>design instinct</em> into products people actually want to use.</p>
-      <p class="cinema__aside cinema__aside--left" id="cinemaAsideLeft" aria-hidden="true">I don’t just write code, I build <em>intelligent systems</em> that feel fast, useful, and <em>thoughtfully designed</em>.</p>
+      <!-- RIGHT statement fills the right half: a 3D-perspective vertical
+           testimonial marquee (vanilla port of a shadcn/ui "3D testimonials"
+           component). Columns + cards are built by initTestimonials; columns
+           scroll in alternating directions and pause on hover. Blur-reveals
+           like the other aside. data-no-blur keeps initBlurAside off it. -->
+      <div class="cinema__aside cinema__aside--testi" id="cinemaAsideRight" data-no-blur aria-hidden="true">
+        <div class="testi3d">
+          <div class="testi3d__scene" id="testiScene"></div>
+          <div class="testi3d__fade testi3d__fade--t"></div>
+          <div class="testi3d__fade testi3d__fade--b"></div>
+          <div class="testi3d__fade testi3d__fade--l"></div>
+          <div class="testi3d__fade testi3d__fade--r"></div>
+        </div>
+      </div>
+      <!-- LEFT statement is a live terminal (vanilla port of a shadcn/ui
+           "Terminal" component, re-themed to the site's chartreuse). It
+           blur-reveals like the other aside and types itself out the first
+           time the character settles on the right. data-no-blur tells
+           initBlurAside to leave its markup alone. -->
+      <div class="cinema__aside cinema__aside--left cinema__aside--term" id="cinemaAsideLeft" data-no-blur aria-hidden="true">
+        <div class="hterm" id="heroTerm">
+          <div class="hterm__bar">
+            <span class="hterm__dot hterm__dot--r"></span>
+            <span class="hterm__dot hterm__dot--y"></span>
+            <span class="hterm__dot hterm__dot--g"></span>
+            <span class="hterm__title">aditya@portfolio — bash</span>
+            <span class="hterm__spacer"></span>
+          </div>
+          <div class="hterm__body" id="heroTermBody"></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -628,7 +668,7 @@
 
 </main>
 
-<script src="script.js?v=59" defer></script>
+<script src="script.js?v=82" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>

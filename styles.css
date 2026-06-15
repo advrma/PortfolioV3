@@ -1081,6 +1081,351 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   .cinema__aside { display: none; }   /* no room beside the figure */
 }
 
+/* ---------- LEFT aside as a live terminal ----------
+   Vanilla port of a shadcn/ui "Terminal" demo, re-skinned to the site:
+   the command + prompt user take the chartreuse accent so the dark panel
+   still reads as part of the cream hero. The container keeps .cinema__aside
+   for positioning, but drops the giant display type. The reveal (blur-in)
+   is moved off the per-word spans onto the .term frame itself. */
+.cinema__aside--term {
+  /* Big enough to own most of the empty band, and re-centred in the gutter
+     between the left edge and the character (~29vw) rather than hugging the
+     edge. translate(-50%,-50%) centres the panel on that point. */
+  width: clamp(460px, 50vw, 980px);
+  left: 29vw;
+  right: auto;
+  transform: translate(-50%, -50%);
+  font-family: var(--f-mono);
+  font-weight: 400;
+  font-size: clamp(13px, 1.2vw, 17px);
+  line-height: 1.75;
+  letter-spacing: 0;
+  text-align: left;
+  text-wrap: nowrap;
+  color: #e8e8e8;
+  perspective: none;
+}
+/* NB: classes are namespaced `hterm*` (not `term*`) on purpose — the project
+   already ships a dormant `.term` component lower in this file, and reusing
+   those names let its `max-width:560px` etc. leak in. */
+.hterm {
+  position: relative;
+  isolation: isolate;                              /* own stacking ctx for the glow/scanlines */
+  width: 100%;                                     /* fill the container, don't shrink to text */
+  overflow: hidden;
+  border-radius: 16px;
+  /* Frosted glass — translucent so the cream paper + aurora bleed through and
+     the panel reads as part of the scene rather than a pasted-on box. */
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(17, 18, 20, 0.52);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow:
+    0 44px 90px -30px rgba(0, 0, 0, 0.55),         /* deep drop */
+    0 14px 34px -18px rgba(0, 0, 0, 0.45),
+    0 0 70px -22px rgba(216, 255, 56, 0.18),       /* faint chartreuse halo */
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);       /* top-edge highlight */
+  /* DISAPPEAR state — blurred + dimmed, mirrors the word-aside reveal. */
+  opacity: 0;
+  filter: blur(16px) brightness(0.6);
+  transform: translateY(0.5em) scale(0.96);
+  transition: opacity .7s, filter .7s,
+              transform .7s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.cinema__aside--term.is-revealed .hterm {
+  opacity: 1;
+  filter: blur(0) brightness(1);
+  transform: none;
+}
+/* Corner accent glow — sits BEHIND the content (z-index 0). */
+.hterm::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: -25%;
+  right: -12%;
+  width: 58%;
+  height: 70%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(216, 255, 56, 0.12), transparent 75%);
+  filter: blur(12px);
+}
+/* Hairline scanlines — sits ABOVE the content (z-index 2), very subtle. */
+.hterm::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.022) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.6;
+}
+.hterm__bar,
+.hterm__body { position: relative; z-index: 1; }   /* above the glow */
+.hterm__bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 16px;
+  background: rgba(40, 41, 46, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.hterm__dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+.hterm__dot--r { background: #ef4444; }
+.hterm__dot--y { background: #eab308; }
+.hterm__dot--g { background: #22c55e; }
+.hterm__title {
+  flex: 1;
+  text-align: center;
+  font-size: clamp(11px, .86vw, 13px);
+  color: #b3b3b3;
+  letter-spacing: 0.02em;
+}
+.hterm__spacer { width: 52px; flex: none; }
+.hterm__body {
+  height: clamp(340px, 50vh, 560px);
+  padding: 24px 28px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);      /* keeps text crisp over the glass */
+}
+.hterm__body::-webkit-scrollbar { width: 0; height: 0; }
+.hterm__line, .hterm__out { white-space: pre-wrap; word-break: break-word; }
+.hterm__out { color: #bdbdbd; }
+/* prompt */
+.hterm__p-user   { color: var(--accent); }
+.hterm__p-host   { color: #8a93a0; }
+.hterm__p-sep    { color: #16a34a; }
+.hterm__p-tilde  { color: #38bdf8; }
+.hterm__p-dollar { color: #8a8a8a; }
+/* bash syntax (command + path/flag/string/etc.) */
+.hterm__t-command  { color: var(--accent); }
+.hterm__t-flag     { color: #56c0f5; }
+.hterm__t-string   { color: #fcd34d; }
+.hterm__t-number   { color: #c084fc; }
+.hterm__t-operator { color: #f87171; }
+.hterm__t-path     { color: #7adfee; }
+.hterm__t-variable { color: #f472b6; }
+.hterm__t-comment  { color: #8a8a8a; }
+.hterm__t-default  { color: #e8e8e8; }
+/* caret */
+.hterm__cursor {
+  display: inline-block;
+  width: 9px;
+  height: 1.05em;
+  margin-left: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(216, 255, 56, 0.6);     /* glowing caret */
+  vertical-align: text-bottom;
+}
+.hterm__cursor--blink { animation: htermBlink 1.06s steps(1) infinite; }
+@keyframes htermBlink { 50% { opacity: 0; } }
+/* Weak devices: drop the (expensive) backdrop blur, fall back to a more
+   opaque solid so it stays cheap. See perf-lite gating elsewhere. */
+body.perf-lite .hterm {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(17, 18, 20, 0.86);
+}
+
+/* ---------- RIGHT aside as a 3D testimonial marquee ----------
+   Vanilla port of a "3D testimonials" component: columns of cards scroll
+   vertically (two copies per track → translateY(-50%) loops seamlessly) in
+   alternating directions, tilted into 3D, filling the right half opposite the
+   character. Pauses on hover. The blur-reveal sits on .testi3d. */
+.cinema__aside--testi {
+  /* Fill the entire right half of the viewport. */
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: auto;
+  width: 50vw;
+  height: 100vh;
+  max-width: none;
+  transform: none;
+  perspective: none;
+  pointer-events: none;
+}
+.testi3d {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  perspective: 1200px;
+  /* reveal (blur-in), mirrors the other asides */
+  opacity: 0;
+  filter: blur(16px) brightness(0.85);
+  transition: opacity .8s, filter .8s;
+}
+.cinema__aside--testi.is-revealed .testi3d {
+  opacity: 1;
+  filter: blur(0) brightness(1);
+  /* purely decorative — let the mouse pass through (no hover interaction) */
+}
+.testi3d__scene {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  gap: clamp(12px, 1vw, 20px);
+  transform-style: preserve-3d;
+  /* Tilt the wall of cards into 3D and scale to fill the half. */
+  transform: translate(-50%, -50%) rotateX(16deg) rotateY(-16deg) rotateZ(14deg) scale(1.18);
+}
+.tcol {
+  flex: none;
+  width: clamp(150px, 11vw, 208px);
+  height: 150vh;                   /* taller than viewport so the tilt still fills */
+  overflow: hidden;
+}
+.tcol__track {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+.tcol__track--up   { animation: tmarquee 34s linear infinite; }
+.tcol__track--down { animation: tmarquee 34s linear infinite reverse; }
+@keyframes tmarquee { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+
+.tcard {
+  /* Gap is baked into the card margin (not flex gap) so two stacked copies
+     loop seamlessly at exactly -50%. */
+  margin: 0 0 clamp(12px, 1vw, 18px);
+  padding: clamp(13px, 1vw, 18px);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(12, 12, 10, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 16px 34px -22px rgba(0, 0, 0, 0.30);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+}
+.tcard__head { display: flex; align-items: center; gap: 10px; }
+.tcard__avatar {
+  flex: none;
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-sans);
+  font-weight: 700;
+  font-size: 16px;
+  color: #1b1b17;
+}
+.tcard__id { display: flex; flex-direction: column; min-width: 0; }
+.tcard__name {
+  font-family: var(--f-sans);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  display: flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+}
+.tcard__flag { font-size: 12px; }
+.tcard__handle { font-family: var(--f-mono); font-size: 11px; color: var(--ink-mute); }
+.tcard__body {
+  margin: 11px 0 0;
+  font-family: var(--f-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+/* Edge fades into the cream so the marquee dissolves at the borders. */
+.testi3d__fade { position: absolute; pointer-events: none; z-index: 4; }
+.testi3d__fade--t { top: 0;    left: 0; right: 0; height: 24%; background: linear-gradient(to bottom, var(--cream), transparent); }
+.testi3d__fade--b { bottom: 0; left: 0; right: 0; height: 24%; background: linear-gradient(to top,    var(--cream), transparent); }
+/* No left fade — it painted a flat cream band at the container's left edge
+   (screen centre) over the textured background, which read as a seam. */
+.testi3d__fade--r { top: 0; bottom: 0; right: 0; width: 16%;  background: linear-gradient(to left,    var(--cream), transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .tcol__track { animation: none; }
+}
+body.perf-lite .tcol__track { animation: none; }
+body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(255,255,255,0.85); }
+
+/* ---------- "Calling card" dictionary-style intro ----------
+   Upper-left of the character: a bold headword + phonetic, a numbered
+   definition (the intro), and a hand-drawn arrow curving toward the figure.
+   Lives in the cinema overlay so it fades in with the HUD. */
+.callcard {
+  position: absolute;
+  top: clamp(96px, 13vh, 168px);
+  left: clamp(36px, 5vw, 96px);
+  width: clamp(320px, 28vw, 460px);
+  margin: 0;
+  color: var(--ink);
+  pointer-events: none;
+  /* Coherent appear/disappear for the whole card (text + arrow together):
+     hidden until .is-in, toggled by initCallcard only once you're on the page. */
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.55s ease, transform 0.6s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.callcard.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+.callcard__def {
+  position: relative;                   /* positioning context for the overlaid live text */
+  margin: 0;
+  /* Fun, hand-written script — pairs with the hand-drawn arrow. */
+  font-family: var(--f-sign);
+  font-weight: 600;
+  font-size: clamp(21px, 1.7vw, 30px);
+  line-height: 1.38;
+  color: var(--ink);
+}
+/* Sizer reserves the FULL wrapped height up front (so the arrow never jumps);
+   the live/typed text is overlaid on it and wraps identically. */
+.callcard__sizer { visibility: hidden; }
+.callcard__live { position: absolute; top: 0; left: 0; right: 0; }
+/* Blinking caret for the typing effect (smooth fade pulse, like the source). */
+.callcard__caret {
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  margin-left: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  vertical-align: -0.12em;
+  animation: callcardBlink 0.8s ease-in-out infinite alternate;
+}
+@keyframes callcardBlink { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .callcard__caret { animation: none; }
+  .callcard { transition: none; }
+}
+.callcard__arrow {
+  display: block;
+  width: clamp(110px, 9vw, 150px);
+  height: auto;
+  margin: 0.4em 0 0 auto;              /* pushed right, under the text, pointing at the figure */
+  margin-right: clamp(20px, 6vw, 110px);
+  color: var(--ink);
+  opacity: 0.85;
+}
+/* Arrow draw-on: paths use pathLength="1", so dashoffset 1→0 strokes them in.
+   Hidden until .is-drawn (toggled per entry by initCallcard), arrowhead last. */
+.callcard__arrow path { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.callcard.is-drawn .callcard__arrow path { animation: callcardDraw 0.55s ease forwards; }
+.callcard.is-drawn .callcard__arrow path:last-child { animation-delay: 0.4s; }
+@keyframes callcardDraw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .callcard__arrow path { stroke-dashoffset: 0; animation: none; }   /* always visible */
+}
+@media (max-width: 900px) {
+  .callcard { display: none; }         /* no room beside the figure on small screens */
+}
+
 /* =========================================================
    SECTION HEAD (shared)
    ========================================================= */

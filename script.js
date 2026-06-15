@@ -72,6 +72,8 @@
   const cinemaAsideLeft = document.getElementById('cinemaAsideLeft');
   const cinemaAsideRight = document.getElementById('cinemaAsideRight');
   let asideSide = 0;   // -1 = right text shown (char left); 1 = left text shown (char right)
+  let heroTerminal = null;   // left-aside terminal controller (see initHeroTerminal)
+  let callcard = null;       // upper-left typing intro controller (see initCallcard)
   const topoBg = document.querySelector('.topo-bg');
   const aurora = document.querySelector('.aurora');
 
@@ -300,7 +302,9 @@
      flips which side is revealed from the character's scroll-X.
      ------------------------------------------------------- */
   function initBlurAside() {
-    [cinemaAsideLeft, cinemaAsideRight].filter(Boolean).forEach((el) => {
+    [cinemaAsideLeft, cinemaAsideRight]
+      .filter((el) => el && !el.hasAttribute('data-no-blur'))   // skip the terminal
+      .forEach((el) => {
       el.setAttribute('aria-label', el.textContent.trim());
       // Walk child nodes so <em> phrases keep their emphasis: collect
       // (word, emphasised?) tokens in document order, then rebuild as
@@ -340,6 +344,276 @@
     });
   }
 
+  /* -------------------------------------------------------
+     HERO TERMINAL — vanilla port of a shadcn/ui "Terminal"
+     component. Types a short bash session (syntax-highlighted)
+     then prints its output, line by line, with a blinking
+     caret. Drives the left aside in place of the old statement.
+     One-shot: .start() runs the session the first time the
+     aside is revealed; later reveals just show the finished
+     transcript. Keystroke audio from the original is dropped
+     (it needs a bundled .ogg + a user gesture and would 404).
+     ------------------------------------------------------- */
+  function initHeroTerminal() {
+    const body = document.getElementById('heroTermBody');
+    if (!body) return null;
+
+    // Portfolio-meaningful session (the old statement survives as output).
+    const commands = [
+      'whoami',
+      'cat ~/manifesto.txt',
+      './ship --intelligent-systems'
+    ];
+    const outputs = {
+      0: ['aditya verma · ai + full-stack engineer'],
+      1: [
+        "I don't just write code — I build",
+        'intelligent systems that feel fast,',
+        'useful, and thoughtfully designed.'
+      ],
+      2: [
+        '✔ compiled   ✔ tested   ✔ shipped',
+        '→ products people actually want to use'
+      ]
+    };
+    const TYPING_MS  = 52;     // per character
+    const BETWEEN_MS = 950;    // gap between commands
+    const OUT_MS     = 150;    // gap between output lines
+    const INITIAL_MS = 420;    // first keystroke after reveal
+
+    const PROMPT =
+      '<span class="hterm__p-user">aditya</span>' +
+      '<span class="hterm__p-host">@portfolio</span>' +
+      '<span class="hterm__p-sep">:</span>' +
+      '<span class="hterm__p-tilde">~</span>' +
+      '<span class="hterm__p-dollar">$</span> ';
+
+    const esc = (s) => s.replace(/[&<>]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+    // tokenizeBash → coloured spans (port of the React highlighter).
+    function highlight(text) {
+      let first = true;
+      return text.split(/(\s+)/).map((w) => {
+        if (w === '') return '';
+        if (/^\s+$/.test(w)) return esc(w);
+        let type;
+        if (w.startsWith('#')) type = 'comment';
+        else if (w.startsWith('$')) { type = 'variable'; first = false; }
+        else if (w.startsWith('-')) { type = 'flag'; first = false; }
+        else if (/^["'].*["']$/.test(w)) { type = 'string'; first = false; }
+        else if (/^\d+$/.test(w)) { type = 'number'; first = false; }
+        else if (/^[|>&<]+$/.test(w)) { type = 'operator'; first = true; }
+        else if (w.includes('/') || w.startsWith('.') || w.startsWith('~')) { type = 'path'; first = false; }
+        else if (first) { type = 'command'; first = false; }
+        else type = 'default';
+        return '<span class="hterm__t-' + type + '">' + esc(w) + '</span>';
+      }).join('');
+    }
+
+    function newLine(cls) {
+      const d = document.createElement('div');
+      d.className = cls;
+      body.appendChild(d);
+      body.scrollTop = body.scrollHeight;
+      return d;
+    }
+
+    let started = false;
+
+    // Reduced motion: render the whole transcript at once, no typing.
+    function renderInstant() {
+      commands.forEach((cmd, i) => {
+        newLine('hterm__line').innerHTML = PROMPT + highlight(cmd);
+        (outputs[i] || []).forEach((o) => { newLine('hterm__out').textContent = o; });
+      });
+      const tail = newLine('hterm__line');
+      tail.innerHTML = PROMPT;
+      const cur = document.createElement('span');
+      cur.className = 'hterm__cursor hterm__cursor--blink';
+      tail.appendChild(cur);
+    }
+
+    function runCommand(i) {
+      if (i >= commands.length) return;
+      const cmd = commands[i];
+      const line = newLine('hterm__line');
+      const text = document.createElement('span');
+      const cursor = document.createElement('span');
+      cursor.className = 'hterm__cursor';
+      line.appendChild(text);
+      line.appendChild(cursor);
+      line.insertAdjacentHTML('afterbegin', PROMPT);
+
+      let c = 0;
+      (function typeChar() {
+        text.innerHTML = highlight(cmd.slice(0, c));
+        body.scrollTop = body.scrollHeight;
+        if (c < cmd.length) {
+          c++;
+          setTimeout(typeChar, TYPING_MS + Math.random() * 30);
+        } else {
+          cursor.remove();
+          printOutputs(i);
+        }
+      })();
+    }
+
+    function printOutputs(i) {
+      const outs = outputs[i] || [];
+      let k = 0;
+      (function next() {
+        if (k < outs.length) {
+          newLine('hterm__out').textContent = outs[k];
+          k++;
+          setTimeout(next, OUT_MS);
+        } else if (i < commands.length - 1) {
+          setTimeout(() => runCommand(i + 1), BETWEEN_MS);
+        } else {
+          // Final idle prompt with a blinking caret.
+          const tail = newLine('hterm__line');
+          tail.innerHTML = PROMPT;
+          const cur = document.createElement('span');
+          cur.className = 'hterm__cursor hterm__cursor--blink';
+          tail.appendChild(cur);
+        }
+      })();
+    }
+
+    return {
+      start() {
+        if (started) return;
+        started = true;
+        if (reduceMotionMQ && reduceMotionMQ.matches) { renderInstant(); return; }
+        setTimeout(() => runCommand(0), INITIAL_MS);
+      }
+    };
+  }
+
+  /* -------------------------------------------------------
+     TESTIMONIALS — vanilla port of a 3D-perspective vertical
+     marquee. Builds N columns of testimonial cards (initials
+     avatars, no external images) into #testiScene; columns
+     scroll in alternating directions via a pure-CSS marquee
+     (two copies per track, translateY -50% = seamless loop)
+     and pause on hover. Fills the right half opposite the
+     character. NOTE: placeholder testimonials — swap for real
+     ones when available.
+     ------------------------------------------------------- */
+  /* -------------------------------------------------------
+     CALLCARD TYPING  the intro line + hand-drawn arrow.
+     EDGE-TRIGGERED on the cinema overlay being on screen:
+     on appear it fades/slides in (.is-in), types the line
+     fast, and draws the arrow; on leave it fades out
+     coherently (text + arrow together) and resets after the
+     fade so it replays on the next visit.
+     ------------------------------------------------------- */
+  function initCallcard() {
+    const el = document.getElementById('callcardType');
+    if (!el) return null;
+    const fig = el.closest('.callcard');
+    const TEXT = 'Hi, I am Aditya, a Computer Science student at Arizona State University building at the intersection of AI, full-stack engineering, and product-focused design.';
+    const SPEED = 8;   // ms/char  snappy
+    el.textContent = '';
+    // Invisible sizer holds the FULL line so the box keeps its final height
+    // from the start; the live (typed) text is overlaid on top, so nothing
+    // reflows as it types and the arrow never moves.
+    const sizer = document.createElement('span');
+    sizer.className = 'callcard__sizer';
+    sizer.setAttribute('aria-hidden', 'true');
+    sizer.textContent = TEXT;
+    const live = document.createElement('span');
+    live.className = 'callcard__live';
+    const typed = document.createElement('span');
+    typed.className = 'callcard__typed';
+    const caret = document.createElement('span');
+    caret.className = 'callcard__caret';
+    live.appendChild(typed);
+    live.appendChild(caret);
+    el.appendChild(sizer);
+    el.appendChild(live);
+    const reduce = reduceMotionMQ && reduceMotionMQ.matches;
+    let visible = false;
+    let typeTimer = null;
+    let hideTimer = null;
+
+    function appear() {
+      clearTimeout(hideTimer);
+      if (fig) {
+        fig.classList.add('is-in');                 // fade/slide the whole card in
+        fig.classList.remove('is-drawn'); void fig.offsetWidth; fig.classList.add('is-drawn');  // (re)draw arrow
+      }
+      if (reduce) { typed.textContent = TEXT; return; }
+      let i = 0;
+      typed.textContent = '';
+      (function type() {
+        typed.textContent = TEXT.slice(0, i);
+        if (i < TEXT.length) { i++; typeTimer = setTimeout(type, SPEED); }
+      })();
+    }
+
+    function disappear() {
+      clearTimeout(typeTimer);
+      if (fig) fig.classList.remove('is-in');        // fade/slide text + arrow out together
+      hideTimer = setTimeout(function () {           // reset only AFTER the fade-out
+        typed.textContent = '';
+        if (fig) fig.classList.remove('is-drawn');
+      }, 600);
+    }
+
+    return {
+      setVisible(v) {
+        if (v && !visible) { visible = true; appear(); }
+        else if (!v && visible) { visible = false; disappear(); }
+      }
+    };
+  }
+
+  function initTestimonials() {
+    const scene = document.getElementById('testiScene');
+    if (!scene) return;
+    const data = [
+      { name: 'Ava Green',   handle: '@ava',  flag: '\u{1F1E6}\u{1F1FA}', body: 'Shipped our AI feature in days, not months.' },
+      { name: 'Mateo Rossi', handle: '@mat',  flag: '\u{1F1EE}\u{1F1F9}', body: 'Clean code and a sharp design eye — rare combo.' },
+      { name: 'Maya Patel',  handle: '@maya', flag: '\u{1F1EE}\u{1F1F3}', body: 'The interface just feels fast and thoughtful.' },
+      { name: 'Noah Smith',  handle: '@noah', flag: '\u{1F1FA}\u{1F1F8}', body: 'Took our messy idea and made it ship-ready.' },
+      { name: 'Emma Lee',    handle: '@emma', flag: '\u{1F1E8}\u{1F1E6}', body: 'Best engineer-designer I have worked with.' },
+      { name: 'Lucas Stone', handle: '@luc',  flag: '\u{1F1EB}\u{1F1F7}', body: 'Turned real complexity into something effortless.' },
+      { name: 'Haruto Sato', handle: '@haru', flag: '\u{1F1EF}\u{1F1F5}', body: 'Pixel-perfect and fast on every device.' },
+      { name: 'Carlos Ray',  handle: '@carl', flag: '\u{1F1EA}\u{1F1F8}', body: 'Delivers polished products people love.' },
+      { name: 'Ana Miller',  handle: '@ana',  flag: '\u{1F1E9}\u{1F1EA}', body: 'Creative, reliable, genuinely fun to build with.' }
+    ];
+    const palette = ['#C9B8FF', '#A8E6CF', '#FFD3B6', '#FFAAA5', '#B5D8FF', '#FFE0AC', '#D6C7FF', '#BFE8D0', '#F7C8E0'];
+    const COLS = 4;
+
+    function card(t, i) {
+      const el = document.createElement('figure');
+      el.className = 'tcard';
+      el.innerHTML =
+        '<div class="tcard__head">' +
+          '<span class="tcard__avatar" style="background:' + palette[i % palette.length] + '">' + t.name.charAt(0) + '</span>' +
+          '<div class="tcard__id">' +
+            '<figcaption class="tcard__name">' + t.name + ' <span class="tcard__flag">' + t.flag + '</span></figcaption>' +
+            '<span class="tcard__handle">' + t.handle + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<blockquote class="tcard__body">' + t.body + '</blockquote>';
+      return el;
+    }
+
+    scene.textContent = '';
+    for (let c = 0; c < COLS; c++) {
+      const col = document.createElement('div');
+      col.className = 'tcol';
+      const track = document.createElement('div');
+      track.className = 'tcol__track ' + (c % 2 ? 'tcol__track--down' : 'tcol__track--up');
+      const rot = data.slice(c * 2).concat(data.slice(0, c * 2));   // offset order per column
+      rot.concat(rot).forEach((t, i) => track.appendChild(card(t, i + c)));   // 2 copies → seamless
+      col.appendChild(track);
+      scene.appendChild(col);
+    }
+  }
+
   /* Character LEFT (scrollX < 0) → reveal the RIGHT text; character
      RIGHT (scrollX > 0) → reveal the LEFT text; near centre, hide both.
      The RIGHT text is gated with a small look-ahead so it starts AND
@@ -357,7 +631,12 @@
     if (side === asideSide) return;
     asideSide = side;
     cinemaAsideRight.classList.toggle('is-revealed', side === -1);
+    // Tie the upper-left intro card to the right testimonials element: it
+    // appears and disappears exactly when they do (char on the left = side -1).
+    if (callcard) callcard.setVisible(side === -1);
     cinemaAsideLeft.classList.toggle('is-revealed', side === 1);
+    // First time the terminal aside appears, boot it (one-shot).
+    if (side === 1 && heroTerminal) heroTerminal.start();
   }
 
   /* -------------------------------------------------------
@@ -387,6 +666,23 @@
   }
   function easeInCubic(t)  { return t * t * t; }
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  // Gentlest in/out ease — softer accel + a barely-there hold at the ends.
+  function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
+
+  /* Breath shaping — maps the linear cycle phase p∈[0,1) to a position in
+     -1..1 (+1 = fully inhaled). Instead of a plain sine (whose speed is a
+     symmetric cosine), the SPEED graph here has real curves: a quicker eased
+     INHALE over the first BREATHE_INHALE of the cycle, a longer/gentler EXHALE
+     over the rest, and — because easeInOutSine has zero slope at both ends —
+     a gentle settle at the top and bottom where velocity eases to zero. Sine
+     easing (vs cubic) keeps the acceleration soft so the whole curve reads as
+     smooth. Continuous and zero-velocity at the wrap (p=0≡1), so it never jolts. */
+  const BREATHE_INHALE = 0.42;   // fraction of the cycle spent inhaling
+  function breathePos(p) {
+    return p < BREATHE_INHALE
+      ? easeInOutSine(p / BREATHE_INHALE) * 2 - 1                                  // -1 → +1 (inhale)
+      : (1 - easeInOutSine((p - BREATHE_INHALE) / (1 - BREATHE_INHALE))) * 2 - 1;  // +1 → -1 (exhale)
+  }
   function rangeProgress(frame, start, end) {
     return clamp01((frame - start) / (end - start));
   }
@@ -434,6 +730,10 @@
     introDelayElapsed: false,   // INTRO_DELAY_MS has passed (or skipped by scroll)
     startTime: 0,               // performance.now() at init
     lastScrollProgress: 0,
+    // Staged playback — the reel parks at scripted checkpoints and only
+    // advances to the next on a FRESH scroll gesture (see CHECKPOINTS).
+    gateIndex: 0,               // which CHECKPOINTS entry we're heading to / parked at
+    lastScrollEventT: 0,        // perf.now() of the last user scroll event (gesture split)
     // Cursor parallax
     cursorTargetX: 0,
     cursorTargetY: 0,
@@ -496,6 +796,23 @@
   const CURSOR_SETTLE  = 0.2;     // px
   const MAX_CURSOR_TX  = 12;      // ±px, opposite X
   const MAX_CURSOR_TY  = 4;       // ±px, opposite Y
+  // Idle breathing — a slow VERTICAL sine added to the canvas Y. It is composed
+  // into the same transform as the cursor parallax (never a separate animation),
+  // so the two add cleanly and moving the mouse never snaps the figure back.
+  const BREATHE_AMP_PX    = 7;     // ±px vertical travel
+  const BREATHE_PERIOD_MS = 3200;  // one full inhale+exhale (faster = livelier)
+
+  // STAGED PLAYBACK — instead of one continuous forward run to TIMELINE_MAX,
+  // the reel pauses at scripted checkpoints. Each fresh forward scroll gesture
+  // unlocks the next stop; a fresh reverse gesture steps back one. CHECKPOINTS[0]
+  // is the intro hold (HOLD_FRAME); the rest are the stops the user asked for:
+  //   load → autoplay to 73 (hold) → scroll #1 → 127 → scroll #2 → 183 →
+  //   scroll #3 → 270 (complete).
+  const CHECKPOINTS    = [HOLD_FRAME, 127, 183, TIMELINE_MAX];
+  // A gap of silence this long marks the next scroll event as a NEW gesture.
+  // Continuous wheel/trackpad input (incl. inertia) fires faster than this, so
+  // one swipe = one gesture = one checkpoint, regardless of how far you scroll.
+  const GESTURE_GAP_MS = 140;
 
   // When motionTick programmatically scrolls the page to keep
   // scrollY in sync with animFrame, ScrollTrigger still fires
@@ -526,6 +843,7 @@
     if (!motion.heroVisible || !motion.pageVisible) {
       motion.running = false;
       motion.lastTickTime = 0;   // force a fresh dt baseline on resume
+      if (callcard) callcard.setVisible(false);   // reset typing so it replays on re-entry
       return;
     }
 
@@ -539,6 +857,22 @@
     else if (dt < 1) dt = 16.667;
     const rate = dt / 16.667;
 
+    // --- Idle breathing (vertical) ---
+    // A slow vertical sine the character breathes with. It is ALWAYS folded into
+    // the canvas transform below (during the walk it's masked by the larger
+    // motion; at a stop it's the visible breath), so there's no class toggle and
+    // nothing to snap when it starts/ends or when the cursor moves. Disabled for
+    // reduced motion and weak devices (perf-lite) — there the loop suspends at
+    // rest instead (see the stop branch). The phase rides wall-clock time so it
+    // stays smooth regardless of frame rate.
+    const allowBreath = !(reduceMotionMQ && reduceMotionMQ.matches)
+      && !document.body.classList.contains('perf-lite');
+    // Shaped breath (see breathePos): eased inhale/exhale with holds, so the
+    // speed profile curves rather than running as a flat sine. +1 = inhaled =
+    // up, which is negative canvas Y.
+    const breathPhase = (nowT % BREATHE_PERIOD_MS) / BREATHE_PERIOD_MS;
+    const breatheY = allowBreath ? -breathePos(breathPhase) * BREATHE_AMP_PX : 0;
+
     // --- Advance the reel (CONTINUOUS crawl) ---
     //   INTRO (!hasScrolled): autoplay 0 → HOLD_FRAME on load.
     //   MAIN  (hasScrolled):  once the user scrolls, the reel plays
@@ -551,6 +885,10 @@
     //     artifact-free way to be smooth.
     let shouldAdvance;
     let advanceStep = 0;
+    // The frame the reel is currently driving toward: HOLD_FRAME during the
+    // intro autoplay, otherwise the unlocked checkpoint. Forward scroll bumps
+    // gateIndex up (next stop), reverse bumps it down — see onHeroScrollInput.
+    const target = motion.hasScrolled ? CHECKPOINTS[motion.gateIndex] : HOLD_FRAME;
     if (!motion.hasScrolled) {
       if (!motion.introDelayElapsed) {
         shouldAdvance = false;                 // INTRO_DELAY
@@ -561,22 +899,24 @@
         shouldAdvance = true;                  // INTRO autoplay
         advanceStep = BASE_RATE;
       }
-    } else if (motion.playDirection === 1 && motion.animFrame < TIMELINE_MAX) {
-      shouldAdvance = true;                     // play forward to the end
+    } else if (motion.animFrame < target - 0.01) {
+      shouldAdvance = true;                     // play forward to the next stop
       advanceStep = BASE_RATE;
-    } else if (motion.playDirection === -1 && motion.animFrame > HOLD_FRAME) {
-      shouldAdvance = true;                     // reverse back to the hold pose
+    } else if (motion.animFrame > target + 0.01) {
+      shouldAdvance = true;                     // reverse back to the prior stop
       advanceStep = -BASE_RATE;
     } else {
+      motion.animFrame = target;                // snap & park exactly on the stop
       shouldAdvance = false;
     }
 
     if (shouldAdvance) {
       motion.animFrame += advanceStep * rate;   // delta-time scaled
+      // Clamp to the checkpoint so we land precisely and park there.
+      if (advanceStep > 0 && motion.animFrame > target) motion.animFrame = target;
+      else if (advanceStep < 0 && motion.animFrame < target) motion.animFrame = target;
       if (motion.animFrame > TIMELINE_MAX) motion.animFrame = TIMELINE_MAX;
-      else if (motion.hasScrolled && motion.animFrame < HOLD_FRAME) {
-        motion.animFrame = HOLD_FRAME;          // never reverse past the hold
-      }
+      else if (motion.animFrame < 0) motion.animFrame = 0;
     }
 
     // NOTE: the reel no longer drives the page scroll. It used to call
@@ -618,7 +958,7 @@
     const finalX = motion.cursorRenderedX + scrollX;
     cinemaCanvas.style.transform =
       'translate3d(calc(-50% + ' + finalX.toFixed(2) + 'px), ' +
-      motion.cursorRenderedY.toFixed(2) + 'px, 0)';
+      (motion.cursorRenderedY + breatheY).toFixed(2) + 'px, 0)';
     renderFrame(animP * (FRAME_COUNT - 1), shouldAdvance);
     renderCinemaUI(animP);
     updateAside(timelineProgress);   // reveal the side statement opposite the character
@@ -631,7 +971,9 @@
     const cursorSettled =
       Math.abs(cdx) < CURSOR_SETTLE && Math.abs(cdy) < CURSOR_SETTLE;
 
-    if (!shouldAdvance && cursorSettled) {
+    if (!shouldAdvance && cursorSettled && !allowBreath) {
+      // Weak device / reduced motion: no idle animation — settle exactly and
+      // suspend the loop to save power (the original at-rest behaviour).
       motion.cursorRenderedX = motion.cursorTargetX;
       motion.cursorRenderedY = motion.cursorTargetY;
       const finalX2 =
@@ -642,6 +984,10 @@
       motion.running = false;
       return;
     }
+    // Otherwise keep ticking: the reel is still moving, the cursor is still
+    // settling, OR breathing is active. Because the breath lives in the same
+    // transform as the cursor parallax (written above), the loop running at rest
+    // keeps the mouse response live — moving the cursor never snaps the figure.
     requestAnimationFrame(motionTick);
   }
 
@@ -721,6 +1067,46 @@
   }
 
   /* -------------------------------------------------------
+     onHeroScrollInput — translate a scroll delta into reel
+     intent. Scroll is a discrete TRIGGER, not a force: each
+     FRESH forward gesture unlocks the next checkpoint (and a
+     fresh reverse gesture steps back one), then motionTick
+     plays the reel to that stop at BASE_RATE and parks.
+     A "fresh" gesture is the first event after >GESTURE_GAP_MS
+     of silence, so one swipe advances exactly one stage no
+     matter how far/fast it scrolls.
+     ------------------------------------------------------- */
+  function onHeroScrollInput(deltaProgress) {
+    if (deltaProgress === 0) return;
+    const now = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now() : Date.now();
+    const isNewGesture = (now - motion.lastScrollEventT) > GESTURE_GAP_MS;
+    motion.lastScrollEventT = now;
+    if (deltaProgress > 0) {
+      const firstEver = !motion.hasScrolled;    // first forward scroll always releases stop #1
+      motion.hasScrolled = true;
+      motion.introDelayElapsed = true;          // skip intro wait if still pending
+      motion.playDirection = 1;
+      // Unlock the next stop only on a FRESH gesture AND once the reel has
+      // actually arrived at the current one. The arrival guard is what makes a
+      // single scroll advance exactly one stage — it can't skip ahead while the
+      // reel is still travelling, no matter how the scroll/inertia events land.
+      const arrived = firstEver ||
+        motion.animFrame >= CHECKPOINTS[motion.gateIndex] - 0.5;
+      if (isNewGesture && arrived && motion.gateIndex < CHECKPOINTS.length - 1) {
+        motion.gateIndex++;                     // release the next stop
+      }
+    } else {
+      motion.hasScrolled = true;
+      motion.playDirection = -1;
+      if (isNewGesture && motion.gateIndex > 0) {
+        motion.gateIndex--;                     // step back one stop
+      }
+    }
+    kickMotion();
+  }
+
+  /* -------------------------------------------------------
      GSAP ScrollTrigger setup — the hero pin trigger only
      samples scroll delta and feeds it as a bias impulse to
      the cinema-reel timeline (see motionTick). UI exit,
@@ -747,16 +1133,8 @@
           return;
         }
         const deltaProgress = p - motion.lastScrollProgress;
-        if (deltaProgress > 0) {
-          motion.hasScrolled = true;
-          motion.playDirection = 1;
-          motion.introDelayElapsed = true;
-        } else if (deltaProgress < 0) {
-          motion.hasScrolled = true;
-          motion.playDirection = -1;
-        }
         motion.lastScrollProgress = p;
-        kickMotion();
+        onHeroScrollInput(deltaProgress);
       };
       window.addEventListener('scroll', fallback, { passive: true });
       // The hero reel's kick happens in startHeroReel(), which
@@ -794,16 +1172,8 @@
             return;
           }
           const deltaProgress = newProgress - motion.lastScrollProgress;
-          if (deltaProgress > 0) {
-            motion.hasScrolled = true;
-            motion.playDirection = 1;
-            motion.introDelayElapsed = true;   // skip intro wait if still pending
-          } else if (deltaProgress < 0) {
-            motion.hasScrolled = true;
-            motion.playDirection = -1;
-          }
           motion.lastScrollProgress = newProgress;
-          kickMotion();
+          onHeroScrollInput(deltaProgress);
         }
       }
     });
@@ -3033,6 +3403,9 @@
     initHeroSign();
     initWelcomeBreath();
     initBlurAside();
+    heroTerminal = initHeroTerminal();
+    initTestimonials();
+    callcard = initCallcard();
     initReveals();
     initStatCounters();
     initScrollProgress();
