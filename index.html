@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=90" />
+<link rel="stylesheet" href="styles.css?v=113" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -366,33 +366,55 @@
       <!-- RIGHT statement fills the right half: a 3D-perspective vertical
            testimonial marquee (vanilla port of a shadcn/ui "3D testimonials"
            component). Columns + cards are built by initTestimonials; columns
-           scroll in alternating directions and pause on hover. Blur-reveals
-           like the other aside. data-no-blur keeps initBlurAside off it. -->
+           scroll in alternating directions. Blur-reveals like the other aside.
+           data-no-blur keeps initBlurAside off it. -->
       <div class="cinema__aside cinema__aside--testi" id="cinemaAsideRight" data-no-blur aria-hidden="true">
         <div class="testi3d">
           <div class="testi3d__scene" id="testiScene"></div>
           <div class="testi3d__fade testi3d__fade--t"></div>
           <div class="testi3d__fade testi3d__fade--b"></div>
-          <div class="testi3d__fade testi3d__fade--l"></div>
           <div class="testi3d__fade testi3d__fade--r"></div>
         </div>
       </div>
-      <!-- LEFT statement is a live terminal (vanilla port of a shadcn/ui
-           "Terminal" component, re-themed to the site's chartreuse). It
-           blur-reveals like the other aside and types itself out the first
-           time the character settles on the right. data-no-blur tells
-           initBlurAside to leave its markup alone. -->
-      <div class="cinema__aside cinema__aside--left cinema__aside--term" id="cinemaAsideLeft" data-no-blur aria-hidden="true">
-        <div class="hterm" id="heroTerm">
-          <div class="hterm__bar">
-            <span class="hterm__dot hterm__dot--r"></span>
-            <span class="hterm__dot hterm__dot--y"></span>
-            <span class="hterm__dot hterm__dot--g"></span>
-            <span class="hterm__title">aditya@portfolio — bash</span>
-            <span class="hterm__spacer"></span>
+      <!-- LEFT element: Instagram post (carousel of /instagram-images) styled
+           like the IG layout, but the black header/footer are transparent so the
+           UI elements sit directly on the cream landing page. Click the image (or
+           a dot) to advance; a skeleton shows while each image loads. -->
+      <div class="cinema__aside cinema__aside--left cinema__aside--igpost" id="cinemaAsideLeft" data-no-blur aria-hidden="true">
+        <p class="igbio igbio--top">Beyond code, I try to keep life full of things that make me feel balanced, creative, and present.</p>
+        <div class="igpost" id="igPost">
+          <div class="igpost__header">
+            <span class="igpost__avatar"><img src="ppic.jpg" alt="" /></span>
+            <div class="igpost__id">
+              <span class="igpost__tag">adivrmaa</span>
+              <span class="igpost__loc">Dubai, United Arab Emirates</span>
+            </div>
+            <svg class="igpost__more" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
           </div>
-          <div class="hterm__body" id="heroTermBody"></div>
+          <div class="igpost__media" id="igMedia">
+            <img class="igpost__slide" id="igImg" alt="Instagram post" />
+            <div class="igpost__skeleton" aria-hidden="true"><span class="igpost__loader"></span></div>
+          </div>
+          <div class="igpost__dots" id="igDots" aria-hidden="true"></div>
+          <div class="igpost__actions">
+            <button class="igpost__act igpost__like is-liked" id="igLike" type="button" aria-label="Like" aria-pressed="true">
+              <svg class="igpost__heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.49 4.04 3 5.5l7 7Z"/></svg>
+            </button>
+            <span class="igpost__count" id="igLikeCount">108</span>
+            <button class="igpost__act" type="button" aria-label="Comment">
+              <svg class="igpost__icon" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            <span class="igpost__count">8</span>
+            <button class="igpost__act" type="button" aria-label="Share">
+              <svg class="igpost__icon" viewBox="0 0 24 24"><path d="M22 2L11 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="igpost__act igpost__act--save" type="button" aria-label="Save">
+              <svg class="igpost__icon" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
         </div>
+        <p class="igbio igbio--mid">I love going to the gym because it helps me stay disciplined, clear my mind, and push myself outside of academics and work. Traveling is something that really excites me too, I enjoy exploring new places, meeting different people, and experiencing perspectives that make life feel bigger than my daily routine. Music is another big part of who I am; playing guitar and singing gives me a way to slow down, express myself, and stay connected to my creative side. And at the end of the day, I really value spending time with my friends, whether that means going out, having random conversations, or just enjoying simple moments together. Outside the screen, I&rsquo;m someone who likes to stay active, curious,</p>
+        <p class="igbio igbio--bot">expressive, and surrounded by people and experiences that keep me grounded.</p>
       </div>
     </div>
 
@@ -668,7 +690,7 @@
 
 </main>
 
-<script src="script.js?v=82" defer></script>
+<script src="script.js?v=89" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>

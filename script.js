@@ -491,22 +491,13 @@
   }
 
   /* -------------------------------------------------------
-     TESTIMONIALS — vanilla port of a 3D-perspective vertical
-     marquee. Builds N columns of testimonial cards (initials
-     avatars, no external images) into #testiScene; columns
-     scroll in alternating directions via a pure-CSS marquee
-     (two copies per track, translateY -50% = seamless loop)
-     and pause on hover. Fills the right half opposite the
-     character. NOTE: placeholder testimonials — swap for real
-     ones when available.
-     ------------------------------------------------------- */
-  /* -------------------------------------------------------
      CALLCARD TYPING  the intro line + hand-drawn arrow.
-     EDGE-TRIGGERED on the cinema overlay being on screen:
-     on appear it fades/slides in (.is-in), types the line
-     fast, and draws the arrow; on leave it fades out
-     coherently (text + arrow together) and resets after the
-     fade so it replays on the next visit.
+     EDGE-TRIGGERED via setVisible (bound to the right element's
+     reveal in updateAside): on appear it fades/slides in
+     (.is-in), types the line fast, and draws the arrow; on
+     leave it fades out coherently and resets after the fade so
+     it replays next time. A sizer reserves the full height so
+     the arrow never jumps as the text types.
      ------------------------------------------------------- */
   function initCallcard() {
     const el = document.getElementById('callcardType');
@@ -516,8 +507,8 @@
     const SPEED = 8;   // ms/char  snappy
     el.textContent = '';
     // Invisible sizer holds the FULL line so the box keeps its final height
-    // from the start; the live (typed) text is overlaid on top, so nothing
-    // reflows as it types and the arrow never moves.
+    // from the start; the live (typed) text is overlaid, so nothing reflows
+    // as it types and the arrow never moves.
     const sizer = document.createElement('span');
     sizer.className = 'callcard__sizer';
     sizer.setAttribute('aria-hidden', 'true');
@@ -569,6 +560,16 @@
     };
   }
 
+  /* -------------------------------------------------------
+     TESTIMONIALS — vanilla port of a 3D-perspective vertical
+     marquee. Builds N columns of testimonial cards (initials
+     avatars, no external images) into #testiScene; columns
+     scroll in alternating directions via a pure-CSS marquee
+     (two copies per track, translateY -50% = seamless loop)
+     and pause on hover. Fills the right half opposite the
+     character. NOTE: placeholder testimonials — swap for real
+     ones when available.
+     ------------------------------------------------------- */
   function initTestimonials() {
     const scene = document.getElementById('testiScene');
     if (!scene) return;
@@ -611,6 +612,101 @@
       rot.concat(rot).forEach((t, i) => track.appendChild(card(t, i + c)));   // 2 copies → seamless
       col.appendChild(track);
       scene.appendChild(col);
+    }
+  }
+
+  /* -------------------------------------------------------
+     IG POST — Instagram-style image carousel (vanilla port of
+     an "Instagram skeleton screen") pinned to the left edge.
+     Click the image or a dot to advance; images change with a
+     SLIDING transition (each image is an absolute slide that is
+     preloaded then translated in while the old slides out).
+     The heart is an animated like toggle (port of HeartFavorite).
+     ------------------------------------------------------- */
+  function initIgPost() {
+    const media = document.getElementById('igMedia');
+    const dotsWrap = document.getElementById('igDots');
+    let cur = document.getElementById('igImg');
+    if (!media || !dotsWrap || !cur) return;
+    const srcs = [
+      'instagram-images/1.png',
+      'instagram-images/2.png',
+      'instagram-images/3.png',
+      'instagram-images/4.png',
+      'instagram-images/5.png'
+    ];
+    const n = srcs.length;
+    let idx = 0;
+    let animating = false;
+    const skeleton = media.querySelector('.igpost__skeleton');
+
+    const dots = srcs.map(function (_, i) {
+      const d = document.createElement('span');
+      d.className = 'igpost__dot';
+      d.addEventListener('click', function (e) { e.stopPropagation(); go(i, i > idx ? 1 : -1); });
+      dotsWrap.appendChild(d);
+      return d;
+    });
+    function syncDots() { dots.forEach(function (d, i) { d.classList.toggle('is-active', i === idx); }); }
+
+    function preload(src, cb) { const im = new Image(); im.onload = function () { cb(im); }; im.onerror = function () { cb(null); }; im.src = src; }
+
+    // First image: skeleton until it loads.
+    media.classList.add('is-loading');
+    preload(srcs[0], function (im) { media.classList.remove('is-loading'); if (im) cur.src = im.src; });
+    syncDots();
+
+    function go(target, dir) {
+      target = (target % n + n) % n;
+      if (animating || target === idx) return;
+      animating = true;
+      preload(srcs[target], function (im) {
+        if (!im) { animating = false; return; }
+        const next = document.createElement('img');
+        next.className = 'igpost__slide';
+        next.alt = 'Instagram post';
+        next.src = im.src;
+        next.style.transition = 'none';
+        next.style.transform = 'translateX(' + (dir * 100) + '%)';   // start off-screen
+        if (skeleton) media.insertBefore(next, skeleton); else media.appendChild(next);
+        void next.offsetWidth;                                       // commit start position
+        next.style.transition = '';                                  // re-enable CSS transition
+        next.style.transform = 'translateX(0)';
+        cur.style.transform = 'translateX(' + (-dir * 100) + '%)';
+        const old = cur;
+        cur = next; idx = target; syncDots();
+        let done = false;
+        const finish = function () {
+          if (done) return; done = true;
+          old.remove();
+          next.removeEventListener('transitionend', finish);
+          animating = false;
+        };
+        next.addEventListener('transitionend', finish);
+        setTimeout(finish, 800);   // fallback if transitionend doesn't fire
+      });
+    }
+
+    media.addEventListener('click', function () { go(idx + 1, 1); });
+
+    /* Animated like toggle */
+    const likeBtn = document.getElementById('igLike');
+    const likeCount = document.getElementById('igLikeCount');
+    if (likeBtn && likeCount) {
+      let liked = true;
+      const BASE = 107;
+      function syncLike() {
+        likeBtn.classList.toggle('is-liked', liked);
+        likeBtn.setAttribute('aria-pressed', String(liked));
+        likeCount.textContent = String(BASE + (liked ? 1 : 0));
+      }
+      likeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        liked = !liked;
+        syncLike();
+        if (liked) { likeBtn.classList.remove('is-pop'); void likeBtn.offsetWidth; likeBtn.classList.add('is-pop'); }
+      });
+      syncLike();
     }
   }
 
@@ -3404,8 +3500,9 @@
     initWelcomeBreath();
     initBlurAside();
     heroTerminal = initHeroTerminal();
-    initTestimonials();
     callcard = initCallcard();
+    initTestimonials();
+    initIgPost();
     initReveals();
     initStatCounters();
     initScrollProgress();

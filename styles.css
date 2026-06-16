@@ -1241,11 +1241,10 @@ body.perf-lite .hterm {
 
 /* ---------- RIGHT aside as a 3D testimonial marquee ----------
    Vanilla port of a "3D testimonials" component: columns of cards scroll
-   vertically (two copies per track → translateY(-50%) loops seamlessly) in
+   vertically (two copies per track, translateY(-50%) loops seamlessly) in
    alternating directions, tilted into 3D, filling the right half opposite the
-   character. Pauses on hover. The blur-reveal sits on .testi3d. */
+   character. Non-interactive. The blur-reveal sits on .testi3d. */
 .cinema__aside--testi {
-  /* Fill the entire right half of the viewport. */
   top: 0;
   bottom: 0;
   right: 0;
@@ -1262,7 +1261,6 @@ body.perf-lite .hterm {
   inset: 0;
   overflow: hidden;
   perspective: 1200px;
-  /* reveal (blur-in), mirrors the other asides */
   opacity: 0;
   filter: blur(16px) brightness(0.85);
   transition: opacity .8s, filter .8s;
@@ -1270,7 +1268,7 @@ body.perf-lite .hterm {
 .cinema__aside--testi.is-revealed .testi3d {
   opacity: 1;
   filter: blur(0) brightness(1);
-  /* purely decorative — let the mouse pass through (no hover interaction) */
+  /* purely decorative - let the mouse pass through (no hover interaction) */
 }
 .testi3d__scene {
   position: absolute;
@@ -1280,13 +1278,12 @@ body.perf-lite .hterm {
   flex-direction: row;
   gap: clamp(12px, 1vw, 20px);
   transform-style: preserve-3d;
-  /* Tilt the wall of cards into 3D and scale to fill the half. */
   transform: translate(-50%, -50%) rotateX(16deg) rotateY(-16deg) rotateZ(14deg) scale(1.18);
 }
 .tcol {
   flex: none;
   width: clamp(150px, 11vw, 208px);
-  height: 150vh;                   /* taller than viewport so the tilt still fills */
+  height: 150vh;
   overflow: hidden;
 }
 .tcol__track {
@@ -1299,8 +1296,6 @@ body.perf-lite .hterm {
 @keyframes tmarquee { from { transform: translateY(0); } to { transform: translateY(-50%); } }
 
 .tcard {
-  /* Gap is baked into the card margin (not flex gap) so two stacked copies
-     loop seamlessly at exactly -50%. */
   margin: 0 0 clamp(12px, 1vw, 18px);
   padding: clamp(13px, 1vw, 18px);
   background: rgba(255, 255, 255, 0.72);
@@ -1339,18 +1334,107 @@ body.perf-lite .hterm {
   line-height: 1.45;
   color: var(--ink-2);
 }
-/* Edge fades into the cream so the marquee dissolves at the borders. */
 .testi3d__fade { position: absolute; pointer-events: none; z-index: 4; }
 .testi3d__fade--t { top: 0;    left: 0; right: 0; height: 24%; background: linear-gradient(to bottom, var(--cream), transparent); }
 .testi3d__fade--b { bottom: 0; left: 0; right: 0; height: 24%; background: linear-gradient(to top,    var(--cream), transparent); }
-/* No left fade — it painted a flat cream band at the container's left edge
-   (screen centre) over the textured background, which read as a seam. */
 .testi3d__fade--r { top: 0; bottom: 0; right: 0; width: 16%;  background: linear-gradient(to left,    var(--cream), transparent); }
 @media (prefers-reduced-motion: reduce) {
   .tcol__track { animation: none; }
 }
 body.perf-lite .tcol__track { animation: none; }
 body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(255,255,255,0.85); }
+
+
+/* ---------- LEFT element: Instagram post (image carousel) ----------
+   Left-edge. The IMAGE keeps its size (media = container width, unchanged); the
+   surrounding UI (avatar, handle, location, action icons, counts) is large and
+   airy for a minimal feel. Transparent header/footer; slide transition between
+   images; the heart is an animated like toggle. */
+.cinema__aside--igpost {
+  left: calc(var(--gutter) + 15px); /* align with the FRAME count / PROGRESS readout text */
+  right: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(52vw, 1220px);
+  max-width: none;
+  perspective: none;
+  pointer-events: none;
+  color: var(--ink);
+  opacity: 0;
+  filter: blur(16px) brightness(0.95);
+  transition: opacity .8s, filter .8s;
+}
+.cinema__aside--igpost.is-revealed {
+  opacity: 1;
+  filter: blur(0) brightness(1);
+  pointer-events: auto;
+}
+.igpost { float: left; width: min(34vw, 44vh); margin: 0 clamp(40px, 3.6vw, 72px) 0 0; font-family: var(--f-sans); color: var(--ink); }
+.cinema__aside--igpost::after { content: ""; display: block; clear: both; }
+/* Fun handwritten bio that frames the post: ONE line across the top (flush with the
+   FRAME/PROGRESS readout), the bulk wraps down the RIGHT side filling the gap toward
+   the character, ONE line cleared BELOW. */
+.igbio {
+  margin: 0;
+  font-family: var(--f-sign);
+  font-weight: 600;
+  font-size: clamp(17px, 1.35vw, 34px);
+  line-height: 1.85;
+  text-align: left;
+  color: var(--ink);
+}
+.igbio--top { margin: 0; white-space: nowrap; }
+.igbio--bot { margin: 0; clear: both; white-space: nowrap; }
+.igpost__header { display: flex; align-items: center; gap: 18px; padding: 0 0 22px; }
+.igpost__avatar {
+  width: 68px; height: 68px; border-radius: 50%; overflow: hidden; flex: none;
+  background: var(--cream-2);
+  box-shadow: 0 0 0 1px rgba(12, 12, 10, 0.13), 0 0 0 3px var(--cream), 0 0 0 5px rgba(12, 12, 10, 0.07);
+}
+.igpost__avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.igpost__id { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; gap: 2px; }
+.igpost__tag { font-weight: 700; font-size: clamp(20px, 1.4vw, 25px); color: var(--ink); letter-spacing: -0.01em; }
+.igpost__loc { font-size: clamp(14px, 1vw, 17px); color: var(--ink-2); }
+.igpost__more { width: 34px; height: 34px; margin-left: auto; fill: var(--ink); }
+.igpost__media {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--cream-2);
+  box-shadow: 0 38px 76px -40px rgba(0, 0, 0, 0.5), 0 12px 28px -20px rgba(0, 0, 0, 0.28);
+}
+.igpost__slide {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  will-change: transform, scale;
+  transition: transform .55s cubic-bezier(0.45, 0.05, 0.2, 1), scale .5s ease;
+}
+/* Zoom in on hover (standalone `scale` composes with the slide translateX). */
+.igpost__media:hover .igpost__slide { scale: 1.06; }
+.igpost__skeleton { position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; background: var(--cream-2); }
+.igpost__media.is-loading .igpost__skeleton { display: flex; }
+.igpost__loader { width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(12, 12, 10, 0.15); border-top-color: rgba(12, 12, 10, 0.42); animation: igspin 0.9s linear infinite; }
+@keyframes igspin { to { transform: rotate(360deg); } }
+.igpost__dots { display: flex; justify-content: center; gap: 9px; padding: 20px 0 18px; }
+.igpost__dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(12, 12, 10, 0.22); cursor: pointer; transition: background .25s, transform .25s; }
+.igpost__dot.is-active { background: var(--ink); transform: scale(1.25); }
+.igpost__actions { display: flex; align-items: center; gap: 18px; padding: 0; }
+.igpost__act { display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 3px; cursor: pointer; color: var(--ink); transition: transform .15s ease, color .2s ease; }
+.igpost__act:hover { transform: scale(1.12); }
+.igpost__act:active { transform: scale(0.9); }
+.igpost__act--save { margin-left: auto; }
+.igpost__icon { width: 40px; height: 40px; fill: currentColor; color: var(--ink); }
+.igpost__count { font-weight: 600; font-size: clamp(18px, 1.25vw, 22px); color: var(--ink); margin-right: 16px; margin-left: 2px; }
+.igpost__like { color: var(--ink); }
+.igpost__heart { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 2; transition: fill .2s ease, stroke .2s ease; }
+.igpost__like.is-liked { color: #ed4956; }
+.igpost__like.is-liked .igpost__heart { fill: #ed4956; stroke: #ed4956; }
+.igpost__like.is-pop .igpost__heart { animation: heartPop 0.32s ease-in-out; }
+@keyframes heartPop { 0% { transform: scale(1); } 45% { transform: scale(1.32); } 100% { transform: scale(1); } }
 
 /* ---------- "Calling card" dictionary-style intro ----------
    Upper-left of the character: a bold headword + phonetic, a numbered
