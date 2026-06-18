@@ -628,13 +628,8 @@
     const dotsWrap = document.getElementById('igDots');
     let cur = document.getElementById('igImg');
     if (!media || !dotsWrap || !cur) return;
-    const srcs = [
-      'instagram-images/1.png',
-      'instagram-images/2.png',
-      'instagram-images/3.png',
-      'instagram-images/4.png',
-      'instagram-images/5.png'
-    ];
+    const srcs = [];
+    for (let k = 1; k <= 14; k++) srcs.push('instagram-images/' + k + '.png');
     const n = srcs.length;
     let idx = 0;
     let animating = false;
@@ -643,7 +638,7 @@
     const dots = srcs.map(function (_, i) {
       const d = document.createElement('span');
       d.className = 'igpost__dot';
-      d.addEventListener('click', function (e) { e.stopPropagation(); go(i, i > idx ? 1 : -1); });
+      d.addEventListener('click', function (e) { e.stopPropagation(); go(i, i > idx ? 1 : -1); resetAuto(); });
       dotsWrap.appendChild(d);
       return d;
     });
@@ -687,7 +682,28 @@
       });
     }
 
-    media.addEventListener('click', function () { go(idx + 1, 1); });
+    media.addEventListener('click', function () { go(idx + 1, 1); resetAuto(); });
+
+    /* Continuous auto-slideshow: advance one image every 2s, looping through all of them.
+       Runs only while the IG aside is revealed (so it doesn't churn off-screen) and is
+       skipped under reduced-motion. Manual nav (click / dot) restarts the countdown. */
+    const aside = document.getElementById('cinemaAsideLeft');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const AUTO_MS = 2000;
+    let auto = null;
+    function startAuto() { if (auto || reduce) return; auto = setInterval(function () { go(idx + 1, 1); }, AUTO_MS); }
+    function stopAuto() { if (auto) { clearInterval(auto); auto = null; } }
+    function resetAuto() { if (auto) { stopAuto(); startAuto(); } }   // restart the 2s countdown after manual nav
+    if (aside && !reduce) {
+      let shown = aside.classList.contains('is-revealed');
+      if (shown) startAuto();
+      const obs = new MutationObserver(function () {
+        const now = aside.classList.contains('is-revealed');
+        if (now && !shown) { shown = true; startAuto(); }
+        else if (!now && shown) { shown = false; stopAuto(); }
+      });
+      obs.observe(aside, { attributes: true, attributeFilter: ['class'] });
+    }
 
     /* Animated like toggle */
     const likeBtn = document.getElementById('igLike');
@@ -708,6 +724,213 @@
       });
       syncLike();
     }
+  }
+
+  /* Instagram "stories" row above the post — vanilla port of the typewriter-testimonial
+     React component (no audio: this project has no /audio assets). Each gradient-ringed
+     avatar, on hover, scales up and types its caption into a speech-bubble tooltip. */
+  function initIgStories() {
+    const wrap = document.getElementById('igStories');
+    if (!wrap) return;
+    const stories = [
+      { img: 'ppic.jpg',                 label: 'aditya',  text: "That's me — building things, and chasing a bit of balance." },
+      { img: 'story-covers/gym.jpg',     label: 'gym',     text: 'Lifting keeps me disciplined and clears my head.' },
+      { img: 'story-covers/travel.jpg',  label: 'travel',  text: 'Always up for exploring somewhere new.' },
+      { img: 'story-covers/music.jpg',   label: 'music',   text: 'Guitar and singing are how I slow down.' },
+      { img: 'story-covers/friends.jpg', label: 'friends', text: 'The simple moments with people I care about.' }
+    ];
+    // The story-covers are swapped often during dev; bust their cache with a per-load token so
+    // an updated file always shows on a normal reload (no manual ?v bump / hard-refresh needed).
+    const bust = '?t=' + Date.now();
+    let timer = null;
+
+    stories.forEach(function (s) {
+      const item = document.createElement('div');
+      item.className = 'igstory';
+
+      const tip = document.createElement('div');
+      tip.className = 'igstory__tip';
+      const body = document.createElement('div');
+      body.className = 'igstory__tip-body';
+      const tipText = document.createElement('span');
+      tipText.className = 'igstory__tip-text';
+      const caret = document.createElement('span');
+      caret.className = 'igstory__caret';
+      caret.textContent = '|';
+      body.appendChild(tipText); body.appendChild(caret);
+      const dots = document.createElement('div');
+      dots.className = 'igstory__dots';
+      dots.innerHTML = '<i></i><i></i><i></i>';
+      tip.appendChild(body); tip.appendChild(dots);
+
+      const ring = document.createElement('span');
+      ring.className = 'igstory__ring';
+      const img = document.createElement('img');
+      img.className = 'igstory__avatar';
+      img.src = s.img.indexOf('story-covers/') === 0 ? (s.img + bust) : s.img; img.alt = '';
+      ring.appendChild(img);
+
+      const label = document.createElement('span');
+      label.className = 'igstory__label';
+      label.textContent = s.label;
+
+      item.appendChild(tip); item.appendChild(ring); item.appendChild(label);
+      wrap.appendChild(item);
+
+      function type(text) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        tipText.textContent = '';
+        let i = 0;
+        (function step() {
+          if (i <= text.length) { tipText.textContent = text.slice(0, i); i++; timer = setTimeout(step, 40); }
+        })();
+      }
+      item.addEventListener('mouseenter', function () { item.classList.add('is-active'); type(s.text); });
+      item.addEventListener('mouseleave', function () {
+        item.classList.remove('is-active');
+        if (timer) { clearTimeout(timer); timer = null; }
+        tipText.textContent = '';
+      });
+    });
+  }
+
+  /* Bio reveal — every LINE is written at the same time: each step reveals the next
+     character of EVERY line simultaneously, so all lines fill in left-to-right together.
+     On hide, the whole block does a smooth fade + blur + drift-up disappear. Replays on
+     each visit. Every char is laid out up-front so wrapping is fixed (no reflow); reveal
+     and exit are opacity/filter/transform only (compositor, layout-neutral). */
+  function initIgBio() {
+    const aside = document.getElementById('cinemaAsideLeft');
+    const bio = aside && aside.querySelector('.igbio');
+    const textEl = aside && aside.querySelector('.igbio__text');
+    if (!aside || !bio || !textEl) return;
+    const full = textEl.textContent;
+    const oldCaret = aside.querySelector('.igbio__caret');
+    if (oldCaret) oldCaret.remove();   // no single caret: lines write in parallel now
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    textEl.textContent = '';
+    const chars = [];
+    for (let k = 0; k < full.length; k++) {
+      const s = document.createElement('span');
+      s.className = 'igbio__ch';
+      s.textContent = full.charAt(k);
+      textEl.appendChild(s);
+      chars.push(s);
+    }
+
+    if (reduce) { for (let k = 0; k < chars.length; k++) chars[k].classList.add('is-on'); return; }
+
+    // Group the laid-out chars into visual lines by vertical position.
+    function buildLines() {
+      const lines = []; let top = null, cur = null;
+      for (let k = 0; k < chars.length; k++) {
+        const t = chars[k].offsetTop;
+        if (top === null || Math.abs(t - top) > 2) { cur = []; lines.push(cur); top = t; }
+        cur.push(chars[k]);
+      }
+      return lines;
+    }
+
+    let timer = null;
+    function clearAll() { for (let k = 0; k < chars.length; k++) chars[k].classList.remove('is-on'); }
+
+    function writeIn() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      bio.classList.remove('igbio--leaving');
+      clearAll();
+      const lines = buildLines();
+      let maxLen = 0;
+      for (let k = 0; k < lines.length; k++) maxLen = Math.max(maxLen, lines[k].length);
+      let i = 0;
+      const STEP = 40;
+      (function step() {
+        for (let l = 0; l < lines.length; l++) if (i < lines[l].length) lines[l][i].classList.add('is-on');
+        i++;
+        if (i < maxLen) timer = setTimeout(step, STEP);
+      })();
+    }
+
+    // Disappear: fade + blur + drift the whole block up (one element). Reset after it (and
+    // the aside) have faded, so the next reveal starts clean with no flash.
+    function writeOut() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      bio.classList.add('igbio--leaving');
+      timer = setTimeout(function () { bio.classList.remove('igbio--leaving'); clearAll(); }, 850);
+    }
+
+    let shown = aside.classList.contains('is-revealed');
+    clearAll();
+    const obs = new MutationObserver(function () {
+      const now = aside.classList.contains('is-revealed');
+      if (now && !shown) { shown = true; writeIn(); }
+      else if (!now && shown) { shown = false; writeOut(); }
+    });
+    obs.observe(aside, { attributes: true, attributeFilter: ['class'] });
+    if (shown) writeIn();
+  }
+
+  /* Hover perspective tilt for ONLY the Instagram UI (stories/post/dock). The panel keeps
+     its fixed rotateY; the UI (.iguicard, inside its own .iguifx perspective) tilts toward
+     the cursor: full strength inside the UI, fading across the next 2 card-radii, lerped
+     each frame for a smooth follow. Writes --rx/--ry onto .iguifx (CSS reads them on
+     .iguicard). Runs only while the IG aside is revealed (rAF starts on reveal, stops +
+     flattens on hide); skipped under reduced-motion and on perf-lite devices. */
+  function initIgUiTilt() {
+    const fx = document.querySelector('.iguifx');
+    const card = document.querySelector('.igcol');   // cursor math centres on the UI bounds
+    const aside = document.getElementById('cinemaAsideLeft');
+    if (!fx || !card || !aside) return;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || document.body.classList.contains('perf-lite')) return;
+
+    const MAX_RX = 8, MAX_RY = 11, SMOOTH = 0.12;
+    const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+    let targetX = 0, targetY = 0, rotX = 0, rotY = 0, raf = 0, running = false;
+
+    function onMove(e) {
+      const r = card.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      const dist = Math.hypot(dx, dy);
+      const falloff = dist <= 1 ? 1 : Math.max(0, 1 - (dist - 1) / 2);   // fade over 2 radii
+      targetX = clamp(dy, -1, 1) * MAX_RX * falloff;
+      targetY = -clamp(dx, -1, 1) * MAX_RY * falloff;
+    }
+    function onLeave() { targetX = 0; targetY = 0; }
+    function tick() {
+      rotX += (targetX - rotX) * SMOOTH;
+      rotY += (targetY - rotY) * SMOOTH;
+      fx.style.setProperty('--rx', rotX.toFixed(2) + 'deg');
+      fx.style.setProperty('--ry', rotY.toFixed(2) + 'deg');
+      raf = requestAnimationFrame(tick);
+    }
+    function start() {
+      if (running) return;
+      running = true;
+      window.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseleave', onLeave);
+      tick();
+    }
+    function stop() {
+      if (!running) return;
+      running = false;
+      window.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseleave', onLeave);
+      cancelAnimationFrame(raf);
+      targetX = targetY = rotX = rotY = 0;
+      fx.style.setProperty('--rx', '0deg');
+      fx.style.setProperty('--ry', '0deg');
+    }
+    let shown = aside.classList.contains('is-revealed');
+    if (shown) start();
+    const obs = new MutationObserver(function () {
+      const now = aside.classList.contains('is-revealed');
+      if (now && !shown) { shown = true; start(); }
+      else if (!now && shown) { shown = false; stop(); }
+    });
+    obs.observe(aside, { attributes: true, attributeFilter: ['class'] });
   }
 
   /* Character LEFT (scrollX < 0) → reveal the RIGHT text; character
@@ -3503,6 +3726,9 @@
     callcard = initCallcard();
     initTestimonials();
     initIgPost();
+    initIgStories();
+    initIgBio();
+    initIgUiTilt();
     initReveals();
     initStatCounters();
     initScrollProgress();

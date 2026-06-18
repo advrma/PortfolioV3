@@ -978,6 +978,14 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   background: var(--glass);
   backdrop-filter: blur(10px);
   border-radius: 10px;
+  transition: opacity .45s ease, visibility .45s ease;
+}
+/* Hide the FRAME count + PROGRESS bar on the Instagram-style IG-aside page. */
+.hero-stage__cinema:has(.cinema__aside--igpost.is-revealed) .cinema__hud--tl,
+.hero-stage__cinema:has(.cinema__aside--igpost.is-revealed) .cinema__hud--bl {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 .cinema__hud--tl { top: 28px; left: var(--gutter); }
 .cinema__hud--tr { top: 28px; right: var(--gutter); text-align: right; align-items: flex-end; }
@@ -1351,12 +1359,14 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
    airy for a minimal feel. Transparent header/footer; slide transition between
    images; the heart is an animated like toggle. */
 .cinema__aside--igpost {
-  left: calc(var(--gutter) + 15px); /* align with the FRAME count / PROGRESS readout text */
+  left: calc(var(--gutter) + 15px); /* post aligns with the FRAME count / PROGRESS readout text */
   right: auto;
   top: 50%;
   transform: translateY(-50%);
-  width: min(52vw, 1220px);
+  width: calc(62vw - var(--gutter) - 15px); /* right edge runs a bit PAST the character so the bio tucks behind it */
   max-width: none;
+  display: flex;
+  align-items: center;          /* vertically centre the bio against the post */
   perspective: none;
   pointer-events: none;
   color: var(--ink);
@@ -1369,33 +1379,111 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   filter: blur(0) brightness(1);
   pointer-events: auto;
 }
-.igpost { float: left; width: min(34vw, 44vh); margin: 0 clamp(40px, 3.6vw, 72px) 0 0; font-family: var(--f-sans); color: var(--ink); }
-.cinema__aside--igpost::after { content: ""; display: block; clear: both; }
-/* Fun handwritten bio that frames the post: ONE line across the top (flush with the
-   FRAME/PROGRESS readout), the bulk wraps down the RIGHT side filling the gap toward
-   the character, ONE line cleared BELOW. */
+/* On the IG page, lift the character canvas above the cinema overlay so the bio text
+   tucks BEHIND the character (canvas made pointer-transparent so the post/dock/stories
+   stay clickable through its transparent areas). Scoped via :has so other reel states,
+   and the intro, keep the canvas at its normal z-index. */
+.hero-stage__pin:has(.cinema__aside--igpost.is-revealed) .hero-stage__canvas {
+  z-index: 6;
+  pointer-events: none;
+}
+/* 3D perspective for the Instagram section. The dark panel + IG content sit on ONE flat,
+   uniformly-tilted plane: .igstage flattens its children (default transform-style: flat),
+   so the panel and the UI composite first and then tilt together as a single unit. Nothing
+   is split into separate 3D layers, so nothing can dip behind the panel (no dark wedge).
+   The bio text lives outside this, so it never tilts. */
+.igperspective { flex: none; perspective: 4000px; }   /* far perspective: keeps the panel's 12deg lean
+   but flattens depth-exaggeration so the horizontal stories/dock rows don't skew (circles read level) */
+.igstage {
+  position: relative;
+  transform: rotateY(12deg);   /* tilt on the Y axis only — no rotateX (top/bottom edges stay level) */
+  transform-origin: center;
+  will-change: transform;
+}
+/* The IG UI gets its OWN local perspective so ONLY it tilts toward the cursor on hover. This
+   3D scene is self-contained (flattened before it meets the panel), so the UI composites ON
+   TOP of the panel in 2D and can never dip behind it (no dark wedge). The whole thing still
+   rides the panel's fixed rotateY via .igstage. .iguicard reads the live --rx/--ry from JS. */
+/* The UI slides in/out with the SAME animation as the panel (identical translateX, easing
+   and duration with no delay), so the whole IG section appears/disappears as one. The slide
+   lives here on the outer UI wrapper, kept separate from the live cursor tilt on .iguicard
+   so the transitioned slide and the per-frame tilt don't conflict. */
+.iguifx {
+  perspective: 1000px;
+  transform: translateX(-120%);   /* fully clears the left edge at rest (its box is narrower
+                                     than the panel, so it needs a bit more than the panel's
+                                     -104% to start equally off-screen) */
+  transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cinema__aside--igpost.is-revealed .iguifx { transform: translateX(0); }
+.iguicard {
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Dark side panel behind the Instagram section. Anchored to the viewport's LEFT edge
+   (negative left cancels the aside's left offset), full viewport height, and wide
+   enough to back the stories/post/dock but STOP before the bio text. It slides in
+   from off-screen-left whenever the aside reveals. The IG content (.igcol) rides on
+   top with a gentler, slightly-delayed slide so it reads as one incoming panel. */
+.igpanel {
+  position: absolute;
+  top: 50%;
+  /* overshoot 50px past the viewport's left edge so the rotateY tilt (which nudges the panel
+     ~2px right) never exposes a cream sliver at x=0; the extra width keeps the right edge put */
+  left: calc(-1 * (var(--gutter) + 15px) - 50px);
+  width: calc(var(--gutter) + 15px + 50px + min(29vw, 38vh) + clamp(28px, 3.5vw, 100px));
+  height: 100vh;
+  z-index: 0;
+  border-radius: 0 28px 28px 0;
+  background:
+    radial-gradient(125% 78% at 16% 10%, rgba(78, 80, 96, 0.34), transparent 58%),
+    linear-gradient(158deg, #1a1a20 0%, #101013 56%, #0a0a0d 100%);
+  box-shadow:
+    36px 0 90px -42px rgba(0, 0, 0, 0.65),
+    inset -1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transform: translateY(-50%) translateX(-104%);
+  transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.cinema__aside--igpost.is-revealed .igpanel { transform: translateY(-50%) translateX(0); }
+.igpost { flex: none; width: min(29vw, 38vh); font-family: var(--f-sans); color: var(--ink); }
+/* Big, bold handwritten bio: a single block centred in the gap between the post and
+   the character (auto margins), sized to stand roughly as tall as the post. */
 .igbio {
-  margin: 0;
-  font-family: var(--f-sign);
-  font-weight: 600;
-  font-size: clamp(17px, 1.35vw, 34px);
-  line-height: 1.85;
+  flex: 1;
+  margin: 0 0 0 clamp(30px, 7vw, 170px);   /* sit in the gap; the lines run right, ends behind the character */
+  font-family: var(--f-display);            /* Anton — heavy condensed display, like the skills headings */
+  font-weight: 400;                         /* Anton ships one heavy weight */
+  font-size: clamp(28px, 3.4vw, 76px);      /* scaled down to fit the longer paragraph */
+  line-height: 0.98;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
   text-align: left;
   color: var(--ink);
+  min-height: 9.8em;                        /* reserve the typed lines so it doesn't jump while typing */
+  /* smooth DISAPPEAR: the block fades + blurs + drifts up as one when the aside hides */
+  transition: opacity .55s ease, filter .55s ease, transform .55s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.igbio--top { margin: 0; white-space: nowrap; }
-.igbio--bot { margin: 0; clear: both; white-space: nowrap; }
-.igpost__header { display: flex; align-items: center; gap: 18px; padding: 0 0 22px; }
+.igbio--leaving { opacity: 0; filter: blur(9px); transform: translateY(-16px); }
+/* Each character starts hidden and fades in; all lines reveal their chars in parallel
+   (driven by initIgBio), so the whole block reads as written at once. Opacity-only so it's
+   layout-neutral (wrapping stays fixed) and light on the compositor. */
+.igbio__ch { opacity: 0; transition: opacity .4s ease; }
+.igbio__ch.is-on { opacity: 1; }
+.igpost__header { display: flex; align-items: center; gap: 16px; padding: 0 0 18px; }
 .igpost__avatar {
-  width: 68px; height: 68px; border-radius: 50%; overflow: hidden; flex: none;
+  width: 58px; height: 58px; border-radius: 50%; overflow: hidden; flex: none;
   background: var(--cream-2);
   box-shadow: 0 0 0 1px rgba(12, 12, 10, 0.13), 0 0 0 3px var(--cream), 0 0 0 5px rgba(12, 12, 10, 0.07);
 }
 .igpost__avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .igpost__id { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; gap: 2px; }
-.igpost__tag { font-weight: 700; font-size: clamp(20px, 1.4vw, 25px); color: var(--ink); letter-spacing: -0.01em; }
-.igpost__loc { font-size: clamp(14px, 1vw, 17px); color: var(--ink-2); }
-.igpost__more { width: 34px; height: 34px; margin-left: auto; fill: var(--ink); }
+.igpost__tag { font-weight: 700; font-size: clamp(17px, 1.2vw, 21px); color: var(--ink); letter-spacing: -0.01em; }
+.igpost__loc { font-size: clamp(12px, 0.85vw, 15px); color: var(--ink-2); }
+.igpost__more { width: 29px; height: 29px; margin-left: auto; fill: var(--ink); }
 .igpost__media {
   position: relative;
   aspect-ratio: 3 / 4;
@@ -1403,23 +1491,24 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   border-radius: 12px;
   cursor: pointer;
   background: var(--cream-2);
-  box-shadow: 0 38px 76px -40px rgba(0, 0, 0, 0.5), 0 12px 28px -20px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 26px 54px -34px rgba(0, 0, 0, 0.32), 0 8px 18px -14px rgba(0, 0, 0, 0.2);
 }
 .igpost__slide {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
+  scale: 1.08;                 /* every image sits a little zoomed-in by default */
   will-change: transform, scale;
   transition: transform .55s cubic-bezier(0.45, 0.05, 0.2, 1), scale .5s ease;
 }
-/* Zoom in on hover (standalone `scale` composes with the slide translateX). */
-.igpost__media:hover .igpost__slide { scale: 1.06; }
+/* Zoom in a touch more on hover (standalone `scale` composes with the slide translateX). */
+.igpost__media:hover .igpost__slide { scale: 1.14; }
 .igpost__skeleton { position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; background: var(--cream-2); }
 .igpost__media.is-loading .igpost__skeleton { display: flex; }
 .igpost__loader { width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(12, 12, 10, 0.15); border-top-color: rgba(12, 12, 10, 0.42); animation: igspin 0.9s linear infinite; }
 @keyframes igspin { to { transform: rotate(360deg); } }
-.igpost__dots { display: flex; justify-content: center; gap: 9px; padding: 20px 0 18px; }
+.igpost__dots { display: flex; justify-content: center; gap: 9px; padding: 16px 0 14px; }
 .igpost__dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(12, 12, 10, 0.22); cursor: pointer; transition: background .25s, transform .25s; }
 .igpost__dot.is-active { background: var(--ink); transform: scale(1.25); }
 .igpost__actions { display: flex; align-items: center; gap: 18px; padding: 0; }
@@ -1427,14 +1516,140 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
 .igpost__act:hover { transform: scale(1.12); }
 .igpost__act:active { transform: scale(0.9); }
 .igpost__act--save { margin-left: auto; }
-.igpost__icon { width: 40px; height: 40px; fill: currentColor; color: var(--ink); }
-.igpost__count { font-weight: 600; font-size: clamp(18px, 1.25vw, 22px); color: var(--ink); margin-right: 16px; margin-left: 2px; }
+.igpost__icon { width: 34px; height: 34px; fill: currentColor; color: var(--ink); }
+.igpost__count { font-weight: 600; font-size: clamp(15px, 1.05vw, 19px); color: var(--ink); margin-right: 14px; margin-left: 2px; }
 .igpost__like { color: var(--ink); }
-.igpost__heart { width: 40px; height: 40px; fill: none; stroke: currentColor; stroke-width: 2; transition: fill .2s ease, stroke .2s ease; }
+.igpost__heart { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 2; transition: fill .2s ease, stroke .2s ease; }
 .igpost__like.is-liked { color: #ed4956; }
 .igpost__like.is-liked .igpost__heart { fill: #ed4956; stroke: #ed4956; }
 .igpost__like.is-pop .igpost__heart { animation: heartPop 0.32s ease-in-out; }
 @keyframes heartPop { 0% { transform: scale(1); } 45% { transform: scale(1.32); } 100% { transform: scale(1); } }
+
+/* ---------- Instagram "stories" row (vanilla port of the typewriter-testimonial) ----------
+   A row of gradient-ringed circular avatars sitting above the post; hovering one scales
+   it up and types out a caption in a little speech-bubble tooltip. */
+.igcol {
+  flex: none; display: flex; flex-direction: column;
+  position: relative; z-index: 1;            /* ride above the dark .igpanel */
+}
+.igstories { display: flex; justify-content: space-between; gap: clamp(6px, 0.8vw, 14px); padding: 0 0 clamp(14px, 1.8vh, 24px); }
+.igstory { position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer; }
+.igstory__ring {
+  width: clamp(50px, 3.3vw, 84px); height: clamp(50px, 3.3vw, 84px);
+  border-radius: 50%; padding: 3px; flex: none;
+  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  display: grid; place-items: center;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);   /* square cell. minmax(0,..) (NOT plain 1fr,
+                                 which is minmax(AUTO,1fr)) lets the track shrink to the ring height
+                                 instead of being forced open by a tall portrait cover's min-content —
+                                 so the avatar stays 78x78 and object-fit crops it to a circle */
+  overflow: hidden;
+  /* The panel's rotateY compresses circles horizontally (~4%), rendering them as ovals.
+     Pre-stretch each ring on X by the inverse so it reads as a PERFECT circle on screen.
+     Uses the standalone `scale` property so it composes with the hover-grow `transform`. */
+  scale: 1.048 1;
+  transition: transform .28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.igstory:hover .igstory__ring { transform: scale(1.07); }
+.igstory__avatar {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+  border: 3px solid var(--cream); background: var(--cream-2);
+}
+.igstory__label {
+  font-family: var(--f-sans); font-size: clamp(11px, 0.8vw, 14px); color: var(--ink-2);
+  max-width: clamp(58px, 5vw, 92px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -0.01em;
+}
+.igstory__tip {
+  position: absolute; top: calc(100% + 16px); left: 50%;
+  width: clamp(196px, 16vw, 240px);
+  transform: translateX(-50%) translateY(-8px);
+  background: #fff; color: #111; border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 26px 64px -26px rgba(0, 0, 0, 0.5), 0 8px 22px -16px rgba(0, 0, 0, 0.3);
+  opacity: 0; visibility: hidden; pointer-events: none; z-index: 6;
+  transition: opacity .35s ease, transform .35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.igstory.is-active .igstory__tip { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.igstory__tip-body { font-family: var(--f-sans); font-size: clamp(13px, 0.95vw, 15px); line-height: 1.5; min-height: 3em; }
+.igstory__tip-text { white-space: pre-wrap; }
+.igstory__caret { display: inline-block; margin-left: 1px; font-weight: 400; animation: igblink 1s steps(1) infinite; }
+@keyframes igblink { 50% { opacity: 0; } }
+.igstory__dots { position: absolute; left: 50%; transform: translateX(-50%); top: -15px; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; }
+.igstory__dots i { display: block; border-radius: 50%; background: #fff; box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.4); }
+.igstory__dots i:nth-child(1) { width: 10px; height: 10px; }
+.igstory__dots i:nth-child(2) { width: 6px; height: 6px; }
+.igstory__dots i:nth-child(3) { width: 3px; height: 3px; }
+
+/* ---------- Instagram bottom-nav "dock" (vanilla port of the dock-two component) ----------
+   A floating frosted pill of nav icons centred at the bottom of the page; only shown on
+   the IG-aside page. Gentle continuous float + hover lift with a label tooltip. */
+/* width = post width + a small symmetric overhang (var). Percentage width keeps it from
+   growing .igcol, so the stories/post/bio alignment is unaffected; negative left margin
+   re-centres the slightly-wider bar over the post. */
+.igdock {
+  --igdock-grow: clamp(14px, 1.7vw, 36px);
+  width: calc(100% + var(--igdock-grow));
+  margin: clamp(12px, 1.4vh, 24px) 0 0 calc(var(--igdock-grow) / -2);
+  pointer-events: auto;
+}
+.igdock__bar {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+  padding: clamp(8px, 0.7vw, 13px) clamp(14px, 1.2vw, 24px);
+  border-radius: 18px;
+  background: rgba(248, 245, 238, 0.72);
+  backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(12, 12, 10, 0.10);
+  box-shadow: 0 18px 44px -28px rgba(0, 0, 0, 0.4), 0 6px 16px -14px rgba(0, 0, 0, 0.25);
+}
+.igdock__btn {
+  position: relative; display: grid; place-items: center;
+  width: clamp(40px, 2.9vw, 52px); height: clamp(40px, 2.9vw, 52px);
+  border: 0; background: none; border-radius: 14px; cursor: pointer; color: var(--ink);
+  transition: transform .2s cubic-bezier(0.22, 0.61, 0.36, 1), background .2s ease;
+}
+.igdock__btn:hover { transform: translateY(-3px) scale(1.1); background: rgba(12, 12, 10, 0.06); }
+.igdock__btn:active { transform: scale(0.94); }
+.igdock__btn svg { width: clamp(20px, 1.6vw, 26px); height: clamp(20px, 1.6vw, 26px); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.igdock__btn--me img { width: clamp(26px, 1.95vw, 34px); height: clamp(26px, 1.95vw, 34px); border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--ink); }
+.igdock__btn::after {
+  content: attr(data-label);
+  position: absolute; bottom: calc(100% + 9px); left: 50%;
+  transform: translateX(-50%) translateY(5px);
+  padding: 4px 9px; border-radius: 7px;
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.04em;
+  background: var(--ink); color: var(--cream); white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.igdock__btn:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- Instagram DARK MODE (content sitting on the dark .igpanel) ----------
+   Scoped to .igcol so the cream-page bio text to the right is untouched. Flips the
+   IG card / stories / dock to light-on-dark to match the dark side panel. */
+.igcol .igpost { color: #f3f1ea; }
+.igcol .igpost__tag { color: #f6f4ee; }
+.igcol .igpost__loc { color: rgba(243, 241, 234, 0.62); }
+.igcol .igpost__more { fill: #f6f4ee; }
+.igcol .igpost__avatar {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 0 0 3px #15151a, 0 0 0 5px rgba(255, 255, 255, 0.08);
+}
+.igcol .igpost__dot { background: rgba(255, 255, 255, 0.28); }
+.igcol .igpost__dot.is-active { background: #f6f4ee; }
+.igcol .igpost__act,
+.igcol .igpost__icon,
+.igcol .igpost__like { color: #f3f1ea; }
+.igcol .igpost__count { color: #f3f1ea; }
+.igcol .igstory__avatar { border-color: #15151a; }
+.igcol .igstory__label { color: rgba(243, 241, 234, 0.72); }
+.igcol .igdock__bar {
+  background: rgba(30, 30, 35, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 44px -28px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.igcol .igdock__btn { color: #f3f1ea; }
+.igcol .igdock__btn:hover { background: rgba(255, 255, 255, 0.1); }
+.igcol .igdock__btn--me img { box-shadow: 0 0 0 2px #f3f1ea; }
+.igcol .igdock__btn::after { background: #f3f1ea; color: #15151a; }
 
 /* ---------- "Calling card" dictionary-style intro ----------
    Upper-left of the character: a bold headword + phonetic, a numbered

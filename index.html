@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=113" />
+<link rel="stylesheet" href="styles.css?v=145" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -381,7 +381,22 @@
            UI elements sit directly on the cream landing page. Click the image (or
            a dot) to advance; a skeleton shows while each image loads. -->
       <div class="cinema__aside cinema__aside--left cinema__aside--igpost" id="cinemaAsideLeft" data-no-blur aria-hidden="true">
-        <p class="igbio igbio--top">Beyond code, I try to keep life full of things that make me feel balanced, creative, and present.</p>
+        <!-- The Instagram section sits on a SINGLE tilted plane (perspective space + one
+             flat rotated stage), so the dark panel + IG content tilt together as one uniform
+             unit — nothing intersects in 3D. Bio text is OUTSIDE this and stays flat. -->
+        <div class="igperspective">
+        <div class="igstage">
+        <!-- Dark side panel that slides in from the left edge and backs the whole
+             Instagram section (dark mode). It ends before the bio text begins. -->
+        <div class="igpanel" aria-hidden="true"></div>
+        <!-- The IG UI gets its OWN local 3D space (.iguifx = perspective) so only it tilts
+             toward the cursor on hover (.iguicard rotates), riding above the panel. Because
+             this local 3D scene is flattened before it composites with the panel, the UI can
+             never dip behind the panel plane (no dark wedge). The panel itself never moves. -->
+        <div class="iguifx">
+        <div class="iguicard">
+        <div class="igcol">
+        <div class="igstories" id="igStories"></div>
         <div class="igpost" id="igPost">
           <div class="igpost__header">
             <span class="igpost__avatar"><img src="ppic.jpg" alt="" /></span>
@@ -413,8 +428,33 @@
             </button>
           </div>
         </div>
-        <p class="igbio igbio--mid">I love going to the gym because it helps me stay disciplined, clear my mind, and push myself outside of academics and work. Traveling is something that really excites me too, I enjoy exploring new places, meeting different people, and experiencing perspectives that make life feel bigger than my daily routine. Music is another big part of who I am; playing guitar and singing gives me a way to slow down, express myself, and stay connected to my creative side. And at the end of the day, I really value spending time with my friends, whether that means going out, having random conversations, or just enjoying simple moments together. Outside the screen, I&rsquo;m someone who likes to stay active, curious,</p>
-        <p class="igbio igbio--bot">expressive, and surrounded by people and experiences that keep me grounded.</p>
+        <!-- Instagram-style bottom navigation dock (vanilla port of "dock-two"), now
+             docked at the bottom of the IG section, spanning the post width. -->
+        <nav class="igdock" aria-label="Instagram navigation">
+          <div class="igdock__bar">
+            <button class="igdock__btn" type="button" data-label="Home" aria-label="Home">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><path d="M9 21v-7h6v7"/></svg>
+            </button>
+            <button class="igdock__btn" type="button" data-label="Search" aria-label="Search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            </button>
+            <button class="igdock__btn" type="button" data-label="Create" aria-label="Create">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8"/></svg>
+            </button>
+            <button class="igdock__btn" type="button" data-label="Activity" aria-label="Activity">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.49 4.04 3 5.5l7 7Z"/></svg>
+            </button>
+            <button class="igdock__btn igdock__btn--me" type="button" data-label="Profile" aria-label="Profile">
+              <img src="ppic.jpg" alt="" />
+            </button>
+          </div>
+        </nav>
+        </div>
+        </div>
+        </div>
+        </div>
+        </div>
+        <p class="igbio"><span class="igbio__text">Beyond code, I like keeping life active, creative, and meaningful &mdash; whether I&rsquo;m at the gym, traveling, playing guitar, singing, or spending time with friends. These moments help me stay grounded, inspired, and connected outside the screen.</span><span class="igbio__caret" aria-hidden="true"></span></p>
       </div>
     </div>
 
@@ -690,7 +730,7 @@
 
 </main>
 
-<script src="script.js?v=89" defer></script>
+<script src="script.js?v=103" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>
