@@ -485,6 +485,100 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
    Identical on-screen; mirrors the welcomeBreath pause. */
 body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 
+/* =========================================================
+   "GOOD PART" HEADLINE — big page-filling statement behind
+   the character. z-index 1 keeps it BEHIND the canvas (z2)
+   so the figure stands in front of the words. Each word is
+   an overflow-clipped box; initGoodPart() injects a reveal
+   .goodpart__block per word and wipes it bottom-to-up.
+   ========================================================= */
+.goodpart {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.02em;
+  text-align: center;
+  /* Shifted a touch above dead-center so the statement sits high on
+     the frame, over the character's head/shoulders. */
+  transform: translateY(-6vh);
+  font-family: var(--f-display);   /* Anton — the site's heavy condensed display */
+  font-weight: 400;                /* Anton is already black at 400 */
+  font-size: clamp(36px, 8.7vw, 210px);
+  line-height: 0.92;
+  letter-spacing: -0.025em;        /* tighter tracking reads bigger + heavier */
+  text-transform: uppercase;
+  color: var(--ink);
+  pointer-events: none;
+  user-select: none;
+}
+/* Three-track grid: equal 1fr side columns flank a fixed center column,
+   so the gap is locked to dead-center (= the character) regardless of how
+   wide each word group is. A group wider than its 1fr track simply bleeds
+   off its outer screen edge (clipped by the pin), never behind the figure. */
+.goodpart__line {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.goodpart__side {
+  min-width: 0;            /* let the track stay 1fr; content overflows outward */
+  white-space: nowrap;
+}
+.goodpart__side--l { justify-self: end; text-align: right; }
+.goodpart__side--r { justify-self: start; text-align: left; }
+/* Center safe-zone (the middle grid track) sized to the character's
+   head/face width at the headline's height. */
+.goodpart__gap {
+  width: clamp(140px, 19.5vw, 380px);
+}
+.goodpart__word {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;                /* clips the rising reveal block */
+  vertical-align: top;
+  padding: 0.06em 0.05em 0.04em;   /* room so the glyphs never clip */
+}
+.goodpart__text {
+  display: inline-block;
+  will-change: opacity;
+  /* Extra stroke thickens Anton's already-heavy strokes so the words
+     read even bolder at this size. */
+  -webkit-text-stroke: 0.012em var(--ink);
+}
+/* "GOOD" stays black like the rest, but sits on a neon-accent highlight
+   (a marker swash behind the word). The highlight lives on the text span
+   so it fades in with the word — never showing before the reveal. */
+.goodpart__word--good .goodpart__text {
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  /* Neon accent as a stroked outline box around the word (transparent fill,
+     sharp 90° corners) rather than a solid highlight. */
+  background: transparent;
+  border: 0.055em solid var(--accent);
+  border-radius: 0;
+  padding: 0.04em 0.12em;
+}
+/* Injected per word: a glowing NEON block that wipes the word in,
+   bottom-to-up (scaleY 0→1 from the bottom, then 1→0 off the top).
+   The electric-chartreuse accent + bloom give the reveal its neon flash. */
+.goodpart__block {
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  z-index: 2;
+  background: var(--accent);
+  box-shadow: 0 0 2.2vw rgba(216, 255, 56, 0.65),
+              0 0 0.6vw rgba(216, 255, 56, 0.9);
+  transform: scaleY(0);
+  transform-origin: center bottom;
+  pointer-events: none;
+}
+
 /* Signature wordmark behind the character. Cursive, tilted like a
    real autograph, z-index 1 so it sits BEHIND the character canvas
    (z2) — the figure overlaps the middle of the name. It "writes on"
@@ -1464,15 +1558,21 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   text-align: left;
   color: var(--ink);
   min-height: 9.8em;                        /* reserve the typed lines so it doesn't jump while typing */
-  /* smooth DISAPPEAR: the block fades + blurs + drifts up as one when the aside hides */
-  transition: opacity .55s ease, filter .55s ease, transform .55s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.igbio--leaving { opacity: 0; filter: blur(9px); transform: translateY(-16px); }
-/* Each character starts hidden and fades in; all lines reveal their chars in parallel
-   (driven by initIgBio), so the whole block reads as written at once. Opacity-only so it's
-   layout-neutral (wrapping stays fixed) and light on the compositor. */
+/* Each character fades in/out via opacity (layout-neutral, so wrapping stays fixed). All lines
+   reveal their chars in parallel on appear, and un-write in parallel on disappear (driven by
+   initIgBio) — the disappear is the mirror of the appear. */
 .igbio__ch { opacity: 0; transition: opacity .4s ease; }
 .igbio__ch.is-on { opacity: 1; }
+/* A few scattered words (tagged by initIgBio) get a neon-accent marker. The
+   bg lives on each char span so it fades in/out with the write animation; the
+   vertical box-shadow gives the bar a little marker height without bleeding
+   over neighbouring glyphs. */
+.igbio__ch--hl {
+  color: var(--ink);
+  background: var(--accent);
+  box-shadow: 0 0.06em 0 var(--accent), 0 -0.04em 0 var(--accent);
+}
 .igpost__header { display: flex; align-items: center; gap: 16px; padding: 0 0 18px; }
 .igpost__avatar {
   width: 58px; height: 58px; border-radius: 50%; overflow: hidden; flex: none;
@@ -1480,7 +1580,11 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   box-shadow: 0 0 0 1px rgba(12, 12, 10, 0.13), 0 0 0 3px var(--cream), 0 0 0 5px rgba(12, 12, 10, 0.07);
 }
 .igpost__avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.igpost__id { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; gap: 2px; }
+/* text-align:left is REQUIRED — these inherit `text-align:center` from .cinema__aside, which
+   centred each line in its full-width box; the short "adivrmaa" then started ~38px right of the
+   box edge while the long location filled it, so the two lines looked mis-indented. Left-aligning
+   makes both start at the same box edge. */
+.igpost__id { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; gap: 2px; text-align: left; }
 .igpost__tag { font-weight: 700; font-size: clamp(17px, 1.2vw, 21px); color: var(--ink); letter-spacing: -0.01em; }
 .igpost__loc { font-size: clamp(12px, 0.85vw, 15px); color: var(--ink-2); }
 .igpost__more { width: 29px; height: 29px; margin-left: auto; fill: var(--ink); }

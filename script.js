@@ -71,8 +71,20 @@
   const captions = Array.from(document.querySelectorAll('.cinema__caption'));
   const cinemaAsideLeft = document.getElementById('cinemaAsideLeft');
   const cinemaAsideRight = document.getElementById('cinemaAsideRight');
+  // "Good part" headline behind the character. gpTL is the paused
+  // word-wipe timeline (built in initGoodPart); setGoodPart() plays /
+  // reverses it. GP_REVEAL_FRAME is the animFrame at which the headline
+  // wipes in — set on the reel's FINAL approach to center (it lands dead
+  // center at frame 250 of TIMELINE_MAX/270). Triggering a touch before
+  // that lets the word-wipe begin slightly earlier; the ~1.5s timeline
+  // finishes just as the character settles centered.
+  const goodPart = document.getElementById('goodPart');
+  let gpTL = null;
+  let gpShown = false;
+  const GP_REVEAL_FRAME = 230;
   let asideSide = 0;   // -1 = right text shown (char left); 1 = left text shown (char right)
   let heroTerminal = null;   // left-aside terminal controller (see initHeroTerminal)
+  let onBioUserScroll = null;   // set by initIgBio; lets a real user scroll instantly start the bio's disappear
   let callcard = null;       // upper-left typing intro controller (see initCallcard)
   const topoBg = document.querySelector('.topo-bg');
   const aurora = document.querySelector('.aurora');
@@ -819,6 +831,25 @@
       chars.push(s);
     }
 
+    // Highlight words spaced evenly through the paragraph (roughly one every
+    // other line, top → bottom) so the markers read as a uniform rhythm rather
+    // than a cluster. Tag their char spans so the highlight fades with the write.
+    const HL_WORDS = ['keeping', 'meaningful', 'guitar', 'friends', 'connected'];
+    const lowerFull = full.toLowerCase();
+    HL_WORDS.forEach(function (w) {
+      let from = 0, idx;
+      while ((idx = lowerFull.indexOf(w, from)) !== -1) {
+        const before = idx === 0 ? '' : lowerFull.charAt(idx - 1);
+        const after = lowerFull.charAt(idx + w.length);
+        if (!/[a-z]/.test(before) && !/[a-z]/.test(after)) {
+          for (let k = idx; k < idx + w.length; k++) {
+            if (chars[k]) chars[k].classList.add('igbio__ch--hl');
+          }
+        }
+        from = idx + w.length;
+      }
+    });
+
     if (reduce) { for (let k = 0; k < chars.length; k++) chars[k].classList.add('is-on'); return; }
 
     // Group the laid-out chars into visual lines by vertical position.
@@ -835,15 +866,15 @@
     let timer = null;
     function clearAll() { for (let k = 0; k < chars.length; k++) chars[k].classList.remove('is-on'); }
 
+    const STEP = 40;
+    // WRITE IN: reveal char index i across EVERY line each step (all lines write together).
     function writeIn() {
       if (timer) { clearTimeout(timer); timer = null; }
-      bio.classList.remove('igbio--leaving');
       clearAll();
       const lines = buildLines();
       let maxLen = 0;
       for (let k = 0; k < lines.length; k++) maxLen = Math.max(maxLen, lines[k].length);
       let i = 0;
-      const STEP = 40;
       (function step() {
         for (let l = 0; l < lines.length; l++) if (i < lines[l].length) lines[l][i].classList.add('is-on');
         i++;
@@ -851,22 +882,41 @@
       })();
     }
 
-    // Disappear: fade + blur + drift the whole block up (one element). Reset after it (and
-    // the aside) have faded, so the next reveal starts clean with no flash.
+    // DISAPPEAR: the mirror of writeIn — un-write char index i across EVERY line, from the
+    // last column back to the first (all lines erase together, right-to-left), same fade.
     function writeOut() {
       if (timer) { clearTimeout(timer); timer = null; }
-      bio.classList.add('igbio--leaving');
-      timer = setTimeout(function () { bio.classList.remove('igbio--leaving'); clearAll(); }, 850);
+      const lines = buildLines();
+      let maxLen = 0;
+      for (let k = 0; k < lines.length; k++) maxLen = Math.max(maxLen, lines[k].length);
+      let i = maxLen - 1;
+      (function step() {
+        for (let l = 0; l < lines.length; l++) if (i >= 0 && i < lines[l].length) lines[l][i].classList.remove('is-on');
+        i--;
+        if (i >= 0) timer = setTimeout(step, STEP);
+      })();
     }
 
     let shown = aside.classList.contains('is-revealed');
+    let outByScroll = false;
     clearAll();
     const obs = new MutationObserver(function () {
       const now = aside.classList.contains('is-revealed');
-      if (now && !shown) { shown = true; writeIn(); }
+      if (now && !shown) { shown = true; outByScroll = false; writeIn(); }
       else if (!now && shown) { shown = false; writeOut(); }
     });
     obs.observe(aside, { attributes: true, attributeFilter: ['class'] });
+
+    // A real user scroll (either direction) instantly starts the disappear while the bio is
+    // on screen, and it STAYS gone — it only re-writes on a fresh reveal (when the character
+    // returns to the IG pose). No reappear-on-settle (that flickered the text back mid-erase).
+    // Driven from onHeroScrollInput (auto-scroll is absorbed there, so the reel can't trigger it).
+    onBioUserScroll = function () {
+      if (!shown || outByScroll) return;
+      outByScroll = true;
+      writeOut();
+    };
+
     if (shown) writeIn();
   }
 
@@ -1269,6 +1319,7 @@
       heroSign.style.opacity = (1 - uiP).toFixed(3);
     }
     if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
+    setGoodPart(motion.animFrame >= GP_REVEAL_FRAME);
 
     // --- Character render from animFrame ---
     const timelineProgress = motion.animFrame / TIMELINE_MAX;
@@ -1335,6 +1386,7 @@
         heroSign.style.opacity = (1 - uiP).toFixed(3);
       }
       if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
+      setGoodPart(motion.animFrame >= GP_REVEAL_FRAME);
       const fx = motion.cursorRenderedX + computeScrollX(progress);
       cinemaCanvas.style.transform =
         'translate3d(calc(-50% + ' + fx.toFixed(2) + 'px), ' +
@@ -1397,6 +1449,7 @@
      ------------------------------------------------------- */
   function onHeroScrollInput(deltaProgress) {
     if (deltaProgress === 0) return;
+    if (onBioUserScroll) onBioUserScroll();   // real user scroll (up or down) → bio starts disappearing now
     const now = (typeof performance !== 'undefined' && performance.now)
       ? performance.now() : Date.now();
     const isNewGesture = (now - motion.lastScrollEventT) > GESTURE_GAP_MS;
@@ -2901,6 +2954,63 @@
      text-effect component's stroke draw-on. JS-driven so the timing
      is frame-accurate and reliable.
      ------------------------------------------------------- */
+  // Build the "good part" headline: inject a reveal block into every
+  // word and assemble a paused GSAP timeline that wipes each word in
+  // bottom-to-up (block scales up from the bottom edge, the word inks
+  // in mid-sweep, then the block continues up and off the top). Played
+  // / reversed by setGoodPart() as the cinema view comes and goes.
+  function initGoodPart() {
+    if (!goodPart) return;
+    const words = Array.from(goodPart.querySelectorAll('.goodpart__word'));
+    if (!words.length) return;
+    const texts = words.map(function (w) { return w.querySelector('.goodpart__text'); });
+    const blocks = words.map(function (w) {
+      const b = document.createElement('span');
+      b.className = 'goodpart__block';
+      w.appendChild(b);
+      return b;
+    });
+
+    const reduce = reduceMotionMQ && reduceMotionMQ.matches;
+    if (reduce) {
+      // Reduced motion: no wipe. The words just appear / vanish with the
+      // cinema state (setGoodPart toggles goodPart.style.opacity instead).
+      gsap.set(texts, { opacity: 1 });
+      gsap.set(blocks, { display: 'none' });
+      goodPart.style.opacity = '0';
+      return;
+    }
+
+    gsap.set(texts, { opacity: 0 });
+    gsap.set(blocks, { scaleY: 0, transformOrigin: 'center bottom' });
+
+    const DUR = 0.6, STAG = 0.085;
+    gpTL = gsap.timeline({ paused: true, defaults: { ease: 'expo.inOut' } });
+    // A — each block scales UP from its bottom edge, staggered per word.
+    gpTL.to(blocks, {
+      scaleY: 1, duration: DUR, stagger: STAG, transformOrigin: 'center bottom'
+    });
+    // B — ink each word in halfway through its own block sweep.
+    gpTL.set(texts, { opacity: 1, stagger: STAG }, '<' + (DUR / 2));
+    // C — the block keeps moving UP, scaling to 0 off the top edge,
+    //     uncovering the word it just revealed.
+    gpTL.to(blocks, {
+      scaleY: 0, duration: DUR, stagger: STAG, transformOrigin: 'center top'
+    }, '<' + (DUR * 0.4));
+  }
+
+  // Toggle the headline. Plays the word-wipe forward when entering the
+  // cinema view and reverses it (same animation, mirrored) when leaving.
+  function setGoodPart(on) {
+    if (gpShown === on) return;
+    gpShown = on;
+    if (gpTL) {
+      if (on) gpTL.play(); else gpTL.reverse();
+    } else if (goodPart) {
+      goodPart.style.opacity = on ? '1' : '0';
+    }
+  }
+
   function initHeroSign() {
     const el = document.querySelector('.hero-sign');
     if (!el) return;
@@ -3720,6 +3830,7 @@
 
     initTopo();
     initHeroSign();
+    initGoodPart();
     initWelcomeBreath();
     initBlurAside();
     heroTerminal = initHeroTerminal();

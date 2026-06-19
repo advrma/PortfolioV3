@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=145" />
+<link rel="stylesheet" href="styles.css?v=158" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -233,6 +233,40 @@
 
     <!-- Soft glow behind character -->
     <div class="hero-stage__halo" aria-hidden="true"></div>
+
+    <!-- ===== "Good part" headline — a big, page-filling statement set in
+         the site's heavy display face (Anton). It sits BEHIND the character
+         (z below the canvas) so the figure stands in front of it, and each
+         WORD wipes in bottom-to-up via its own reveal block. The blocks are
+         injected + the GSAP timeline is built in initGoodPart(); the reveal
+         is toggled on once the cinema HUD takes over (see motionTick). -->
+    <div class="goodpart" id="goodPart" aria-hidden="true">
+      <!-- Each line is split into a left + right word group with a
+           .goodpart__gap spacer between them. The gap is sized to the
+           character's silhouette so the figure lands in the clear centre
+           and every word stays readable beside it. -->
+      <span class="goodpart__line">
+        <span class="goodpart__side goodpart__side--l">
+          <span class="goodpart__word"><span class="goodpart__text">NOW</span></span>
+          <span class="goodpart__word"><span class="goodpart__text">LET&rsquo;S</span></span>
+        </span>
+        <span class="goodpart__gap" aria-hidden="true"></span>
+        <span class="goodpart__side goodpart__side--r">
+          <span class="goodpart__word"><span class="goodpart__text">GET</span></span>
+        </span>
+      </span>
+      <span class="goodpart__line">
+        <span class="goodpart__side goodpart__side--l">
+          <span class="goodpart__word"><span class="goodpart__text">TO</span></span>
+          <span class="goodpart__word"><span class="goodpart__text">THE</span></span>
+        </span>
+        <span class="goodpart__gap" aria-hidden="true"></span>
+        <span class="goodpart__side goodpart__side--r">
+          <span class="goodpart__word goodpart__word--good"><span class="goodpart__text">GOOD</span></span>
+          <span class="goodpart__word"><span class="goodpart__text">STUFF</span></span>
+        </span>
+      </span>
+    </div>
 
     <!-- Signature wordmark — the hero's name, set as the page <h1>.
          Cursive, tilted, sitting BEHIND the character (lower z than the
@@ -730,7 +764,7 @@
 
 </main>
 
-<script src="script.js?v=103" defer></script>
+<script src="script.js?v=113" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>
