@@ -531,6 +531,10 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 }
 .goodpart__side--l { justify-self: end; text-align: right; }
 .goodpart__side--r { justify-self: start; text-align: left; }
+/* Nudge STUFF a little toward GOOD (leftward). */
+.goodpart__word--stuff { margin-left: -0.1em; }
+/* Shift the whole GOOD STUFF group a bit toward the left as a unit. */
+.goodpart__side--good { transform: translateX(-0.28em); }
 /* Center safe-zone (the middle grid track) sized to the character's
    head/face width at the headline's height. */
 .goodpart__gap {
