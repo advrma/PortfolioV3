@@ -2409,12 +2409,16 @@
     let camVel       = 0;      // camera spring velocity (world units/frame) while holding
     let gateOpen     = false;  // forward exit allowed (camera settled on last project)
     let holding      = false;  // gate is actively pinning the page at the exit edge
+    let settleFrames = 0;      // consecutive frames the recoil has rested on the last project
+    let clampLockFn  = null;   // gate block wires this to its scroll-freeze clamp (called each frame)
     const HOLD_STIFF = 0.035;  // hold-spring stiffness (lower = slower, longer recoil)
     const HOLD_DAMP  = 0.86;   // per-frame velocity damping (higher = more bounce/oscillation)
     const REC_K      = 0.012;  // blocked-scroll px → outward kick velocity
     const REC_MAX    = 7;      // cap the per-kick velocity (a single kick peaks ≈ REC_OVER)
     const REC_OVER   = 38;     // hard cap on how far past the last project the camera may swing
-    const SETTLE_EPS = 1.2;    // camera within this of last project = "settled"
+    const SETTLE_EPS = 1.2;    // camera within this of last project = "caught up"
+    const SETTLE_VEL = 0.35;   // recoil velocity below this counts toward "rested"
+    const SETTLE_HOLD = 8;     // frames of continuous rest before the gate may open (debounce)
 
     // Update which slide-content panel is active based on
     // the camera's current horizontal position along the wall.
@@ -2442,6 +2446,10 @@
 
     function render() {
       raf = 0;
+      // Hard-pin the page at the exit edge every frame while frozen, so any
+      // momentum/fling that leaked past overflow:hidden can't carry the page
+      // away (clampLockFn is wired up by the gate block below).
+      if (clampLockFn) clampLockFn();
       if (!visible && !holding) {
         // Section left view: let any residual motion blur decay out.
         if (blurVel > 0.03) { blurVel *= 0.8; updateMotionBlur(blurVel); kickRender(); }
@@ -2469,6 +2477,16 @@
         if (currentScroll > maxOut) { currentScroll = maxOut; if (camVel > 0) camVel = 0; }
         if (Math.abs(LAST_SCROLL - currentScroll) < 0.05 && Math.abs(camVel) < 0.05) {
           currentScroll = LAST_SCROLL; camVel = 0;
+        }
+        // Debounced "rested" detection: the gate may only open after the
+        // recoil has sat on the last project for SETTLE_HOLD consecutive
+        // frames. This stops the damped oscillation's velocity-reversal
+        // peaks (which momentarily look settled) from releasing the lock
+        // mid-bounce — the cause of the up/down jitter.
+        if (Math.abs(LAST_SCROLL - currentScroll) < SETTLE_EPS && Math.abs(camVel) < SETTLE_VEL) {
+          settleFrames++;
+        } else {
+          settleFrames = 0;
         }
       } else {
         // Eased follow — the camera lerps toward the scroll-driven target
@@ -2717,6 +2735,8 @@
       // bounce scales with how hard you pushed. Backward exit (toward the
       // first project / previous sections) is unchanged.
       const reduceMotionGate = reduceMotionMQ && reduceMotionMQ.matches;
+      let scrollLocked = false;
+      let lockY = 0;             // page Y the freeze is pinned to (the exit edge)
 
       // Absolute page Y where the section releases forward.
       function exitY() {
@@ -2724,27 +2744,62 @@
         const top  = rect.top + (window.scrollY || window.pageYOffset);
         return top + (section.offsetHeight - window.innerHeight);
       }
-      // Camera centered on the last project and the recoil bounce stopped.
-      function isSettled() {
-        return Math.abs(LAST_SCROLL - currentScroll) < SETTLE_EPS &&
-               Math.abs(camVel) < 0.4;
+      // Has the camera caught up to the last project? Used to decide whether
+      // an approaching scroll needs gating (a fast scroll that outran the
+      // camera has not caught up → must lock).
+      function isCaughtUp() {
+        return Math.abs(LAST_SCROLL - currentScroll) < SETTLE_EPS;
+      }
+      // Has the recoil come to rest on the last project (debounced)? Used to
+      // decide when the lock may RELEASE — never mid-bounce.
+      function restingOnLast() {
+        return settleFrames >= SETTLE_HOLD;
+      }
+      // FREEZE the page at the exit edge so the only motion possible is the
+      // horizontal camera recoil. overflow:hidden disables scrolling; the
+      // scrollbar width is compensated with padding so the layout doesn't
+      // shift. overflow:hidden alone is NOT enough — a fling already in
+      // flight on the compositor can leak a few frames of scroll past it —
+      // so `clampLock()` (called every frame and on every scroll event)
+      // hard-pins the position back to the edge until the fling dies.
+      function lockAt(ex) {
+        lockY = ex;
+        if (scrollLocked) return;
+        window.scrollTo({ top: ex, behavior: 'instant' });   // align exactly on the edge
+        const sw = window.innerWidth - document.documentElement.clientWidth;
+        document.documentElement.style.overflow = 'hidden';
+        if (sw > 0) document.documentElement.style.paddingRight = sw + 'px';
+        scrollLocked = true;
+      }
+      function clampLock() {
+        if (scrollLocked && Math.abs((window.scrollY || window.pageYOffset) - lockY) > 0.5) {
+          window.scrollTo({ top: lockY, behavior: 'instant' });
+        }
+      }
+      clampLockFn = clampLock;   // let the render loop pin the page every frame while frozen
+      function unlock() {
+        if (!scrollLocked) return;
+        document.documentElement.style.overflow = '';
+        document.documentElement.style.paddingRight = '';
+        scrollLocked = false;
       }
       // Engage the hold: pin the camera target to the last project, switch
-      // the render loop to the recoil spring, and inject `kickPx` of
-      // blocked forward input as outward (horizontal) camera velocity.
-      // `targetScroll` is driven here because at exactly progress 1.0
-      // ScrollTrigger fires onLeave (not onUpdate), and `holding` keeps
-      // the render loop alive independent of ScrollTrigger's `visible`.
+      // the render loop to the recoil spring, and inject `kickPx` of blocked
+      // forward input as outward (horizontal) camera velocity. `targetScroll`
+      // is driven here because at exactly progress 1.0 ScrollTrigger fires
+      // onLeave (not onUpdate), and `holding` keeps the render loop alive
+      // independent of ScrollTrigger's `visible`.
       function engageHold(kickPx) {
         holding = true;
         gateOpen = false;
         targetScroll = LAST_SCROLL;
         if (!reduceMotionGate && kickPx > 0) {
           const kick = Math.min(kickPx * REC_K, REC_MAX);
-          if (kick > camVel) camVel = kick;
+          if (kick > camVel) { camVel = kick; settleFrames = 0; }  // fresh kick → not rested
         }
         kickRender();
       }
+      function releaseHold() { holding = false; gateOpen = true; unlock(); }
       // Normalize a wheel event's deltaY to pixels (it may be in lines or
       // pages depending on the device/OS).
       function wheelPx(e) {
@@ -2753,37 +2808,28 @@
         return e.deltaY;
       }
 
-      // Decide whether a forward scroll of `px` from position `y` must be
-      // gated. Returns true if it was handled (caller should preventDefault).
-      function gateForward(y, px) {
-        const ex = exitY();
-        if (y < ex - 2) {
-          // Below the edge: only intercept if this single move would jump
-          // PAST the exit (which would lurch the page vertically). Land it
-          // exactly on the edge and feed the overshoot into the recoil.
-          if (y + px > ex && !isSettled()) {
-            window.scrollTo({ top: ex, behavior: 'instant' });
-            engageHold(y + px - ex);
-            return true;
-          }
-          return false; // normal scrolling within the gallery
-        }
-        // At the edge: pass through once the camera has settled (lets you
-        // leave); otherwise block and feed the input into the recoil.
-        if (isSettled()) { holding = false; gateOpen = true; return false; }
-        engageHold(px);
-        return true;
-      }
-
-      function onGalleryWheel(e) {
-        if (e.deltaY <= 0) return;            // only gate forward (downward) scroll
-        if (gateForward(window.scrollY || window.pageYOffset, wheelPx(e))) {
+      window.addEventListener('wheel', (e) => {
+        if (scrollLocked) {
+          if (e.deltaY < 0) { releaseHold(); return; }         // wants to go back → unfreeze, let it scroll up
+          if (restingOnLast()) { releaseHold(); return; }      // rested on last project → unfreeze, let it scroll out
           e.preventDefault();
+          engageHold(wheelPx(e));                               // still recoiling → feed the bounce
+          return;
         }
-      }
-      window.addEventListener('wheel', onGalleryWheel, { passive: false });
+        if (e.deltaY <= 0) return;                             // forward only
+        const y  = window.scrollY || window.pageYOffset;
+        const ex = exitY();
+        if (y + wheelPx(e) >= ex && !isCaughtUp()) {
+          // This tick would reach/cross the exit while the camera is still
+          // catching up: freeze at the edge before the browser can scroll
+          // past it.
+          e.preventDefault();
+          engageHold(Math.max(0, y + wheelPx(e) - ex));
+          lockAt(ex);
+        }
+      }, { passive: false });
 
-      // Touch: translate finger drag into the same forward-scroll gate.
+      // Touch: finger drag up = forward. Mirror the wheel logic.
       let touchY = 0;
       window.addEventListener('touchstart', (e) => {
         if (e.touches.length) touchY = e.touches[0].clientY;
@@ -2791,24 +2837,49 @@
       window.addEventListener('touchmove', (e) => {
         if (!e.touches.length) return;
         const cy = e.touches[0].clientY;
-        const px = (touchY - cy) * 1.5;       // finger up = forward; scale up a touch
+        const dy = (touchY - cy) * 1.5;       // up = forward; scale up a touch
         touchY = cy;
-        if (px <= 0) return;                  // dragging backward → leave alone
-        if (gateForward(window.scrollY || window.pageYOffset, px)) {
+        if (scrollLocked) {
+          if (dy < 0) { releaseHold(); return; }
+          if (restingOnLast()) { releaseHold(); return; }
           e.preventDefault();
+          engageHold(dy);
+          return;
+        }
+        if (dy <= 0) return;
+        const y  = window.scrollY || window.pageYOffset;
+        const ex = exitY();
+        if (y + dy >= ex && !isCaughtUp()) {
+          e.preventDefault();
+          engageHold(Math.max(0, y + dy - ex));
+          lockAt(ex);
         }
       }, { passive: false });
 
-      // Safety net for inputs that don't fire wheel/touch (keyboard,
-      // scrollbar drag, programmatic): if the page lands past the exit
-      // with the camera not settled, snap it back to the edge and hold.
+      // Keyboard: while frozen, a back/up key unfreezes; a forward key only
+      // unfreezes once the camera has settled (so PageDown/Space/End can't
+      // skip the last project).
+      window.addEventListener('keydown', (e) => {
+        if (!scrollLocked) return;
+        const k = e.key;
+        if (k === 'ArrowUp' || k === 'PageUp' || k === 'Home') { releaseHold(); return; }
+        if (restingOnLast() &&
+            (k === 'ArrowDown' || k === 'PageDown' || k === 'End' || k === ' ' || k === 'Spacebar')) {
+          releaseHold();
+        }
+      }, { passive: true });
+
+      // Catches anything that scrolls the page toward the exit without firing
+      // a cancelable wheel/touch (scrollbar drag, programmatic, and — crucial
+      // on real hardware — residual compositor momentum that leaks past the
+      // overflow:hidden freeze). While frozen we HARD-PIN back to the edge
+      // (instead of ignoring it), so a fling can never carry the page away.
       window.addEventListener('scroll', () => {
+        if (scrollLocked) { clampLock(); return; }
         const y  = window.scrollY || window.pageYOffset;
         const ex = exitY();
-        if (isSettled()) { gateOpen = true; if (y <= ex) holding = false; return; }
-        if (y < ex) { holding = false; return; }   // inside the gallery → normal panning
-        engageHold(y - ex);
-        window.scrollTo({ top: ex, behavior: 'instant' });
+        if (y >= ex - 1 && !isCaughtUp()) { engageHold(0); lockAt(ex); }
+        else if (y < ex) holding = false;
       }, { passive: true });
     }
   }
