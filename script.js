@@ -2394,6 +2394,28 @@
     // so the "last project skipped" bug doesn't return.
     const SCROLL_LERP = 0.11;
 
+    // --- Forward exit gate + recoil (used by the scroll-gate block at
+    // the bottom of this function) ---
+    // The page is NOT allowed to scroll out of the gallery until the
+    // camera has actually SETTLED on the last project. A scroll violent
+    // enough to outrun the camera is held at the section's exit edge;
+    // while held, the camera position is driven by a damped spring
+    // toward the last project. The blocked scroll injects an OUTWARD
+    // velocity (`camVel`) so the camera shoots PAST the last project —
+    // the painting slides out like the others did — then springs back
+    // to center. Driving the camera's own position (not the lerp target)
+    // gives the bounce a crisp, controllable settle instead of the slow
+    // tail the normal scroll lerp would leave. Tunables below:
+    let camVel       = 0;      // camera spring velocity (world units/frame) while holding
+    let gateOpen     = false;  // forward exit allowed (camera settled on last project)
+    let holding      = false;  // gate is actively pinning the page at the exit edge
+    const HOLD_STIFF = 0.035;  // hold-spring stiffness (lower = slower, longer recoil)
+    const HOLD_DAMP  = 0.86;   // per-frame velocity damping (higher = more bounce/oscillation)
+    const REC_K      = 0.012;  // blocked-scroll px → outward kick velocity
+    const REC_MAX    = 7;      // cap the per-kick velocity (a single kick peaks ≈ REC_OVER)
+    const REC_OVER   = 38;     // hard cap on how far past the last project the camera may swing
+    const SETTLE_EPS = 1.2;    // camera within this of last project = "settled"
+
     // Update which slide-content panel is active based on
     // the camera's current horizontal position along the wall.
     let lastActiveIdx = -1;
@@ -2403,7 +2425,10 @@
     }
     function updateUI(scrollX) {
       const raw  = Math.round(scrollX / SPACING_X);
-      const idx  = ((raw % SLIDE_COUNT) + SLIDE_COUNT) % SLIDE_COUNT;
+      // Clamp (don't wrap) so the recoil overshoot past the last
+      // project keeps the LAST panel active instead of flipping back
+      // to the first one as the camera swings out beyond it.
+      const idx  = Math.max(0, Math.min(SLIDE_COUNT - 1, raw));
       if (idx === lastActiveIdx) return;
       lastActiveIdx = idx;
       for (let i = 0; i < SLIDE_COUNT; i++) {
@@ -2417,21 +2442,41 @@
 
     function render() {
       raf = 0;
-      if (!visible) {
+      if (!visible && !holding) {
         // Section left view: let any residual motion blur decay out.
         if (blurVel > 0.03) { blurVel *= 0.8; updateMotionBlur(blurVel); kickRender(); }
         else updateMotionBlur(0);
         return;
       }
-      // Eased follow — the camera lerps toward the scroll-driven
-      // target so transitions between projects glide instead of
-      // locking 1:1 to the scroll wheel. The lerp also drives the
-      // motion blur (delta-per-frame = blur input), so faster
-      // catch-up = more smear. Snap to target once the gap is
-      // negligible so the camera always actually reaches the last
-      // project before the section releases.
-      currentScroll += (targetScroll - currentScroll) * SCROLL_LERP;
-      if (Math.abs(targetScroll - currentScroll) < 0.001) currentScroll = targetScroll;
+      // Camera follow — a hold-spring while the exit gate is pinning the
+      // page (recoil bounce), otherwise the normal eased scroll lerp. The
+      // per-frame delta also drives the motion blur, so a fast catch-up
+      // (or the recoil overshoot) smears the wall horizontally.
+      if (holding) {
+        // Hold-spring: a damped spring drives the camera position back to
+        // the last project. The blocked scroll has injected an outward
+        // `camVel`, so the camera first overshoots past the last project
+        // (it slides out of frame like the others) then springs back to
+        // center. Direct position control = a crisp recoil with a short,
+        // tunable settle (no long scroll-lerp tail).
+        camVel += (LAST_SCROLL - currentScroll) * HOLD_STIFF;
+        camVel *= HOLD_DAMP;
+        currentScroll += camVel;
+        // Bound the outward swing so sustained hammering can't drive the
+        // camera off into empty space — it pins at the cap, then springs
+        // back once the input stops.
+        const maxOut = LAST_SCROLL + REC_OVER;
+        if (currentScroll > maxOut) { currentScroll = maxOut; if (camVel > 0) camVel = 0; }
+        if (Math.abs(LAST_SCROLL - currentScroll) < 0.05 && Math.abs(camVel) < 0.05) {
+          currentScroll = LAST_SCROLL; camVel = 0;
+        }
+      } else {
+        // Eased follow — the camera lerps toward the scroll-driven target
+        // so transitions between projects glide instead of locking 1:1 to
+        // the scroll wheel.
+        currentScroll += (targetScroll - currentScroll) * SCROLL_LERP;
+        if (Math.abs(targetScroll - currentScroll) < 0.001) currentScroll = targetScroll;
+      }
       const instVel = Math.abs(currentScroll - prevScroll);
       prevScroll = currentScroll;
 
@@ -2455,7 +2500,7 @@
       // Keep ticking while the camera is still easing toward target
       // OR while motion blur is decaying — so both the pan and the
       // smear finish smoothly after scrolling stops.
-      if (currentScroll !== targetScroll || blurVel > 0.03) kickRender();
+      if (currentScroll !== targetScroll || blurVel > 0.03 || (holding && currentScroll !== LAST_SCROLL)) kickRender();
     }
     function kickRender() {
       if (raf) return;
@@ -2626,17 +2671,16 @@
         start: 'top top',
         end: 'bottom bottom',
         invalidateOnRefresh: true,
-        onEnter:     () => { visible = true;  kickRender(); },
-        onEnterBack: () => { visible = true;  kickRender(); },
-        // Hard snap to the last project on forward exit (and the
-        // first on backward exit) so the gallery's final frame is
-        // ALWAYS the boundary project — even when a violent scroll
-        // outran the smoothing lerp and left it mid-pan. Without
-        // this, fast scrolls past the section showed the camera
-        // half-way between project 3 and project 4 as the page
-        // released, then jumped to "Numbers that move".
-        onLeave:     () => { snapPaintAt(LAST_SCROLL); visible = false; },
-        onLeaveBack: () => { snapPaintAt(0);            visible = false; },
+        onEnter:     () => { visible = true; kickRender(); },
+        onEnterBack: () => { visible = true; kickRender(); },
+        // Forward exit no longer hard-snaps: the exit gate below holds
+        // the page at the section edge until the camera has genuinely
+        // settled on the last project, so by the time onLeave fires the
+        // parting frame already IS the last project. (A forward snap
+        // here would instantly mark the camera "settled" and defeat the
+        // gate.) Backward exit still snaps to the first project.
+        onLeave:     () => { visible = false; },
+        onLeaveBack: () => { snapPaintAt(0); visible = false; },
         onUpdate: (self) => {
           const total = self.end - self.start;
           const skip  = window.innerHeight;          // transition zone (100vh)
@@ -2654,6 +2698,118 @@
           kickRender();
         }
       });
+
+      // ----- Forward exit gate + recoil bounce -----
+      // The gallery may NOT be scrolled out of (forward) until the camera
+      // has actually settled on the last project. No matter how hard/fast
+      // you scroll, the page is pinned at the section's exit edge while
+      // the camera is still mid-pan; once it's centered on the last
+      // project the gate opens and you can continue to the next section.
+      //
+      // The block is done by INTERCEPTING the input (wheel / touch /
+      // keyboard) and preventing the scroll from ever crossing the exit
+      // edge — rather than letting the page lurch past and snapping it
+      // back. While scrollY stays inside the gallery's sticky-pin range
+      // the canvas doesn't move vertically at all, so the recoil reads as
+      // a PURELY HORIZONTAL camera bounce: the blocked forward input is
+      // fed into an outward camera velocity, the last project swings out
+      // of frame (like the others did) and springs back to center — the
+      // bounce scales with how hard you pushed. Backward exit (toward the
+      // first project / previous sections) is unchanged.
+      const reduceMotionGate = reduceMotionMQ && reduceMotionMQ.matches;
+
+      // Absolute page Y where the section releases forward.
+      function exitY() {
+        const rect = section.getBoundingClientRect();
+        const top  = rect.top + (window.scrollY || window.pageYOffset);
+        return top + (section.offsetHeight - window.innerHeight);
+      }
+      // Camera centered on the last project and the recoil bounce stopped.
+      function isSettled() {
+        return Math.abs(LAST_SCROLL - currentScroll) < SETTLE_EPS &&
+               Math.abs(camVel) < 0.4;
+      }
+      // Engage the hold: pin the camera target to the last project, switch
+      // the render loop to the recoil spring, and inject `kickPx` of
+      // blocked forward input as outward (horizontal) camera velocity.
+      // `targetScroll` is driven here because at exactly progress 1.0
+      // ScrollTrigger fires onLeave (not onUpdate), and `holding` keeps
+      // the render loop alive independent of ScrollTrigger's `visible`.
+      function engageHold(kickPx) {
+        holding = true;
+        gateOpen = false;
+        targetScroll = LAST_SCROLL;
+        if (!reduceMotionGate && kickPx > 0) {
+          const kick = Math.min(kickPx * REC_K, REC_MAX);
+          if (kick > camVel) camVel = kick;
+        }
+        kickRender();
+      }
+      // Normalize a wheel event's deltaY to pixels (it may be in lines or
+      // pages depending on the device/OS).
+      function wheelPx(e) {
+        if (e.deltaMode === 1) return e.deltaY * 16;                 // lines → px
+        if (e.deltaMode === 2) return e.deltaY * window.innerHeight; // pages → px
+        return e.deltaY;
+      }
+
+      // Decide whether a forward scroll of `px` from position `y` must be
+      // gated. Returns true if it was handled (caller should preventDefault).
+      function gateForward(y, px) {
+        const ex = exitY();
+        if (y < ex - 2) {
+          // Below the edge: only intercept if this single move would jump
+          // PAST the exit (which would lurch the page vertically). Land it
+          // exactly on the edge and feed the overshoot into the recoil.
+          if (y + px > ex && !isSettled()) {
+            window.scrollTo({ top: ex, behavior: 'instant' });
+            engageHold(y + px - ex);
+            return true;
+          }
+          return false; // normal scrolling within the gallery
+        }
+        // At the edge: pass through once the camera has settled (lets you
+        // leave); otherwise block and feed the input into the recoil.
+        if (isSettled()) { holding = false; gateOpen = true; return false; }
+        engageHold(px);
+        return true;
+      }
+
+      function onGalleryWheel(e) {
+        if (e.deltaY <= 0) return;            // only gate forward (downward) scroll
+        if (gateForward(window.scrollY || window.pageYOffset, wheelPx(e))) {
+          e.preventDefault();
+        }
+      }
+      window.addEventListener('wheel', onGalleryWheel, { passive: false });
+
+      // Touch: translate finger drag into the same forward-scroll gate.
+      let touchY = 0;
+      window.addEventListener('touchstart', (e) => {
+        if (e.touches.length) touchY = e.touches[0].clientY;
+      }, { passive: true });
+      window.addEventListener('touchmove', (e) => {
+        if (!e.touches.length) return;
+        const cy = e.touches[0].clientY;
+        const px = (touchY - cy) * 1.5;       // finger up = forward; scale up a touch
+        touchY = cy;
+        if (px <= 0) return;                  // dragging backward → leave alone
+        if (gateForward(window.scrollY || window.pageYOffset, px)) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      // Safety net for inputs that don't fire wheel/touch (keyboard,
+      // scrollbar drag, programmatic): if the page lands past the exit
+      // with the camera not settled, snap it back to the edge and hold.
+      window.addEventListener('scroll', () => {
+        const y  = window.scrollY || window.pageYOffset;
+        const ex = exitY();
+        if (isSettled()) { gateOpen = true; if (y <= ex) holding = false; return; }
+        if (y < ex) { holding = false; return; }   // inside the gallery → normal panning
+        engageHold(y - ex);
+        window.scrollTo({ top: ex, behavior: 'instant' });
+      }, { passive: true });
     }
   }
 
