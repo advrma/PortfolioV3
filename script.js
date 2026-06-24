@@ -2256,10 +2256,24 @@
     // Placeholder painting images — abstract / tech-feel covers
     // for each project card. Swap with real shots later.
     const IMAGES = [
-      'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80',
-      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80',
-      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80'
+      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80', // 0 STEALTH (video fallback)
+      'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80', // 1 SPLITZ
+      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80'     // 2 CAREERLENS
     ];
+    // A few project planes show a looping video instead of a still image
+    // (index → src). The video is rendered as a THREE.VideoTexture on the
+    // SAME plane, so the shadow + outline + perspective are unchanged.
+    const VIDEO_SRC = { 0: 'Project-gallery-videos/stealthvideo.mp4' };
+    // Hovering a video plane shows a live link-preview card (vanilla port of
+    // the Aceternity LinkPreview) and clicking it opens the URL.
+    const VIDEO_LINK = { 0: 'https://www.trystealth.org/' };
+    const hoverTargets = [];    // { mesh, url } for raycast hover/click
+    const VIDEO_SCALE = 1.6;    // video plane width vs a normal painting (P_WIDTH)
+    const VIDEO_DX    = -1.6;   // shift left (world units) so the bigger plane grows into
+                                // the centre gap — clear of the text panel and the right edge
+    const videoEls = [];        // <video> elements (for play/pause)
+    const videoTextures = [];   // their VideoTextures (flagged needsUpdate each frame)
+    let videoOnScreen = false;  // gallery pin (with a video) is in view → keep rendering
 
     const scene = new THREE.Scene();
     // Transparent scene background (renderer alpha:true) so the
@@ -2347,12 +2361,39 @@
 
       const mat  = new THREE.MeshBasicMaterial({ color: 0xe8e3d6 });
       const mesh = new THREE.Mesh(planeGeo, mat);
-      loader.load(IMAGES[i] || IMAGES[0], (tex) => {
-        if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
-        mat.map = tex;
+      let vidEl = null;
+      if (VIDEO_SRC[i] && typeof THREE.VideoTexture === 'function') {
+        // Looping muted video on this plane (same geometry/shadow/outline).
+        const vid = document.createElement('video');
+        vid.src = VIDEO_SRC[i];
+        vid.loop = true;
+        vid.muted = true; vid.defaultMuted = true;
+        vid.autoplay = true;
+        vid.playsInline = true;
+        vid.setAttribute('playsinline', '');
+        vid.setAttribute('webkit-playsinline', '');
+        vid.setAttribute('muted', '');
+        vid.preload = 'auto';
+        const vtex = new THREE.VideoTexture(vid);
+        vtex.minFilter = THREE.LinearFilter;
+        vtex.magFilter = THREE.LinearFilter;
+        vtex.generateMipmaps = false;
+        if (THREE.sRGBEncoding) vtex.encoding = THREE.sRGBEncoding;
+        mat.map = vtex;
         mat.color.set(0xffffff);
         mat.needsUpdate = true;
-      });
+        const p = vid.play(); if (p && p.catch) p.catch(() => {});  // muted autoplay
+        videoEls.push(vid);
+        videoTextures.push(vtex);
+        vidEl = vid;
+      } else {
+        loader.load(IMAGES[i] || IMAGES[0], (tex) => {
+          if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+          mat.map = tex;
+          mat.color.set(0xffffff);
+          mat.needsUpdate = true;
+        });
+      }
 
       const outline = new THREE.LineSegments(
         new THREE.EdgesGeometry(planeGeo), outlineMat
@@ -2363,6 +2404,34 @@
       });
       const shadow = new THREE.Mesh(planeGeo, shadowMat);
       shadow.position.set(0.8, -0.8, -0.5);
+
+      // Resize a video plane to the clip's native aspect ratio (keep the
+      // painting width, derive the height) once the metadata is known —
+      // so the footage isn't squished into the portrait frame. The shared
+      // planeGeo is left intact (other paintings use it); this plane gets
+      // its own geometry. Outline + shadow follow the new shape.
+      if (vidEl) {
+        // Bigger than a normal painting, and shifted left so it fills the
+        // empty centre rather than running off the right edge.
+        mesh.position.x   = VIDEO_DX;
+        outline.position.x = VIDEO_DX;
+        shadow.position.set(0.8 + VIDEO_DX, -0.8, -0.5);
+        if (VIDEO_LINK[i]) hoverTargets.push({ mesh, url: VIDEO_LINK[i] });
+        const fitVideoAspect = () => {
+          if (!vidEl.videoWidth || !vidEl.videoHeight) return;
+          const w = P_WIDTH * VIDEO_SCALE;
+          const h = w * (vidEl.videoHeight / vidEl.videoWidth);
+          const ng = new THREE.PlaneGeometry(w, h);
+          mesh.geometry   = ng;            // (don't dispose planeGeo — it's shared)
+          shadow.geometry = ng;
+          const prevOutline = outline.geometry;
+          outline.geometry  = new THREE.EdgesGeometry(ng);
+          prevOutline.dispose();           // per-painting EdgesGeometry — safe to free
+          kickRender();
+        };
+        if (vidEl.readyState >= 1) fitVideoAspect();
+        else vidEl.addEventListener('loadedmetadata', fitVideoAspect, { once: true });
+      }
 
       // Top + bottom horizontal "wall lines" between adjacent paintings
       const half = SPACING_X / 2;
@@ -2378,6 +2447,161 @@
       g.add(lines);
       galleryGroup.add(g);
       paintingGroups.push(g);
+    }
+
+    // Play the painting video(s) only while the gallery pin is on screen
+    // (and pause otherwise) so it isn't decoding in the background. While on
+    // screen, `videoOnScreen` keeps the render loop ticking every frame so the
+    // VideoTexture is re-uploaded continuously — no freeze at the loop seam.
+    if (videoEls.length && 'IntersectionObserver' in window) {
+      const pinEl = section.querySelector('.hall__pin');
+      if (pinEl) {
+        new IntersectionObserver((entries) => {
+          const on = entries.some((e) => e.isIntersecting);
+          videoOnScreen = on;
+          videoEls.forEach((v) => {
+            if (on) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+            else v.pause();
+          });
+          if (on) kickRender();
+        }, { threshold: 0 }).observe(pinEl);
+      }
+    } else if (videoEls.length) {
+      // No IntersectionObserver: keep them playing + rendering unconditionally.
+      videoOnScreen = true;
+    }
+
+    // ---- Hover link-preview over the video plane(s) ----
+    // Vanilla port of the Aceternity <LinkPreview>: because the "video" is a
+    // WebGL plane (not a DOM node), we raycast the pointer against the plane to
+    // detect hover, then float a DOM card showing a live microlink screenshot
+    // of the URL; clicking the plane opens it. The card is pointer-events:none
+    // so it never interferes with the canvas hit-testing.
+    if (hoverTargets.length) {
+      const card = document.createElement('a');
+      card.className = 'lp-card';
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
+      card.setAttribute('aria-hidden', 'true');
+      const frame = document.createElement('div');
+      frame.className = 'lp-card__frame';
+      const skel = document.createElement('div');
+      skel.className = 'lp-card__skeleton';
+      const cardImg = document.createElement('img');
+      cardImg.className = 'lp-card__img';
+      cardImg.alt = 'Live site preview';
+      cardImg.decoding = 'async';
+      frame.appendChild(skel);
+      frame.appendChild(cardImg);
+      card.appendChild(frame);
+      // The card lives inside a "follow" wrapper: the wrapper is what trails
+      // the cursor (damped-spring, so it lags slightly with a soft ease),
+      // while the card itself runs the slow incoming animation. Keeping the
+      // two on separate elements lets each have its own motion.
+      const follow = document.createElement('div');
+      follow.className = 'lp-follow';
+      follow.appendChild(card);
+      document.body.appendChild(follow);
+
+      // Swap in a target's screenshot, showing the shimmer skeleton until it
+      // decodes, then crossfading the image in. The screenshot is preloaded
+      // (often already cached), so we hold the skeleton for a minimum time on
+      // every open — otherwise the loading animation would flash by unseen.
+      const LP_MIN_LOAD_MS = 1100;
+      let loadSeq = 0;
+      function loadPreview(url) {
+        const seq = ++loadSeq;
+        card.classList.remove('is-loaded');
+        let decoded = false, waited = false;
+        const reveal = () => { if (decoded && waited && seq === loadSeq) card.classList.add('is-loaded'); };
+        cardImg.onload = () => { decoded = true; reveal(); };
+        cardImg.onerror = () => { decoded = true; reveal(); }; // drop the skeleton either way
+        cardImg.src = previewSrc[url];
+        if (cardImg.complete && cardImg.naturalWidth > 0) decoded = true;
+        setTimeout(() => { waited = true; reveal(); }, LP_MIN_LOAD_MS);
+      }
+
+      // Build + warm the microlink screenshot for each target.
+      const previewSrc = {};
+      hoverTargets.forEach((t) => {
+        const params = [
+          'url=' + encodeURIComponent(t.url),
+          'screenshot=true', 'meta=false', 'embed=screenshot.url', 'colorScheme=light',
+          'viewport.isMobile=true', 'viewport.deviceScaleFactor=1',
+          'viewport.width=900', 'viewport.height=560'
+        ].join('&');
+        const s = 'https://api.microlink.io/?' + params;
+        previewSrc[t.url] = s;
+        const warm = new Image(); warm.src = s;   // preload so it's ready on hover
+      });
+
+      const ray = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      const cvs = renderer.domElement;
+      let hoverUrl = null;
+
+      function pickTarget(e) {
+        const r = cvs.getBoundingClientRect();
+        ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+        ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+        ray.setFromCamera(ndc, camera);
+        const hit = ray.intersectObjects(hoverTargets.map((t) => t.mesh), false)[0];
+        return hit ? hoverTargets.find((t) => t.mesh === hit.object) : null;
+      }
+      // --- Cursor-follow with a damped spring (delay + speed curve) ---
+      // The wrapper eases toward the cursor instead of snapping to it, so the
+      // preview trails the pointer with a soft, weighted feel.
+      const reduceM = !!(reduceMotionMQ && reduceMotionMQ.matches);
+      const FOLLOW_STIFF = 0.10;   // lower = more lag / slower catch-up
+      const FOLLOW_DAMP  = 0.74;   // lower = more damping (less overshoot)
+      let fx = 0, fy = 0, tx = 0, ty = 0, fvx = 0, fvy = 0, followRAF = 0;
+      function applyFollow() { follow.style.transform = 'translate3d(' + fx + 'px,' + fy + 'px,0)'; }
+      function followTick() {
+        followRAF = 0;
+        fvx += (tx - fx) * FOLLOW_STIFF; fvx *= FOLLOW_DAMP; fx += fvx;
+        fvy += (ty - fy) * FOLLOW_STIFF; fvy *= FOLLOW_DAMP; fy += fvy;
+        applyFollow();
+        if (Math.abs(tx - fx) > 0.1 || Math.abs(ty - fy) > 0.1 ||
+            Math.abs(fvx) > 0.1 || Math.abs(fvy) > 0.1) {
+          followRAF = requestAnimationFrame(followTick);
+        }
+      }
+      function kickFollow() { if (!followRAF) followRAF = requestAnimationFrame(followTick); }
+      function setTarget(e) {
+        const cw = card.offsetWidth || 292, ch = card.offsetHeight || 215;
+        tx = Math.max(cw / 2 + 10, Math.min(window.innerWidth - cw / 2 - 10, e.clientX));
+        ty = Math.max(ch + 12, e.clientY - 20);    // anchor sits just above the cursor
+      }
+
+      cvs.addEventListener('pointermove', (e) => {
+        if (e.pointerType === 'touch') return;
+        const t = pickTarget(e);
+        if (t) {
+          const wasOff = !card.classList.contains('is-on');
+          if (hoverUrl !== t.url) {
+            hoverUrl = t.url;
+            card.href = t.url;
+            loadPreview(t.url);
+          }
+          setTarget(e);
+          if (wasOff || reduceM) { fx = tx; fy = ty; fvx = fvy = 0; applyFollow(); } // appear at cursor / snap
+          card.classList.add('is-on');
+          cvs.style.cursor = 'pointer';
+          if (!reduceM) kickFollow();
+        } else if (hoverUrl) {
+          hoverUrl = null;
+          card.classList.remove('is-on');
+          cvs.style.cursor = '';
+        }
+      }, { passive: true });
+
+      const clearHover = () => { hoverUrl = null; card.classList.remove('is-on'); cvs.style.cursor = ''; };
+      cvs.addEventListener('pointerleave', clearHover);
+
+      cvs.addEventListener('click', (e) => {
+        const t = pickTarget(e);
+        if (t) window.open(t.url, '_blank', 'noopener,noreferrer');
+      });
     }
 
     let currentScroll = 0;
@@ -2450,7 +2674,7 @@
       // momentum/fling that leaked past overflow:hidden can't carry the page
       // away (clampLockFn is wired up by the gate block below).
       if (clampLockFn) clampLockFn();
-      if (!visible && !holding) {
+      if (!visible && !holding && !videoOnScreen) {
         // Section left view: let any residual motion blur decay out.
         if (blurVel > 0.03) { blurVel *= 0.8; updateMotionBlur(blurVel); kickRender(); }
         else updateMotionBlur(0);
@@ -2513,12 +2737,17 @@
       camera.rotation.y = -mouse.x * 0.04;
 
       updateUI(currentScroll);
+      // Push the latest video frame(s) onto their textures before drawing.
+      for (let i = 0; i < videoTextures.length; i++) videoTextures[i].needsUpdate = true;
       renderer.render(scene, camera);
 
       // Keep ticking while the camera is still easing toward target
       // OR while motion blur is decaying — so both the pan and the
       // smear finish smoothly after scrolling stops.
-      if (currentScroll !== targetScroll || blurVel > 0.03 || (holding && currentScroll !== LAST_SCROLL)) kickRender();
+      // Keep ticking continuously while a video is on screen so its texture
+      // updates every frame — including across the loop seam (so it never
+      // freezes on the last frame waiting for the next scroll to re-kick).
+      if (currentScroll !== targetScroll || blurVel > 0.03 || (holding && currentScroll !== LAST_SCROLL) || videoOnScreen) kickRender();
     }
     function kickRender() {
       if (raf) return;
