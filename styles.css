@@ -2368,6 +2368,19 @@ html.is-dark .hall__glow {
   font-size: clamp(14px, 1vw, 17px);
   color: var(--ink);
 }
+/* GitHub / repo link — inherits the serif-italic meta value look, with an
+   underline + green accent on hover (matching the body's hyper-word accent). */
+.hall-slide__meta-link {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
+  transition: color 0.22s ease, border-color 0.22s ease;
+}
+.hall-slide__meta-link:hover {
+  color: #15803d;
+  border-bottom-color: #15803d;
+}
 
 @media (max-width: 768px) {
   .hall { height: 480vh; }

@@ -2552,7 +2552,7 @@
       // The wrapper eases toward the cursor instead of snapping to it, so the
       // preview trails the pointer with a soft, weighted feel.
       const reduceM = !!(reduceMotionMQ && reduceMotionMQ.matches);
-      const FOLLOW_STIFF = 0.10;   // lower = more lag / slower catch-up
+      const FOLLOW_STIFF = 0.07;   // lower = more lag / slower catch-up
       const FOLLOW_DAMP  = 0.74;   // lower = more damping (less overshoot)
       let fx = 0, fy = 0, tx = 0, ty = 0, fvx = 0, fvy = 0, followRAF = 0;
       function applyFollow() { follow.style.transform = 'translate3d(' + fx + 'px,' + fy + 'px,0)'; }
