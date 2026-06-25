@@ -1891,30 +1891,25 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
 .hall {
   position: relative;
   /* Scroll runway for the gallery. The inner __pin is sticky for
-     (height - 100vh); the first 100vh of that range is the slide-up
-     transition (the pin translates from translateY(100vh) → 0 over
-     the still-pinned skills behind it), and the remaining 280vh is
-     the camera pan through all projects.
+     (height - 100vh); the first 200vh of that range is the 3D fly-in
+     intro (camera flies forward through the section first-frame collage
+     onto the live project wall), and the remaining ~280vh is the camera
+     pan through all projects.
 
-     margin-top: -200vh overlaps the last 200vh of the (extended)
-     skills section so the hall's sticky pin engages BEFORE the warp
-     pin unsticks — that lets the gallery slide UP over the visible
-     warp instead of jumping in below it. z-index 2 puts hall in front
-     of warp (z-index 1) during the overlap.
-
-     Background lives on .hall__pin (not here) so the warp behind is
-     visible through the section's transparent area as the pin slides
-     up from below the viewport. */
-  height: 480vh;
-  margin-top: -200vh;
+     margin-top: -300vh overlaps the last 300vh of the (extended) skills
+     section so the gallery's fly-in plays while the real skills pin is STILL
+     stuck behind it — the transparent gallery layer shows that live scene as
+     the intro's background. z-index 2 keeps the gallery in front of the warp
+     (z-index 1). The gallery layer stays transparent (--clear) throughout the
+     intro so the skills scene reads straight through it. */
+  height: 580vh;
+  margin-top: -300vh;
   z-index: 2;
   color: var(--ink);
-  /* 3D scene depth for the hall pin's rise-and-flatten tilt. Matches
-     the hero-stage perspective so both reveals feel cohesive. The
-     JS scrubs a small negative rotateX + scale on .hall__pin during
-     the slide-up so it reads as a real foreground panel arriving in
-     3D space rather than a flat sheet sliding up. */
-  perspective: 1500px;
+  /* NOTE: no `perspective`/`transform`/`filter` here — those would make the
+     intro's `position: fixed` pin resolve against THIS section instead of the
+     viewport (so it would still "rise"). The 3D depth now lives in the gallery's
+     own THREE camera fly-in, not a CSS tilt. */
 }
 .hall__pin {
   position: sticky;
@@ -1923,18 +1918,54 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   height: 100svh;
   width: 100%;
   overflow: hidden;
-  /* Opaque cream ONLY during the slide-up entrance, to cover the dark skills
-     section rising behind it. Once that overlap is past, JS adds
-     .hall__pin--clear → transparent, so the gallery shows the SAME global
-     background (cream + fixed topo + grain) as the experience section — no
-     separate gallery surface, no seam. */
-  background-color: var(--cream);
-  /* Pivot the JS-driven rise tilt at the TOP edge. */
+  /* Dark by default so the pin reads as "still in skills" while it slides into
+     place during the section overlap (dark-on-dark over the skills scene = no
+     cream seam) AND through the 3D fly-in intro (the gallery's own THREE scene
+     renders the collage emerging from this dark field). Once the camera has
+     flown in and the live wall fills the frame, JS adds .hall__pin--clear →
+     transparent, so the gallery shows the SAME global background (cream + fixed
+     topo + grain) as every other section. */
+  background-color: var(--ink);
   transform-origin: 50% 0%;
 }
-/* Instant swap (no fade) the moment the slide-up overlap is past, so the topo
-   is simply present — it doesn't slowly fade in as you scroll. */
+/* Arrived: transparent so the global cream + topo shows through. */
 .hall__pin--clear { background-color: transparent; }
+
+/* Top/bottom HUD lines for the 3D fly-in — mirrors .warp__hud (gray mono labels
+   + thin gray lines) so the intro matches the skills section's chrome with no
+   green. JS fades opacity with the fly-in. */
+.hall__intro-hud {
+  position: absolute;
+  inset: clamp(18px, 2.2vw, 32px);
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: rgba(242, 238, 229, 0.5);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0;
+}
+.hall__intro-hud > div { display: flex; align-items: center; gap: 16px; }
+.hall__intro-hud i { flex: 1; height: 1px; background: rgba(242, 238, 229, 0.18); display: block; }
+
+/* During the intro ONLY: pin the gallery to the viewport (fixed) instead of
+   letting the sticky pin slide up from the bottom of the section. This is what
+   kills the "panel sliding in" — the gallery is full-screen the entire fly-in,
+   so the collage emerges across the whole screen (continuous with the skills
+   flythrough behind it), not on a rising rectangle. Swapped back to sticky the
+   instant the section's own top reaches the viewport top (same position → no
+   jump), so the camera-pan + exit gate behave exactly as before. */
+.hall__pin--fixed { position: fixed; top: 0; left: 0; z-index: 2; }
+
+/* While the 3D fly-in intro plays (camera flying toward the project wall), the
+   gallery chrome/text stay hidden so only the emerging collage + wall read;
+   they fade in once the wall has filled the frame and you've "arrived". */
+.hall__pin.is-entering .hall__chrome,
+.hall__pin.is-entering .hall__ui { opacity: 0; transition: opacity 0.45s ease; }
 
 /* Ambient accent glow — two soft chartreuse pools, one behind the text panel
    (left) and one behind the painting (right). Sits below the canvas (z 0 vs
@@ -2383,7 +2414,7 @@ html.is-dark .hall__glow {
 }
 
 @media (max-width: 768px) {
-  .hall { height: 480vh; }
+  .hall { height: 580vh; }
   .hall-slide {
     top: auto;
     bottom: 18%;
@@ -2536,13 +2567,16 @@ html.is-dark .hall__glow {
      scrub runway, 100vh of "hold" while the gallery slides up over us,
      100vh of post-scrub buffer before pin un-sticks. The JS pins the
      camera scrub to its original 500vh window (starting 100vh into the
-     section) so the flythrough timing never changes. The extra heights
-     keep the pin sticky behind the hero during the reveal AND behind
-     the gallery during its slide-up.
+     section) so the flythrough timing never changes. The EXTRA tail
+     (height 1000vh) keeps the warp pin sticky — i.e. the real skills scene
+     stays on screen — through the gallery's 3D fly-in intro, which renders
+     OVER it through a transparent gallery layer (so the intro's background
+     IS the live skills scene). The skills scene is faded out only at the
+     very end of the fly-in, as the gallery resolves onto cream.
      margin-top: -100vh overlaps the last 100vh of the hero so the warp
      pin engages BEFORE the hero pin unsticks — the hero slides up off
      and the warp scene is already in place behind it. */
-  height: 800vh;
+  height: 1000vh;
   margin-top: -100vh;
   color: var(--cream);
   z-index: 1;          /* back layer — hero (z-3) and gallery (z-2) overlay us */
@@ -2562,9 +2596,10 @@ html.is-dark .hall__glow {
   height: 100svh;
   width: 100%;
   overflow: hidden;
-  background:
-    radial-gradient(120% 80% at 50% 50%, rgba(40,40,32,0.5) 0%, transparent 70%),
-    var(--ink);
+  /* Flat ink — no radial "glow" pool (it read as a green wash through the
+     gallery's transparent fly-in layer; removing it keeps the skills scene and
+     the fly-in an exact, even dark). */
+  background: var(--ink);
   cursor: crosshair;
 }
 
@@ -3474,7 +3509,7 @@ body.perf-lite .term__cursor { animation: none; }
 
   .highlights__grid { grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  .warp { height: 480vh; }
+  .warp { height: 1000vh; }   /* match desktop so the gallery overlap/fly-in timing holds */
   .warp-heading { font-size: clamp(76px, 28vw, 220px); }
   .warp-card { width: min(280px, 86vw); height: clamp(340px, 70vh, 460px); }
   .warp__hud { font-size: 9px; inset: 14px; }

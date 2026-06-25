@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=168" />
+<link rel="stylesheet" href="styles.css?v=175" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -548,6 +548,14 @@
     <div class="hall__glow" aria-hidden="true"></div>
     <div class="hall__canvas" id="hallCanvas" aria-hidden="true"></div>
 
+    <!-- Top/bottom HUD lines reproduced for the 3D fly-in so it matches the
+         skills section's HUD exactly (gray lines, no green). JS fades it with the
+         intro (initProjectsHall · introHud). -->
+    <div class="hall__intro-hud" aria-hidden="true">
+      <div><span>STACK / READY</span><i></i><span>GALLERY</span></div>
+      <div><span>PROJECTS</span><i></i><span>SELECTED</span></div>
+    </div>
+
     <div class="hall__chrome">
       <div class="hall__logo">PROJECTS · GALLERY</div>
       <div class="hall__hint"><span>Scroll to explore</span></div>
@@ -765,7 +773,7 @@
 
 </main>
 
-<script src="script.js?v=131" defer></script>
+<script src="script.js?v=140" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>

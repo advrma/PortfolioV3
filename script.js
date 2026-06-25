@@ -1864,7 +1864,10 @@
     const Z_GAP       = 800;
     const STAR_COUNT  = 520;
     const TOTAL_Z     = SKILLS.length * Z_GAP;
-    const CAMERA_END  = TOTAL_Z;     // one pass — no loop
+    // Fly a bit PAST the last card so it (and its chartreuse accents) fully fade
+    // before the scrub ends — otherwise the last card lingers (faded) through the
+    // gallery fly-in behind the transparent layer and tints it green.
+    const CAMERA_END  = TOTAL_Z + 1100;
     const items = [];
     const headingIndices = [];
 
@@ -1926,13 +1929,15 @@
 
       const size      = 1 + rnd() * 2.4;          // 1 – 3.4 px
       const baseAlpha = 0.40 + rnd() * 0.55;      // 0.40 – 0.95 (brighter than before)
-      const isAccent  = rnd() < 0.10;             // ~10% chartreuse
+      const isAccent  = rnd() < 0.10;             // ~10% extra-bright (white, not green)
 
       el.style.width  = size.toFixed(2) + 'px';
       el.style.height = size.toFixed(2) + 'px';
       if (isAccent) {
-        el.style.background = 'rgba(216, 255, 56, ' + baseAlpha.toFixed(2) + ')';
-        el.style.boxShadow  = '0 0 6px rgba(216, 255, 56, 0.55)';
+        // Bright white accent stars (was chartreuse — removed so there's no green
+        // glow; the warp scene IS the gallery fly-in's background now).
+        el.style.background = 'rgba(245, 242, 235, ' + Math.min(1, baseAlpha + 0.1).toFixed(2) + ')';
+        el.style.boxShadow  = '0 0 6px rgba(242, 238, 229, 0.5)';
       } else {
         el.style.background = 'rgba(242, 238, 229, ' + baseAlpha.toFixed(2) + ')';
         if (size > 2.2) {
@@ -2138,6 +2143,11 @@
           }
         }
       );
+
+      // (The gallery's fixed full-screen pin covers the warp during the intro,
+      // and its fly-in scene reproduces this same dark + starfield + glow
+      // backdrop — so the skills background reads as CONTINUED into the gallery
+      // intro rather than cut. No warp fade needed.)
     } else {
       // Fallback: position items at static spiral, no camera motion.
       state.visible = false;
@@ -2244,6 +2254,8 @@
     const section    = document.getElementById('projects');
     const canvasHost = document.getElementById('hallCanvas');
     if (!section || !canvasHost) return;
+    const hallPin      = section.querySelector('.hall__pin');
+    const reduceMotion = !!(reduceMotionMQ && reduceMotionMQ.matches);
 
     const SLIDE_COUNT = 3;
     const SPACING_X   = 45;     // 3D units between paintings
@@ -2448,6 +2460,167 @@
       galleryGroup.add(g);
       paintingGroups.push(g);
     }
+
+    // The CENTRE painting (project 0 = the gallery video) emerges with the SAME
+    // distance-fade as the collage frames during the fly-in. Make its materials
+    // transparent so paintCollage can fade them (the shared outline/line mats are
+    // safe to drive here because the other paintings are hidden during the fly-in;
+    // they're restored to full for the pan). children = [shadow, mesh, outline, lines].
+    const c0Shadow = paintingGroups[0].children[0].material;   // base opacity 0.12
+    const c0Mesh   = paintingGroups[0].children[1].material;   // the video
+    c0Mesh.transparent = true;
+    outlineMat.transparent = true;
+    lineMat.transparent = true;
+
+    // ---- 3D zoom-in intro (the skills → gallery transition) ----
+    // Six of the site's section first-frames float as planes in FRONT of the
+    // project wall. During the entrance the camera flies forward from far back:
+    // the frames emerge out of the dark depth (exactly the way the skills cards
+    // appear in the warp flythrough), drift outward and pass the edges, while
+    // the live project wall — the centre — grows to fill the frame. So you
+    // literally "zoom into" the live gallery in real 3D: no DOM panel slides in,
+    // no crossfade, and the centre IS the gallery (the actual wall) the whole
+    // time. Tuned positions: z is depth in front of the wall (camera flies from
+    // CAM_Z+FLY_DIST → CAM_Z), x/y spread them around the centre.
+    const FLY_DIST = 350;   // large enough that every frame starts BEYOND the fade-in range
+    const INTRO_FRAMES = [
+      { src: 'section-frames/hero.jpg',       x: -22, y:  10, z:  74, s: 16 },
+      { src: 'section-frames/experience.jpg', x:  21, y:  13, z:  96, s: 15 },
+      { src: 'section-frames/careerlens.jpg', x:  30, y:  -7, z:  62, s: 14 },
+      { src: 'section-frames/skills.jpg',     x: -28, y: -13, z: 110, s: 15 },
+      { src: 'section-frames/contact.jpg',    x:   9, y: -18, z:  52, s: 14 },
+      { src: 'section-frames/skills2.jpg',    x:  25, y:   4, z: 140, s: 12 }
+    ];
+    const collageGroup  = new THREE.Group();
+    scene.add(collageGroup);
+    const collagePlanes = [];
+    INTRO_FRAMES.forEach((f) => {
+      const w = f.s, h = f.s * 9 / 16;
+      const geo = new THREE.PlaneGeometry(w, h);
+      // Transparent + fog OFF: the frame's own per-distance OPACITY (set in
+      // updateIntro) handles its fade-in, so when it's far it's truly see-through
+      // and the REAL skills scene shows behind it (no fogged-to-grey rectangle).
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x000000, transparent: true, opacity: 0, fog: false, depthWrite: false
+      });
+      loader.load(f.src, (tex) => {
+        if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+        mat.map = tex; mat.color.set(0xffffff); mat.needsUpdate = true; kickRender();
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(f.x, f.y, f.z);
+      collageGroup.add(mesh);
+      collagePlanes.push({ mesh, mat, z: f.z });
+    });
+
+    // White starfield (reproduces the skills warp's starfield, no green) that the
+    // camera flies through during the intro, so the fly-in matches the skills
+    // look exactly with zero green. Fades out at arrival.
+    const starGeo = new THREE.BufferGeometry();
+    const STAR_N  = 460;
+    const starPos = new Float32Array(STAR_N * 3);
+    let _ss = 9173;
+    const _rnd = () => { _ss = (_ss * 9301 + 49297) % 233280; return _ss / 233280; };
+    for (let i = 0; i < STAR_N; i++) {
+      starPos[i * 3]     = (_rnd() - 0.5) * 360;
+      starPos[i * 3 + 1] = (_rnd() - 0.5) * 240;
+      starPos[i * 3 + 2] = -40 + _rnd() * 380;            // along the fly-in path
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0xF2EEE5, size: 1.6, sizeAttenuation: true,
+      transparent: true, opacity: 0, depthWrite: false, fog: false
+    });
+    const starField = new THREE.Points(starGeo, starMat);
+    scene.add(starField);
+
+    // Fly-in state, read by render() and driven by the intro ScrollTrigger.
+    let flyZ = FLY_DIST;                        // current camera pull-back (→ 0 on arrival)
+    const warpSecEl  = document.getElementById('skills');     // live skills backdrop (pin + its ink bg)
+    const hallGlowEl = section.querySelector('.hall__glow');  // gallery's chartreuse accent glow
+    const introHud   = section.querySelector('.hall__intro-hud');  // reproduced top/bottom HUD lines
+    // e: 0 = far back (collage on the live skills scene) … 1 = arrived (gallery on cream).
+    function updateIntro(e) {
+      if (reduceMotion) e = 1;
+      e = e < 0 ? 0 : e > 1 ? 1 : e;
+      // LINEAR camera fly (ease:'none', exactly like the warp's camera scrub).
+      // `e` itself is fed by a scrub:1.6 tween below, so the frames inherit the
+      // skills section's scroll feel (accelerate, coast after you stop, settle).
+      // The frames emerge from the far depth purely BY the fly (paintCollage),
+      // exactly like the skill cards — no separate held-camera opacity phase.
+      flyZ = FLY_DIST * (1 - e);
+      // Canvas is transparent; the gallery pin behind it is opaque flat ink
+      // during the fly-in (the bg), so the white starfield + frames read on true
+      // black (no green).
+      scene.background = null;
+      // Hold the skills scene fully present (the wall grows on it) until the wall
+      // has nearly filled the frame, then do a quick clean fade to the cream
+      // gallery in the last stretch (alongside the text). Fading the WHOLE skills
+      // section (pin + its ink section bg, which overlaps the gallery) lets the
+      // gallery resolve onto the body's cream + topo.
+      const _mt = e <= 0.9 ? 0 : Math.min(1, (e - 0.9) / 0.1);
+      if (warpSecEl) warpSecEl.style.opacity = reduceMotion ? '1' : (1 - _mt).toFixed(3);
+      // White starfield: fade in quickly at the start, hold through the fly-in,
+      // fade out with the cream arrival.
+      const sIn = Math.min(1, e / 0.08);
+      starMat.opacity = reduceMotion ? 0 : 0.85 * sIn * (1 - _mt);
+      starField.visible = starMat.opacity > 0.002;
+      // The gallery's own chartreuse accent glow must NOT show during the fly-in
+      // (it washed the transparent layer green over the dark skills scene); fade
+      // it in only with the cream arrival.
+      if (hallGlowEl) hallGlowEl.style.opacity = reduceMotion ? '1' : _mt.toFixed(3);
+      scene.fog.color.set(BG_HEX);              // only matters once we're on cream
+      scene.fog.near = e < 0.8 ? 9000 : 14;     // fog OFF during the fly-in, on at arrival
+      scene.fog.far  = e < 0.8 ? 9999 : 130;
+      // Other projects stay hidden until we've arrived (so only the centre wall
+      // is in the collage); shown for the pan.
+      for (let i = 1; i < paintingGroups.length; i++) paintingGroups[i].visible = e >= 0.99;
+      collageGroup.visible = e < 1;
+      // Safety: once arrived, force the centre + shared paint mats fully opaque
+      // (a fast scroll could skip paintCollage's last fade frame).
+      if (e >= 0.99) { c0Mesh.opacity = 1; c0Shadow.opacity = 0.12; outlineMat.opacity = 1; lineMat.opacity = 1; }
+      if (hallPin) {
+        // Pin OPAQUE flat ink during the fly-in — reads as true black (the warp's
+        // overlays/grain over the ink tinted it green when shown through a
+        // transparent layer). The skills look (white starfield + top/bottom HUD
+        // lines) is REPRODUCED in this gallery layer (intro starfield + DOM HUD)
+        // so it matches exactly with zero green. Transparent (--clear) only at
+        // arrival, where the warp fades out to reveal the body's cream + topo.
+        hallPin.classList.toggle('hall__pin--clear', e >= 0.9);
+        hallPin.classList.toggle('is-entering', e < 0.9);
+        if (introHud) introHud.style.opacity = reduceMotion ? '0'
+          : (e < 0.9 ? 1 : Math.max(0, 1 - (e - 0.9) / 0.1)).toFixed(3);
+      }
+    }
+    // Per-frame collage opacity (called from render so it tracks the live camera).
+    // Each frame emerges from the FAR depth, holds, then fades as it flies past —
+    // the same shape as the skill cards' alpha-by-distance, so they appear the
+    // same way. FLY_DIST is large enough that at e=0 every frame is still beyond
+    // the fade-in range (fully see-through) — they only appear as the camera
+    // flies toward them, never popping in.
+    function paintCollage() {
+      const camZ = CAM_Z + flyZ;               // currentScroll ≈ 0 during the fly-in
+      for (let i = 0; i < collagePlanes.length; i++) {
+        const cp = collagePlanes[i];
+        const dist = camZ - cp.z;
+        let op;
+        if (dist <= 5 || dist >= 230) op = 0;            // behind camera / too far → see-through
+        else if (dist < 40)  op = (dist - 5) / 35;       // fades out as it flies past
+        else if (dist <= 170) op = 1;
+        else op = (230 - dist) / 60;                     // eases in from the far depth
+        if (Math.abs(op - cp.mat.opacity) > 0.002) cp.mat.opacity = op;
+        cp.mesh.visible = op > 0.001;
+      }
+      // Centre gallery video (project 0 at z=0): same emerge-from-depth fade, so
+      // it appears like the other frames (then grows to fill as we arrive).
+      const d0 = camZ;
+      const o0 = d0 >= 230 ? 0 : d0 > 170 ? (230 - d0) / 60 : 1;
+      c0Mesh.opacity   = o0;
+      c0Shadow.opacity = 0.12 * o0;
+      outlineMat.opacity = o0;
+      lineMat.opacity    = o0;
+    }
+    updateIntro(reduceMotion ? 1 : 0);
 
     // Play the painting video(s) only while the gallery pin is on screen
     // (and pause otherwise) so it isn't decoding in the background. While on
@@ -2731,10 +2904,16 @@
       const xMove = currentScroll * Math.cos(WALL_ANGLE);
       const zMove = currentScroll * Math.sin(WALL_ANGLE);
       camera.position.x = xMove;
-      camera.position.z = CAM_Z - zMove;
+      // `flyZ` pulls the camera back during the intro fly-in (→ 0 on arrival),
+      // so the collage frames + project wall zoom in toward the viewer.
+      camera.position.z = CAM_Z - zMove + flyZ;
 
       camera.rotation.x = mouse.y * 0.04;
       camera.rotation.y = -mouse.x * 0.04;
+
+      // While flying in, fade each collage frame by its distance so it emerges
+      // from / passes through the live skills scene behind the transparent canvas.
+      if (flyZ > 0.01) paintCollage();
 
       updateUI(currentScroll);
       // Push the latest video frame(s) onto their textures before drawing.
@@ -2851,68 +3030,49 @@
     }
 
     if (typeof ScrollTrigger !== 'undefined') {
-      // Slide-up transition: as the user scrolls into the section, the
-      // pin (the actual cream front layer with the canvas + UI) starts
-      // 100vh below the viewport and translates up to 0 over the first
-      // 100vh of scroll — sliding over the still-pinned skills section
-      // behind it. We animate .hall__pin specifically (not .hall) so
-      // the trigger element's rect stays at its layout position and
-      // the camera-pan ScrollTrigger below calculates start/end
-      // correctly.
-      const hallPin = section.querySelector('.hall__pin');
-      const reduceMotion = reduceMotionMQ && reduceMotionMQ.matches;
-      if (hallPin && !reduceMotion) {
-        // 3D slide-up: the gallery pin rises from one viewport below
-        // (translateY: 100vh → 0) AND scrubs a subtle rotateX + scale
-        // alongside it. Combined with `perspective: 1500px` on .hall
-        // and `transform-origin: 50% 0%` on the pin, the panel arrives
-        // tilted (bottom recessed in -Z) and flattens into place over
-        // the still-pinned skills layer behind — the same 3D feel as
-        // the hero's lift, mirrored for an entering panel. The pin's
-        // top-edge box-shadow rides the seam during the rise, giving
-        // a clear depth separation from the skills back layer.
-        gsap.fromTo(hallPin,
-          { y: () => window.innerHeight, rotateX: -10, scale: 0.99 },
-          {
-            y: 0,
-            rotateX: 0,
-            scale: 1,
-            ease: 'none',
-            scrollTrigger: {
-              trigger: section,
-              start: 'top top',
-              end: () => 'top+=' + window.innerHeight + ' top',
-              scrub: true,
-              invalidateOnRefresh: true
-            }
-          }
-        );
-      }
+      // The skills → gallery transition (3D zoom-in fly-in) is driven by the
+      // camera ScrollTrigger below via updateIntro(): over the first 200vh of
+      // the pinned range the camera flies forward (flyZ → 0), the collage
+      // frames emerge from the dark depth and pass, and the live wall fills the
+      // frame. See the collage/updateIntro setup earlier in this function.
 
-      // The pin is opaque cream while the dark skills section is still behind
-      // it (the slide-up + overlap, ~first 2 viewports of this section). Once
-      // that's past, turn it transparent (.hall__pin--clear) so the gallery
-      // shows the SAME global cream+topo background as every other section.
-      if (hallPin) {
-        ScrollTrigger.create({
+      // ----- 3D fly-in intro driver — SCRUB 1.6 (the exact skills-warp feel) -----
+      // The fly-in is driven by a scrub:1.6 tween (identical to the warp camera's
+      // scrub) so the frames inherit the skills section's scroll physics: input
+      // accelerates the fly, and it keeps coasting for a beat after you stop, then
+      // settles. `introProxy.e` (0→1) is the scrubbed/coasting value; the tween's
+      // onUpdate feeds it to updateIntro() — flying the camera linearly and
+      // emerging the frames from depth exactly like the skill cards.
+      // Pin stays FIXED full-screen (driven by the REAL scroll rect, not the
+      // scrubbed value) until the section sticks, so it never slides up.
+      const introProxy = { e: 0 };
+      gsap.to(introProxy, {
+        e: 1,
+        ease: 'none',
+        scrollTrigger: {
           trigger: section,
-          start: () => 'top top-=' + (window.innerHeight * 2),
+          start: 'top bottom',
+          end: () => 'top+=' + (window.innerHeight * 2) + ' top',
+          scrub: 1.6,
           invalidateOnRefresh: true,
-          onEnter: () => hallPin.classList.add('hall__pin--clear'),
-          onLeaveBack: () => hallPin.classList.remove('hall__pin--clear'),
-        });
-      }
+          onEnter:     () => { visible = true; kickRender(); },
+          onEnterBack: () => { visible = true; kickRender(); },
+          onLeave:     () => { if (hallPin) hallPin.classList.remove('hall__pin--fixed'); },
+          onLeaveBack: () => { if (hallPin) hallPin.classList.remove('hall__pin--fixed'); visible = false; },
+          onUpdate: (self) => {
+            if (hallPin) {
+              const r = section.getBoundingClientRect();
+              hallPin.classList.toggle('hall__pin--fixed', r.top > 0.5);
+            }
+            kickRender();
+          }
+        },
+        onUpdate: () => { updateIntro(introProxy.e); kickRender(); }   // scrubbed (coasting) value
+      });
 
-      // Camera scroll trigger. The trigger range covers BOTH the slide-up
-      // transition (first 100vh) AND the camera pan (the remaining ~280vh).
-      // We keep onEnter firing at 'top top' so `visible` flips true the
-      // moment the pin starts sliding into view (so the canvas is being
-      // rendered as it appears, not after). The camera target uses an
-      // ADJUSTED progress that holds at 0 until the slide-up completes,
-      // then pans through projects over the remaining runway — so the
-      // first project is in view the whole time the gallery is rising,
-      // and the camera only starts panning once the section has fully
-      // covered the viewport.
+      // Camera scroll trigger — owns the project PAN (after the fly-in) and the
+      // exit gate's `visible`. The camera target holds at project 0 for the
+      // first 200vh (the fly-in zone), then pans through projects over the rest.
       ScrollTrigger.create({
         trigger: section,
         start: 'top top',
@@ -2927,10 +3087,10 @@
         // here would instantly mark the camera "settled" and defeat the
         // gate.) Backward exit still snaps to the first project.
         onLeave:     () => { visible = false; },
-        onLeaveBack: () => { snapPaintAt(0); visible = false; },
+        onLeaveBack: () => { snapPaintAt(0); },   // intro driver owns `visible` near the top
         onUpdate: (self) => {
           const total = self.end - self.start;
-          const skip  = window.innerHeight;          // transition zone (100vh)
+          const skip  = window.innerHeight * 2;       // 3D fly-in zone (200vh)
           const frac  = total > 0 ? skip / total : 0;
           let adj     = frac >= 1
                           ? 0
