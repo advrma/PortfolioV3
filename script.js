@@ -1806,6 +1806,12 @@
      - rAF render loop self-suspends when the section is not
        in view to avoid burning frames on hidden 3D.
      ------------------------------------------------------- */
+  // Bridge: the warp shares its live camera Z + the dedicated gallery frame's
+  // virtual depth; the gallery uses them to drive its LIVE pin (one continuous
+  // element — no screenshot) with the IDENTICAL warp-frame physics: it emerges
+  // from depth, reaches the front, then expands to full screen. `paintGallery`
+  // is set by initProjectsHall and called every warp render frame.
+  const warpBridge = { paintGallery: null, galleryBaseZ: 0, expandDepth: 5000 };
   function initSkillsWarp() {
     const section  = document.getElementById('skills');
     const viewport = document.getElementById('warpViewport');
@@ -1864,10 +1870,27 @@
     const Z_GAP       = 800;
     const STAR_COUNT  = 520;
     const TOTAL_Z     = SKILLS.length * Z_GAP;
-    // Fly a bit PAST the last card so it (and its chartreuse accents) fully fade
-    // before the scrub ends — otherwise the last card lingers (faded) through the
-    // gallery fly-in behind the transparent layer and tints it green.
-    const CAMERA_END  = TOTAL_Z + 1100;
+    // The camera flies through the skill cards AND a project/gallery frame field
+    // that follows them in the SAME 3D space (FRAME_FIELD below), ending in dark
+    // just past the last frame — where the interactive gallery is landed on (one
+    // continuous flythrough; no separate section, no crossfade).
+    // Tight ending: the first frame sits ~one card-gap (Z_GAP) behind the last skill
+    // card (same rhythm, no empty tunnel), and there are only a FEW frames before the
+    // gallery — so the user reaches the Project Gallery fast.
+    const FRAME_Z0    = TOTAL_Z;          // first frame exactly one card-gap (Z_GAP) behind the last card
+    const FRAME_GAP   = 520;
+    const FRAME_N     = 6;                 // a few strong frames (was 14) → no long tunnel
+    // The gallery's LIVE pin behaves as a virtual frame at G_BASEZ — one FRAME_GAP
+    // past the last field frame (spacing matches the others), dead-centre. The warp
+    // shares cameraZ + G_BASEZ so the gallery drives that live pin with the same
+    // perspective/alpha as the real frames (emerge → front at vizZ=0), then EXPANDS
+    // it over the next EXPAND_DEPTH of camera travel to full screen. CAMERA_END
+    // therefore overruns to the fill point.
+    const G_BASEZ      = -(FRAME_Z0 + FRAME_N * FRAME_GAP);
+    const EXPAND_DEPTH = 3000;            // camera travel from the front → full-screen gallery (tighter = expands sooner)
+    const CAMERA_END   = -G_BASEZ + EXPAND_DEPTH;
+    warpBridge.galleryBaseZ = G_BASEZ;
+    warpBridge.expandDepth  = EXPAND_DEPTH;
     const items = [];
     const headingIndices = [];
 
@@ -1912,6 +1935,68 @@
       items.push(item);
       world.appendChild(el);
     });
+
+    // ---- Project/gallery FRAME FIELD: the gallery's first-frames added as extra
+    // warp items that continue the SAME 3D field right after the last skill card.
+    // The camera flies THROUGH them exactly like the cards (same scrub, starfield,
+    // HUD, depth-emergence) — so the skill cards naturally become the project
+    // frames in one continuous flythrough, no separate section / crossfade. Added
+    // to `items` (not SKILLS), so the card timing is unchanged; CAMERA_END above
+    // is extended to fly through this whole field.
+    // (No 'gallery' here — the gallery has its OWN dedicated final frame below, so
+    // it isn't duplicated as a random flying card.)
+    const FRAME_SRCS = ['hero', 'experience', 'careerlens', 'skills', 'contact', 'skills2'];
+    for (let k = 0; k < FRAME_N; k++) {
+      const name = FRAME_SRCS[k % FRAME_SRCS.length];
+      const el = document.createElement('div');
+      el.className = 'warp-item';
+      const fr = document.createElement('div');
+      fr.className = 'warp-frame';
+      fr.style.backgroundImage = "url('section-frames/" + name + ".jpg')";
+      el.appendChild(fr);
+      // Scatter x/y on a spiral (like the cards) through a deep, even z-field so
+      // the camera flies through a continuous constellation of frames.
+      const angle = (k / FRAME_N) * Math.PI * 5.5 + 1.2;
+      const x = Math.cos(angle) * (window.innerWidth  * 0.26);
+      const y = Math.sin(angle) * (window.innerHeight * 0.26);
+      const rot = (k * 53 % 22) - 11;
+      const baseZ = -(FRAME_Z0 + k * FRAME_GAP);
+      items.push({ el, type: 'card', x, y, rot, baseZ });
+      world.appendChild(el);
+    }
+
+    // ---- A few SUPPORTING filler frames to make the constellation feel less empty
+    // (purely additive — no timeline change). Their depths sit WITHIN the existing
+    // frame field (dz between 0 and FRAME_N·FRAME_GAP), so the camera passes them in
+    // the SAME scroll range; they emerge/float/fade with the identical paintItems
+    // physics. Placed off to the left / lower where the field reads sparse. They're
+    // background cards, not scroll stops — same size/style as the others.
+    [
+      { name: 'skills',     x: -0.31, y:  0.05, rot:  9, dz:  360 },
+      { name: 'contact',    x: -0.21, y:  0.24, rot: -7, dz:  980 },
+      { name: 'experience', x: -0.37, y: -0.15, rot: 13, dz: 1640 },
+      { name: 'careerlens', x:  0.05, y:  0.27, rot: -11, dz: 2260 }
+    ].forEach((f) => {
+      const el = document.createElement('div');
+      el.className = 'warp-item';
+      const fr = document.createElement('div');
+      fr.className = 'warp-frame';
+      fr.style.backgroundImage = "url('section-frames/" + f.name + ".jpg')";
+      el.appendChild(fr);
+      items.push({
+        el, type: 'card', rot: f.rot,
+        x: f.x * window.innerWidth,
+        y: f.y * window.innerHeight,
+        baseZ: -(FRAME_Z0 + f.dz)
+      });
+      world.appendChild(el);
+    });
+
+    // ---- The Project Gallery preview is NO LONGER a static DOM frame here (that
+    // caused a visible screenshot→live swap). Instead the LIVE gallery pin itself
+    // is driven as a virtual frame at G_BASEZ via `warpBridge.paintGallery(cameraZ)`
+    // (called from the render loop below) — one continuous live element that emerges,
+    // reaches the front, then expands to full screen. See initProjectsHall.
 
     /* Starfield — denser, varied sizes & brightness, plus a
        sprinkle of chartreuse accent stars for atmosphere.
@@ -2019,16 +2104,17 @@
     // so items keep cycling past forever via the modulo wrap.
     if (typeof ScrollTrigger !== 'undefined' && !reduceMotion) {
       // Camera flythrough scrub: skip the first 100vh of the section
-      // (that 100vh is the hero→skills reveal zone, where the warp pin
-      // sits behind the un-sticking hero). The scrub still runs over
-      // exactly 500vh, so the camera timing is identical to before.
+      // (the hero→skills reveal zone). Runs over 640vh now (was 500) — the
+      // extra 140vh flies the camera through the project/gallery frame field
+      // that follows the cards, keeping the per-vh speed the same as before
+      // (so the skill-card timing is unchanged) while extending the flythrough.
       gsap.to(state, {
         cameraZ: CAMERA_END,
         ease: 'none',
         scrollTrigger: {
           trigger: section,
           start: () => 'top+=' + window.innerHeight + ' top',
-          end:   () => '+=' + (window.innerHeight * 5),
+          end:   () => '+=' + (window.innerHeight * 6.0),   // tighter ending (fewer frames + shorter expand); same per-vh camera speed
           scrub: 1.6,
           invalidateOnRefresh: true,
           onUpdate: (self) => {
@@ -2227,6 +2313,10 @@
       // first scrolled-into-view state matches the composed pose
       // exactly (no flash of a different card on top).
       paintItems(state.cameraZ, state.velocity, time * 0.001);
+
+      // Drive the LIVE gallery pin as the final virtual frame (emerge → expand),
+      // one continuous element, using the same camera Z as everything else.
+      if (warpBridge.paintGallery) warpBridge.paintGallery(state.cameraZ, state.velocity, time * 0.001);
 
       lastCameraZ = state.cameraZ;
       requestAnimationFrame(render);
@@ -2472,25 +2562,16 @@
     outlineMat.transparent = true;
     lineMat.transparent = true;
 
-    // ---- 3D zoom-in intro (the skills → gallery transition) ----
-    // Six of the site's section first-frames float as planes in FRONT of the
-    // project wall. During the entrance the camera flies forward from far back:
-    // the frames emerge out of the dark depth (exactly the way the skills cards
-    // appear in the warp flythrough), drift outward and pass the edges, while
-    // the live project wall — the centre — grows to fill the frame. So you
-    // literally "zoom into" the live gallery in real 3D: no DOM panel slides in,
-    // no crossfade, and the centre IS the gallery (the actual wall) the whole
-    // time. Tuned positions: z is depth in front of the wall (camera flies from
-    // CAM_Z+FLY_DIST → CAM_Z), x/y spread them around the centre.
-    const FLY_DIST = 350;   // large enough that every frame starts BEYOND the fade-in range
-    const INTRO_FRAMES = [
-      { src: 'section-frames/hero.jpg',       x: -22, y:  10, z:  74, s: 16 },
-      { src: 'section-frames/experience.jpg', x:  21, y:  13, z:  96, s: 15 },
-      { src: 'section-frames/careerlens.jpg', x:  30, y:  -7, z:  62, s: 14 },
-      { src: 'section-frames/skills.jpg',     x: -28, y: -13, z: 110, s: 15 },
-      { src: 'section-frames/contact.jpg',    x:   9, y: -18, z:  52, s: 14 },
-      { src: 'section-frames/skills2.jpg',    x:  25, y:   4, z: 140, s: 12 }
-    ];
+    // ---- Gallery DISCOVERED as one warp frame, then EXPANDS (end of the flythrough) ----
+    // No video, no zoom, no crossfade-to-another-scene. The LIVE gallery pin is
+    // shown SMALL — the same size/format as the other warp frames — off-centre with
+    // perspective tilt, while the real frame field is still flying past (the intro
+    // starts BEFORE the scrub ends, so it's discovered among them). As you scroll it
+    // grows past the others, aligns flat & centred, then EXPANDS to fill the
+    // viewport = the real full-screen gallery growing out of the warp. The emerge
+    // is a REAL warp frame (identical physics); this intro only hands off at the
+    // front and expands the live pin from that frame's rect (see updateIntro).
+    const INTRO_FRAMES = [];
     const collageGroup  = new THREE.Group();
     scene.add(collageGroup);
     const collagePlanes = [];
@@ -2513,85 +2594,111 @@
       collagePlanes.push({ mesh, mat, z: f.z });
     });
 
-    // White starfield (reproduces the skills warp's starfield, no green) that the
-    // camera flies through during the intro, so the fly-in matches the skills
-    // look exactly with zero green. Fades out at arrival.
+    // White starfield matching the skills warp's: fewer, small, varied-brightness
+    // dots (the warp uses ~0.40–0.95 alpha) — sparse, not a dense field. No green.
+    // Per-point brightness via vertexColors; depth size variety via sizeAttenuation.
     const starGeo = new THREE.BufferGeometry();
-    const STAR_N  = 460;
+    const STAR_N  = 190;
     const starPos = new Float32Array(STAR_N * 3);
+    const starCol = new Float32Array(STAR_N * 3);
     let _ss = 9173;
     const _rnd = () => { _ss = (_ss * 9301 + 49297) % 233280; return _ss / 233280; };
     for (let i = 0; i < STAR_N; i++) {
       starPos[i * 3]     = (_rnd() - 0.5) * 360;
-      starPos[i * 3 + 1] = (_rnd() - 0.5) * 240;
-      starPos[i * 3 + 2] = -40 + _rnd() * 380;            // along the fly-in path
+      starPos[i * 3 + 1] = (_rnd() - 0.5) * 250;
+      starPos[i * 3 + 2] = -40 + _rnd() * 360;            // along the fly-in path
+      const v = 0.40 + _rnd() * 0.55;                      // matches the warp's alpha range
+      starCol[i * 3] = v; starCol[i * 3 + 1] = v; starCol[i * 3 + 2] = v * 0.97;
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    starGeo.setAttribute('color',    new THREE.BufferAttribute(starCol, 3));
     const starMat = new THREE.PointsMaterial({
-      color: 0xF2EEE5, size: 1.6, sizeAttenuation: true,
+      size: 1.15, sizeAttenuation: true, vertexColors: true,
       transparent: true, opacity: 0, depthWrite: false, fog: false
     });
     const starField = new THREE.Points(starGeo, starMat);
     scene.add(starField);
 
-    // Fly-in state, read by render() and driven by the intro ScrollTrigger.
-    let flyZ = FLY_DIST;                        // current camera pull-back (→ 0 on arrival)
+    // Fly-in state, read by render(). The gallery now sits at its fixed arrival
+    // pose throughout the intro (NO zoom / push-in), so these stay 0.
+    let flyZ = 0;
+    let introCamX = 0;
     const warpSecEl  = document.getElementById('skills');     // live skills backdrop (pin + its ink bg)
     const hallGlowEl = section.querySelector('.hall__glow');  // gallery's chartreuse accent glow
     const introHud   = section.querySelector('.hall__intro-hud');  // reproduced top/bottom HUD lines
-    // e: 0 = far back (collage on the live skills scene) … 1 = arrived (gallery on cream).
-    function updateIntro(e) {
-      if (reduceMotion) e = 1;
-      e = e < 0 ? 0 : e > 1 ? 1 : e;
-      // LINEAR camera fly (ease:'none', exactly like the warp's camera scrub).
-      // `e` itself is fed by a scrub:1.6 tween below, so the frames inherit the
-      // skills section's scroll feel (accelerate, coast after you stop, settle).
-      // The frames emerge from the far depth purely BY the fly (paintCollage),
-      // exactly like the skill cards — no separate held-camera opacity phase.
-      flyZ = FLY_DIST * (1 - e);
-      // Canvas is transparent; the gallery pin behind it is opaque flat ink
-      // during the fly-in (the bg), so the white starfield + frames read on true
-      // black (no green).
-      scene.background = null;
-      // Hold the skills scene fully present (the wall grows on it) until the wall
-      // has nearly filled the frame, then do a quick clean fade to the cream
-      // gallery in the last stretch (alongside the text). Fading the WHOLE skills
-      // section (pin + its ink section bg, which overlaps the gallery) lets the
-      // gallery resolve onto the body's cream + topo.
-      const _mt = e <= 0.9 ? 0 : Math.min(1, (e - 0.9) / 0.1);
-      if (warpSecEl) warpSecEl.style.opacity = reduceMotion ? '1' : (1 - _mt).toFixed(3);
-      // White starfield: fade in quickly at the start, hold through the fly-in,
-      // fade out with the cream arrival.
-      const sIn = Math.min(1, e / 0.08);
-      starMat.opacity = reduceMotion ? 0 : 0.85 * sIn * (1 - _mt);
-      starField.visible = starMat.opacity > 0.002;
-      // The gallery's own chartreuse accent glow must NOT show during the fly-in
-      // (it washed the transparent layer green over the dark skills scene); fade
-      // it in only with the cream arrival.
-      if (hallGlowEl) hallGlowEl.style.opacity = reduceMotion ? '1' : _mt.toFixed(3);
-      scene.fog.color.set(BG_HEX);              // only matters once we're on cream
-      scene.fog.near = e < 0.8 ? 9000 : 14;     // fog OFF during the fly-in, on at arrival
-      scene.fog.far  = e < 0.8 ? 9999 : 130;
-      // Other projects stay hidden until we've arrived (so only the centre wall
-      // is in the collage); shown for the pan.
-      for (let i = 1; i < paintingGroups.length; i++) paintingGroups[i].visible = e >= 0.99;
-      collageGroup.visible = e < 1;
-      // Safety: once arrived, force the centre + shared paint mats fully opaque
-      // (a fast scroll could skip paintCollage's last fade frame).
-      if (e >= 0.99) { c0Mesh.opacity = 1; c0Shadow.opacity = 0.12; outlineMat.opacity = 1; lineMat.opacity = 1; }
-      if (hallPin) {
-        // Pin OPAQUE flat ink during the fly-in — reads as true black (the warp's
-        // overlays/grain over the ink tinted it green when shown through a
-        // transparent layer). The skills look (white starfield + top/bottom HUD
-        // lines) is REPRODUCED in this gallery layer (intro starfield + DOM HUD)
-        // so it matches exactly with zero green. Transparent (--clear) only at
-        // arrival, where the warp fades out to reveal the body's cream + topo.
-        hallPin.classList.toggle('hall__pin--clear', e >= 0.9);
-        hallPin.classList.toggle('is-entering', e < 0.9);
-        if (introHud) introHud.style.opacity = reduceMotion ? '0'
-          : (e < 0.9 ? 1 : Math.max(0, 1 - (e - 0.9) / 0.1)).toFixed(3);
+    // ONE continuous LIVE element — no screenshot, no swap. The warp shares its
+    // camera Z; here we drive the live gallery PIN as a virtual frame at G_BASEZ:
+    // it EMERGES from depth with the exact warp-frame perspective + alpha (so it's
+    // hidden far away and reveals only when close, like every other frame), reaches
+    // the front (vizZ=0, frame size), then EXPANDS smoothly to full screen over the
+    // next EXPAND_DEPTH of camera travel. The SAME pin (rendering the live gallery
+    // the whole time) becomes the full-screen page — only its transform/opacity/size
+    // change. Called every warp render frame via warpBridge.paintGallery.
+    const G_PERSP = 1000;                  // == .warp__viewport perspective
+    let galleryShown = false;              // pin currently revealed (vs hidden far away)
+    function paintGallery(cameraZ) {
+      if (reduceMotion || !hallPin) return;
+      const vizZ = warpBridge.galleryBaseZ + cameraZ;
+      // Emerge alpha — SAME ramp as the warp frames (no fade-out: it's the destination).
+      let alpha;
+      if (vizZ < -3200)      alpha = 0;
+      else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
+      else                   alpha = 1;
+      if (alpha <= 0.001) {                // far away / not yet emerged → hidden + not rendering
+        if (galleryShown) {
+          hallPin.style.opacity = '0';
+          hallPin.classList.remove('hall__pin--fixed', 'hall__pin--frame');
+          galleryShown = false;
+        }
+        return;
       }
+      const vw = window.innerWidth;
+      const gW = Math.min(Math.max(240, 0.23 * vw), 340) / vw;    // == the warp frames' on-screen size
+      const ED = warpBridge.expandDepth || 5000;
+      let s, expandP = 0;
+      if (vizZ <= 0) {                     // EMERGE — perspective grow, identical to a frame
+        s = gW * (G_PERSP / (G_PERSP - vizZ));
+      } else {                             // EXPAND — smooth grow to full screen
+        expandP = Math.min(1, vizZ / ED);
+        const ease = expandP * expandP * (3 - 2 * expandP);
+        s = gW + (1 - gW) * ease;
+      }
+      if (s > 1) s = 1;
+      if (!galleryShown) {
+        hallPin.classList.add('hall__pin--fixed');
+        hallPin.classList.remove('is-entering');
+        hallPin.style.transformOrigin = '50% 50%';
+        visible = true;
+        galleryShown = true;
+      }
+      const rot = -4 * (1 - expandP);      // a frame's slight tilt → flat as it expands
+      hallPin.classList.toggle('hall__pin--frame', expandP < 0.92);
+      hallPin.classList.toggle('hall__pin--clear', expandP >= 0.92);
+      if (s >= 0.999) {
+        hallPin.style.transform = '';      // full screen → untransformed real page
+        const r = section.getBoundingClientRect();
+        if (r.top <= 0.5) hallPin.classList.remove('hall__pin--fixed');  // sticky → the pan owns it
+      } else {
+        hallPin.style.transform = `rotateZ(${rot.toFixed(2)}deg) scale(${s.toFixed(4)})`;
+      }
+      hallPin.style.opacity = expandP > 0 ? '1' : alpha.toFixed(3);
+      // Warp backdrop (stars/HUD/dark) fades only as the gallery expands.
+      if (warpSecEl) warpSecEl.style.opacity = (1 - expandP * expandP * (3 - 2 * expandP)).toFixed(3);
+      if (hallGlowEl) hallGlowEl.style.opacity = expandP.toFixed(3);
+      kickRender();
     }
+    warpBridge.paintGallery = paintGallery;
+
+    // Static THREE state for the whole emerge+expand: the gallery renders project-0
+    // at its arrival pose the entire time; only the pin's CSS transform changes.
+    flyZ = 0; introCamX = 0;
+    scene.background = null;
+    scene.fog.color.set(BG_HEX); scene.fog.near = 14; scene.fog.far = 130;
+    starMat.opacity = 0; starField.visible = false;
+    if (introHud) introHud.style.opacity = '0';
+    collageGroup.visible = false;
+    c0Mesh.opacity = 1; c0Shadow.opacity = 0.12; outlineMat.opacity = 1; lineMat.opacity = 1;
+    for (let i = 1; i < paintingGroups.length; i++) paintingGroups[i].visible = true;
     // Per-frame collage opacity (called from render so it tracks the live camera).
     // Each frame emerges from the FAR depth, holds, then fades as it flies past —
     // the same shape as the skill cards' alpha-by-distance, so they appear the
@@ -2620,7 +2727,17 @@
       outlineMat.opacity = o0;
       lineMat.opacity    = o0;
     }
-    updateIntro(reduceMotion ? 1 : 0);
+    // Initial gallery state: reduced motion → just the full page; otherwise hide the
+    // pin (paintGallery reveals + grows it as the camera approaches, driven by the
+    // warp render loop).
+    if (reduceMotion) {
+      hallPin.classList.add('hall__pin--clear');
+      hallPin.classList.remove('is-entering');
+      hallPin.style.transform = '';
+      hallPin.style.opacity = '1';
+    } else {
+      paintGallery(0);
+    }
 
     // Play the painting video(s) only while the gallery pin is on screen
     // (and pause otherwise) so it isn't decoding in the background. While on
@@ -2903,9 +3020,12 @@
 
       const xMove = currentScroll * Math.cos(WALL_ANGLE);
       const zMove = currentScroll * Math.sin(WALL_ANGLE);
-      camera.position.x = xMove;
-      // `flyZ` pulls the camera back during the intro fly-in (→ 0 on arrival),
-      // so the collage frames + project wall zoom in toward the viewer.
+      // `introCamX` centres project-0 while the camera is framed tight on it at
+      // the start of the reveal, easing to 0 (gallery arrival) as we pull back.
+      camera.position.x = xMove + introCamX;
+      // `flyZ` is the camera's z-offset during the intro: negative (closer) at the
+      // start so project-0's video fills the frame — matching the warp's filled
+      // video card — then → 0 (arrival) as the camera pulls back to reveal the gallery.
       camera.position.z = CAM_Z - zMove + flyZ;
 
       camera.rotation.x = mouse.y * 0.04;
@@ -3030,45 +3150,10 @@
     }
 
     if (typeof ScrollTrigger !== 'undefined') {
-      // The skills → gallery transition (3D zoom-in fly-in) is driven by the
-      // camera ScrollTrigger below via updateIntro(): over the first 200vh of
-      // the pinned range the camera flies forward (flyZ → 0), the collage
-      // frames emerge from the dark depth and pass, and the live wall fills the
-      // frame. See the collage/updateIntro setup earlier in this function.
-
-      // ----- 3D fly-in intro driver — SCRUB 1.6 (the exact skills-warp feel) -----
-      // The fly-in is driven by a scrub:1.6 tween (identical to the warp camera's
-      // scrub) so the frames inherit the skills section's scroll physics: input
-      // accelerates the fly, and it keeps coasting for a beat after you stop, then
-      // settles. `introProxy.e` (0→1) is the scrubbed/coasting value; the tween's
-      // onUpdate feeds it to updateIntro() — flying the camera linearly and
-      // emerging the frames from depth exactly like the skill cards.
-      // Pin stays FIXED full-screen (driven by the REAL scroll rect, not the
-      // scrubbed value) until the section sticks, so it never slides up.
-      const introProxy = { e: 0 };
-      gsap.to(introProxy, {
-        e: 1,
-        ease: 'none',
-        scrollTrigger: {
-          trigger: section,
-          start: 'top bottom',
-          end: () => 'top+=' + (window.innerHeight * 2) + ' top',
-          scrub: 1.6,
-          invalidateOnRefresh: true,
-          onEnter:     () => { visible = true; kickRender(); },
-          onEnterBack: () => { visible = true; kickRender(); },
-          onLeave:     () => { if (hallPin) hallPin.classList.remove('hall__pin--fixed'); },
-          onLeaveBack: () => { if (hallPin) hallPin.classList.remove('hall__pin--fixed'); visible = false; },
-          onUpdate: (self) => {
-            if (hallPin) {
-              const r = section.getBoundingClientRect();
-              hallPin.classList.toggle('hall__pin--fixed', r.top > 0.5);
-            }
-            kickRender();
-          }
-        },
-        onUpdate: () => { updateIntro(introProxy.e); kickRender(); }   // scrubbed (coasting) value
-      });
+      // The skills → gallery transition is driven entirely by the WARP camera scrub
+      // via warpBridge.paintGallery(cameraZ): the live gallery pin emerges as the
+      // final virtual frame, reaches the front, then expands to full screen — ONE
+      // continuous live element, no separate intro ScrollTrigger, no screenshot swap.
 
       // Camera scroll trigger — owns the project PAN (after the fly-in) and the
       // exit gate's `visible`. The camera target holds at project 0 for the
@@ -3090,7 +3175,7 @@
         onLeaveBack: () => { snapPaintAt(0); },   // intro driver owns `visible` near the top
         onUpdate: (self) => {
           const total = self.end - self.start;
-          const skip  = window.innerHeight * 2;       // 3D fly-in zone (200vh)
+          const skip  = window.innerHeight * 0.1;     // expand already finished by the pan ST's 'top top' start; just a tiny settle, then pan — no dead hold
           const frac  = total > 0 ? skip / total : 0;
           let adj     = frac >= 1
                           ? 0
@@ -3508,6 +3593,16 @@
     // title font-size is a vw-based clamp.
     const lockWidths = () => {
       if (!allChars.length) return;
+      // Measure at the NATURAL (untransformed) size. The gallery titles live
+      // inside .hall__pin, which is CSS-scaled down (to a small floating frame)
+      // during the warp→gallery intro. getBoundingClientRect() reports the scaled
+      // width, so without neutralising that transform the chars would lock to
+      // tiny widths and overlap once the pin expands to full screen. Clearing the
+      // pin transform for the synchronous read (then restoring it) avoids that —
+      // and is invisible (no paint happens between the sync style writes).
+      const pin = document.querySelector('.hall__pin');
+      const prevT = pin ? pin.style.transform : null;
+      if (pin) pin.style.transform = 'none';
       allChars.forEach((el) => { el.style.width = ''; });
       const widths = allChars.map((el) => el.getBoundingClientRect().width);
       allChars.forEach((el, i) => {
@@ -3516,6 +3611,7 @@
           el.style.textAlign = 'center';
         }
       });
+      if (pin && prevT !== null) pin.style.transform = prevT;
     };
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(lockWidths);

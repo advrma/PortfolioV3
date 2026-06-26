@@ -1903,7 +1903,11 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
      (z-index 1). The gallery layer stays transparent (--clear) throughout the
      intro so the skills scene reads straight through it. */
   height: 580vh;
-  margin-top: -300vh;
+  margin-top: -100vh;     /* overlaps the warp's 200vh tail so the gallery pin
+                            expands to full screen while the warp pin is STILL stuck
+                            behind it. The expand (intro ST) starts exactly at the
+                            warp scrub end — when the dedicated gallery frame is at
+                            the front — and finishes as the warp pin releases. */
   z-index: 2;
   color: var(--ink);
   /* NOTE: no `perspective`/`transform`/`filter` here — those would make the
@@ -1930,6 +1934,17 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
 }
 /* Arrived: transparent so the global cream + topo shows through. */
 .hall__pin--clear { background-color: transparent; }
+
+/* The gallery shown as a FLOATING FRAME inside the warp (before it expands to
+   full screen). Cream page background + a soft drop shadow + rounded corners so
+   the scaled-down pin reads as a card floating on the dark warp scene. The shadow
+   scales with the pin's transform — natural for a card growing toward the viewer.
+   At full screen JS swaps this for --clear (transparent → global cream + topo). */
+.hall__pin--frame {
+  background-color: var(--cream);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(12, 12, 10, 0.10);
+  border-radius: 6px;
+}
 
 /* Top/bottom HUD lines for the 3D fly-in — mirrors .warp__hud (gray mono labels
    + thin gray lines) so the intro matches the skills section's chrome with no
@@ -2563,20 +2578,12 @@ html.is-dark .hall__glow {
    ========================================================= */
 .warp {
   position: relative;
-  /* Layout: 100vh sits behind the hero (reveal zone), 500vh of camera
-     scrub runway, 100vh of "hold" while the gallery slides up over us,
-     100vh of post-scrub buffer before pin un-sticks. The JS pins the
-     camera scrub to its original 500vh window (starting 100vh into the
-     section) so the flythrough timing never changes. The EXTRA tail
-     (height 1000vh) keeps the warp pin sticky — i.e. the real skills scene
-     stays on screen — through the gallery's 3D fly-in intro, which renders
-     OVER it through a transparent gallery layer (so the intro's background
-     IS the live skills scene). The skills scene is faded out only at the
-     very end of the fly-in, as the gallery resolves onto cream.
-     margin-top: -100vh overlaps the last 100vh of the hero so the warp
-     pin engages BEFORE the hero pin unsticks — the hero slides up off
-     and the warp scene is already in place behind it. */
-  height: 1000vh;
+  /* Layout: 100vh hero-reveal zone + 600vh camera scrub (skill cards + a SHORT
+     frame field + the live gallery pin emerging and EXPANDING to full screen — all
+     on the camera scrub, so the pin stays STUCK throughout) + 100vh tail. Height
+     800vh = 100 + 600 + 100. margin-top: -100vh overlaps the last 100vh of the hero
+     so the warp pin engages before the hero pin unsticks. */
+  height: 800vh;
   margin-top: -100vh;
   color: var(--cream);
   z-index: 1;          /* back layer — hero (z-3) and gallery (z-2) overlay us */
@@ -2673,6 +2680,19 @@ html.is-dark .hall__glow {
   pointer-events: none;
   letter-spacing: -0.03em;
   line-height: 0.82;
+}
+
+/* Project-gallery first-frame "cards" that fly in behind the last skill card
+   (same warp flythrough). Image fills a 16:9 frame with the same dark chrome. */
+.warp-frame {
+  width: clamp(240px, 23vw, 340px);
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(242, 238, 229, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 20px 50px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 /* Skill card */
@@ -3509,7 +3529,7 @@ body.perf-lite .term__cursor { animation: none; }
 
   .highlights__grid { grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  .warp { height: 1000vh; }   /* match desktop so the gallery overlap/fly-in timing holds */
+  .warp { height: 800vh; }   /* match desktop flythrough length (incl. expand tail) */
   .warp-heading { font-size: clamp(76px, 28vw, 220px); }
   .warp-card { width: min(280px, 86vw); height: clamp(340px, 70vh, 460px); }
   .warp__hud { font-size: 9px; inset: 14px; }
