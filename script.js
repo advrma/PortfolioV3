@@ -1874,19 +1874,16 @@
     // that follows them in the SAME 3D space (FRAME_FIELD below), ending in dark
     // just past the last frame — where the interactive gallery is landed on (one
     // continuous flythrough; no separate section, no crossfade).
-    // Tight ending: the first frame sits ~one card-gap (Z_GAP) behind the last skill
-    // card (same rhythm, no empty tunnel), and there are only a FEW frames before the
-    // gallery — so the user reaches the Project Gallery fast.
-    const FRAME_Z0    = TOTAL_Z;          // first frame exactly one card-gap (Z_GAP) behind the last card
-    const FRAME_GAP   = 520;
-    const FRAME_N     = 6;                 // a few strong frames (was 14) → no long tunnel
-    // The gallery's LIVE pin behaves as a virtual frame at G_BASEZ — one FRAME_GAP
-    // past the last field frame (spacing matches the others), dead-centre. The warp
-    // shares cameraZ + G_BASEZ so the gallery drives that live pin with the same
-    // perspective/alpha as the real frames (emerge → front at vizZ=0), then EXPANDS
-    // it over the next EXPAND_DEPTH of camera travel to full screen. CAMERA_END
-    // therefore overruns to the fill point.
-    const G_BASEZ      = -(FRAME_Z0 + FRAME_N * FRAME_GAP);
+    // Tight ending: the frame field starts ~one card-gap (Z_GAP) behind the last
+    // skill card and spans FIELD_DEPTH before the gallery. All frames are UNIQUE
+    // section/project captures (no duplicates).
+    const FRAME_Z0     = TOTAL_Z;          // field starts exactly one card-gap behind the last card
+    const FIELD_DEPTH  = 3120;             // depth span of the frame field (kept = old 6×520 so the timeline is unchanged)
+    // The gallery's LIVE pin behaves as a virtual frame at G_BASEZ — just past the
+    // field, dead-centre. The warp shares cameraZ + G_BASEZ so the gallery drives that
+    // live pin with the same perspective/alpha as the real frames (emerge → front at
+    // vizZ=0), then EXPANDS over EXPAND_DEPTH of camera travel to full screen.
+    const G_BASEZ      = -(FRAME_Z0 + FIELD_DEPTH);
     const EXPAND_DEPTH = 3000;            // camera travel from the front → full-screen gallery (tighter = expands sooner)
     const CAMERA_END   = -G_BASEZ + EXPAND_DEPTH;
     warpBridge.galleryBaseZ = G_BASEZ;
@@ -1936,47 +1933,26 @@
       world.appendChild(el);
     });
 
-    // ---- Project/gallery FRAME FIELD: the gallery's first-frames added as extra
-    // warp items that continue the SAME 3D field right after the last skill card.
-    // The camera flies THROUGH them exactly like the cards (same scrub, starfield,
-    // HUD, depth-emergence) — so the skill cards naturally become the project
-    // frames in one continuous flythrough, no separate section / crossfade. Added
-    // to `items` (not SKILLS), so the card timing is unchanged; CAMERA_END above
-    // is extended to fly through this whole field.
-    // (No 'gallery' here — the gallery has its OWN dedicated final frame below, so
-    // it isn't duplicated as a random flying card.)
-    const FRAME_SRCS = ['hero', 'experience', 'careerlens', 'skills', 'contact', 'skills2'];
-    for (let k = 0; k < FRAME_N; k++) {
-      const name = FRAME_SRCS[k % FRAME_SRCS.length];
-      const el = document.createElement('div');
-      el.className = 'warp-item';
-      const fr = document.createElement('div');
-      fr.className = 'warp-frame';
-      fr.style.backgroundImage = "url('section-frames/" + name + ".jpg')";
-      el.appendChild(fr);
-      // Scatter x/y on a spiral (like the cards) through a deep, even z-field so
-      // the camera flies through a continuous constellation of frames.
-      const angle = (k / FRAME_N) * Math.PI * 5.5 + 1.2;
-      const x = Math.cos(angle) * (window.innerWidth  * 0.26);
-      const y = Math.sin(angle) * (window.innerHeight * 0.26);
-      const rot = (k * 53 % 22) - 11;
-      const baseZ = -(FRAME_Z0 + k * FRAME_GAP);
-      items.push({ el, type: 'card', x, y, rot, baseZ });
-      world.appendChild(el);
-    }
-
-    // ---- A few SUPPORTING filler frames to make the constellation feel less empty
-    // (purely additive — no timeline change). Their depths sit WITHIN the existing
-    // frame field (dz between 0 and FRAME_N·FRAME_GAP), so the camera passes them in
-    // the SAME scroll range; they emerge/float/fade with the identical paintItems
-    // physics. Placed off to the left / lower where the field reads sparse. They're
-    // background cards, not scroll stops — same size/style as the others.
-    [
-      { name: 'skills',     x: -0.31, y:  0.05, rot:  9, dz:  360 },
-      { name: 'contact',    x: -0.21, y:  0.24, rot: -7, dz:  980 },
-      { name: 'experience', x: -0.37, y: -0.15, rot: 13, dz: 1640 },
-      { name: 'careerlens', x:  0.05, y:  0.27, rot: -11, dz: 2260 }
-    ].forEach((f) => {
+    // ---- Project/gallery FRAME FIELD: a constellation of UNIQUE section/project
+    // captures (NO duplicates) that continues the SAME 3D field right after the last
+    // skill card. The camera flies THROUGH them exactly like the cards (same scrub,
+    // starfield, HUD, depth-emergence). Each has its own depth (dz, within FIELD_DEPTH
+    // so the timeline is unchanged) and a scattered x/y/rotation filling the whole
+    // constellation (incl. the left/lower that used to read empty). `gallery` is NOT
+    // here — it's the live pin that emerges + expands at the end.
+    const FRAME_FIELD = [
+      { name: 'hero',       x:  0.04, y:  0.25, rot:  -8, dz:  150 },
+      { name: 'skills',     x: -0.30, y:  0.06, rot:   9, dz:  560 },
+      { name: 'experience', x:  0.17, y: -0.20, rot:  -5, dz:  980 },
+      { name: 'skills3',    x: -0.33, y: -0.25, rot:   7, dz: 1280 },   // top-left filler (CAT-01 Languages)
+      { name: 'contact',    x: -0.23, y:  0.22, rot:  -8, dz: 1400 },
+      { name: 'skills4',    x: -0.12, y: -0.30, rot: -10, dz: 1640 },   // top filler (CAT-04 CI/CD)
+      { name: 'xp2',        x: -0.35, y: -0.13, rot:  12, dz: 1820 },
+      { name: 'skills2',    x:  0.30, y:  0.03, rot:  10, dz: 2240 },
+      { name: 'splitz',     x:  0.06, y:  0.27, rot: -11, dz: 2620 },
+      { name: 'careerlens', x:  0.25, y:  0.17, rot:   6, dz: 2980 }
+    ];
+    FRAME_FIELD.forEach((f) => {
       const el = document.createElement('div');
       el.className = 'warp-item';
       const fr = document.createElement('div');
@@ -2653,7 +2629,7 @@
         return;
       }
       const vw = window.innerWidth;
-      const gW = Math.min(Math.max(240, 0.23 * vw), 340) / vw;    // == the warp frames' on-screen size
+      const gW = Math.min(Math.max(300, 0.28 * vw), 430) / vw;    // == the (bigger) warp frames' on-screen size
       const ED = warpBridge.expandDepth || 5000;
       let s, expandP = 0;
       if (vizZ <= 0) {                     // EMERGE — perspective grow, identical to a frame

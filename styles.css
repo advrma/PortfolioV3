@@ -2685,7 +2685,7 @@ html.is-dark .hall__glow {
 /* Project-gallery first-frame "cards" that fly in behind the last skill card
    (same warp flythrough). Image fills a 16:9 frame with the same dark chrome. */
 .warp-frame {
-  width: clamp(240px, 23vw, 340px);
+  width: clamp(300px, 28vw, 430px);
   aspect-ratio: 16 / 9;
   background-size: cover;
   background-position: center;
