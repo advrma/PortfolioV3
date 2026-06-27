@@ -2336,12 +2336,16 @@
     const IMAGES = [
       'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80', // 0 STEALTH (video fallback)
       'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80', // 1 SPLITZ
-      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80'     // 2 CAREERLENS
+      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80'     // 2 PEERCONNECT (video fallback)
     ];
     // A few project planes show a looping video instead of a still image
     // (index → src). The video is rendered as a THREE.VideoTexture on the
     // SAME plane, so the shadow + outline + perspective are unchanged.
-    const VIDEO_SRC = { 0: 'Project-gallery-videos/stealthvideo.mp4' };
+    const VIDEO_SRC = {
+      0: 'Project-gallery-videos/stealthvideo.mp4',
+      1: 'Project-gallery-videos/Splitz.mp4',
+      2: 'Project-gallery-videos/Peerconnect.mp4'
+    };
     // Hovering a video plane shows a live link-preview card (vanilla port of
     // the Aceternity LinkPreview) and clicking it opens the URL.
     const VIDEO_LINK = { 0: 'https://www.trystealth.org/' };
