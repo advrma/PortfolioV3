@@ -633,6 +633,15 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
   overflow: visible;
   opacity: 0;                /* JS sets the dash offsets, then flips to 1 */
   pointer-events: none;      /* hover stays on .hero-sign (the h1) */
+  /* Premium lift — three warm, em-scaled shadow layers (crisp contact +
+     soft mid + diffuse ambient) so the signature floats just off the
+     cream paper. em units track the responsive font-size; warm-dark to
+     sit with the cream. Static (no animation) so the scroll-fade and
+     perf-lite stay cheap — the layer is rasterised once, opacity-only. */
+  filter:
+    drop-shadow(0 0.018em 0.016em rgba(26, 20, 10, 0.34))
+    drop-shadow(0 0.06em 0.075em rgba(26, 20, 10, 0.26))
+    drop-shadow(0 0.13em 0.22em rgba(22, 17, 9, 0.18));
 }
 .hero-sign__stroke {
   fill: rgba(12, 12, 10, 0.66);    /* same ink as the name */
@@ -642,6 +651,11 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
   stroke-linecap: round;
   stroke-linejoin: round;
   transition: fill-opacity 0.55s ease, stroke-width 0.55s ease;
+}
+/* Weak devices: one soft layer instead of three so the opacity scroll-fade
+   stays light (the name lives in the perf-sensitive hero). */
+body.perf-lite .hero-sign__draw {
+  filter: drop-shadow(0 0.05em 0.07em rgba(26, 20, 10, 0.32));
 }
 /* Spotlight lens: a solid ink circle that follows the cursor; inside,
    "software engineer" shows in cream, counter-translated so it stays
@@ -700,7 +714,14 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-sign { cursor: auto; }
-  .hero-sign__base { clip-path: inset(-30% -5% -45% -3%); }  /* show the static name */
+  /* show the static name; sides widened so the shadow blur isn't clipped */
+  .hero-sign__base {
+    clip-path: inset(-30% -16% -45% -16%);
+    text-shadow:
+      0 0.018em 0.016em rgba(26, 20, 10, 0.34),
+      0 0.06em 0.075em rgba(26, 20, 10, 0.26),
+      0 0.13em 0.22em rgba(22, 17, 9, 0.18);
+  }
   .hero-sign__draw { display: none; }                        /* no draw-on */
   .hero-sign__lens { display: none; }
 }
@@ -1790,6 +1811,17 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   font-size: clamp(21px, 1.7vw, 30px);
   line-height: 1.38;
   color: var(--ink);
+  /* Soft lift to echo the signature — two warm, em-scaled layers (crisp
+     contact + soft drop). Kept lighter/tighter than the big wordmark so
+     the script intro copy stays crisp and legible. */
+  text-shadow:
+    0 0.045em 0.05em rgba(26, 20, 10, 0.42),
+    0 0.12em 0.2em rgba(22, 17, 9, 0.30);
+}
+/* Weak devices: one soft layer — the typed text re-renders each char as it
+   types, so keep the shadow cheap. */
+body.perf-lite .callcard__def {
+  text-shadow: 0 0.07em 0.1em rgba(26, 20, 10, 0.40);
 }
 /* Sizer reserves the FULL wrapped height up front (so the arrow never jumps);
    the live/typed text is overlaid on it and wraps identically. */
