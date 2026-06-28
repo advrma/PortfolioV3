@@ -434,9 +434,21 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
      name's hover (morphing-cursor) effect works — the character canvas
      itself isn't interactive. */
   pointer-events: none;
-  /* No CSS filters on the canvas — the character stays sharp at
-     all times. Sub-frame interpolation inside renderFrame already
-     smooths the pose transitions without softening pixels. */
+  /* Soft cast shadow so the figure sits in the scene — lifts off the
+     cream and the wordmark behind it. drop-shadow blurs only the SHADOW
+     copy, so the character pixels stay sharp. It re-rasterises on frame
+     change, not every rAF (renderFrame skips unchanged frames; the
+     per-frame transform is composite-only), so the cost stays bounded;
+     perf-lite trims it to one cheap layer. Key light reads upper-left,
+     so the shadow falls down-right. */
+  filter:
+    drop-shadow(6px 11px 22px rgba(20, 16, 10, 0.15))
+    drop-shadow(16px 34px 72px rgba(18, 14, 9, 0.12));
+}
+/* Weak devices: a single, smaller-blur cast shadow — cheaper to
+   re-rasterise as the crawl advances frames. */
+body.perf-lite .hero-stage__canvas {
+  filter: drop-shadow(8px 16px 30px rgba(20, 16, 10, 0.15));
 }
 
 /* Cloned topo contour pattern inside the pinned hero + gallery
@@ -531,6 +543,19 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 }
 .goodpart__side--l { justify-self: end; text-align: right; }
 .goodpart__side--r { justify-self: start; text-align: left; }
+/* Layered cast shadow on the giant statement — applied here (not on the glyph)
+   because .goodpart__word is overflow:hidden for the reveal wipe and would clip a
+   text-shadow. Stacked drop-shadows on the un-clipped side cast the same warm-dark,
+   em-scaled depth as the rest of the copy. */
+.goodpart__side {
+  filter:
+    drop-shadow(0 0.014em 0.012em rgba(26, 20, 10, 0.46))
+    drop-shadow(0 0.05em 0.055em rgba(22, 17, 9, 0.34))
+    drop-shadow(0 0.11em 0.2em rgba(20, 16, 10, 0.24));
+}
+body.perf-lite .goodpart__side {
+  filter: drop-shadow(0 0.055em 0.07em rgba(26, 20, 10, 0.4));
+}
 /* Nudge STUFF a little toward GOOD (leftward). */
 .goodpart__word--stuff { margin-left: -0.1em; }
 /* Shift the whole GOOD STUFF group a bit toward the left as a unit. */
@@ -1582,6 +1607,12 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   text-transform: uppercase;
   text-align: left;
   color: var(--ink);
+  /* Layered cast shadow lifts the heavy display copy off the cream — contact + mid + soft
+     ambient, warm-dark to harmonise with the paper. em units so it tracks the responsive size. */
+  text-shadow:
+    0 0.016em 0.014em rgba(26, 20, 10, 0.46),
+    0 0.055em 0.06em rgba(22, 17, 9, 0.36),
+    0 0.12em 0.22em rgba(20, 16, 10, 0.26);
   min-height: 9.8em;                        /* reserve the typed lines so it doesn't jump while typing */
 }
 /* Each character fades in/out via opacity (layout-neutral, so wrapping stays fixed). All lines
@@ -1597,6 +1628,11 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   color: var(--ink);
   background: var(--accent);
   box-shadow: 0 0.06em 0 var(--accent), 0 -0.04em 0 var(--accent);
+  text-shadow: none;                        /* keep glyphs crisp on the neon bars — no halo */
+}
+/* Weak devices: drop to a single soft layer. */
+body.perf-lite .igbio {
+  text-shadow: 0 0.06em 0.08em rgba(26, 20, 10, 0.42);
 }
 .igpost__header { display: flex; align-items: center; gap: 16px; padding: 0 0 18px; }
 .igpost__avatar {
