@@ -2771,6 +2771,21 @@ html.is-dark .hall__glow {
   line-height: 0.82;
 }
 
+/* "Project Gallery" divider title in the warp flythrough — same heading font /
+   size as the category headings (FRAMEWORKS, etc.), but a two-word title, so it
+   stacks to two centred lines. It's slightly THICKER than the base headings via
+   -webkit-text-stroke (Anton ships one weight, so stroke is how you add heft —
+   same colour, so it just fattens each glyph), the two lines are pushed further
+   apart with a looser line-height, and the tracking is opened a touch (base is
+   -0.03em) so the thicker glyphs don't read as cramped. */
+.warp-heading--pg {
+  white-space: normal;       /* override base nowrap so the two words stack */
+  text-align: center;        /* centre the two stacked lines */
+  line-height: 1.0;          /* more air between PROJECT and GALLERY (base is 0.82) */
+  letter-spacing: -0.01em;   /* a touch more character spacing than the base -0.03em */
+  -webkit-text-stroke: 0.022em currentColor;  /* thicken the glyphs (no heavier Anton weight) */
+}
+
 /* Project-gallery first-frame "cards" that fly in behind the last skill card
    (same warp flythrough). Image fills a 16:9 frame with the same dark chrome. */
 .warp-frame {
@@ -2884,11 +2899,14 @@ html.is-dark .hall__glow {
 .warp-star {
   position: absolute;
   width: 2px; height: 2px;
+  border-radius: 50%;
   background: rgba(242, 238, 229, 0.8);
   transform: translate(-50%, -50%);
-  /* No will-change here: ~520 stars × will-change = ~520 permanent GPU
-     layers (huge VRAM). The compositor promotes them on demand while the
-     warp render loop animates; identical appearance. */
+  /* No will-change here: ~1300 stars × will-change = ~1300 permanent GPU
+     layers (huge VRAM). Instead the compositor promotes only the visible,
+     animating ones on demand (paintItems stops touching faded-out stars).
+     No box-shadow either: a blurred glow would inflate every star's layer
+     texture far past its pixel size — flat round dots keep it cheap. */
 }
 
 /* Scanlines + vignette overlays inside pin */
@@ -3620,6 +3638,7 @@ body.perf-lite .term__cursor { animation: none; }
 
   .warp { height: 800vh; }   /* match desktop flythrough length (incl. expand tail) */
   .warp-heading { font-size: clamp(76px, 28vw, 220px); }
+  .warp-heading--pg { font-size: clamp(80px, 22vw, 170px); }
   .warp-card { width: min(280px, 86vw); height: clamp(340px, 70vh, 460px); }
   .warp__hud { font-size: 9px; inset: 14px; }
 

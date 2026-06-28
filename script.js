@@ -1868,7 +1868,11 @@
     ];
 
     const Z_GAP       = 800;
-    const STAR_COUNT  = 520;
+    // Large field, but cheap: paintItems skips faded-out stars, so per-frame
+    // cost scales with VISIBLE stars only (a small fraction at any moment),
+    // and stars carry no box-shadow — lighter than the old smaller field.
+    // Still trimmed under perf-lite (?lite=1 / adaptive FPS probe) for weak HW.
+    const STAR_COUNT  = document.body.classList.contains('perf-lite') ? 600 : 1300;
     const TOTAL_Z     = SKILLS.length * Z_GAP;
     // The camera flies through the skill cards AND a project/gallery frame field
     // that follows them in the SAME 3D space (FRAME_FIELD below), ending in dark
@@ -1933,6 +1937,28 @@
       world.appendChild(el);
     });
 
+    // ---- "PROJECT GALLERY" divider title — a single warp-heading (same font,
+    // colour, opacity, fade-in + perspective motion as the category headings)
+    // dropped into the OTHERWISE-EMPTY Z-gap between the last skill card
+    // (baseZ -(TOTAL_Z - Z_GAP)) and the first project frame (just past
+    // -TOTAL_Z). It introduces the project sequence without adding any scroll
+    // distance or shifting a single frame's depth — it purely fills dead space,
+    // so it reaches the front right after the last card and the first frame
+    // follows closely behind it (then it fades as the frames take over). Two
+    // words → stacked to two centred lines (--pg), since one huge nowrap line
+    // would overflow the viewport. NOT pushed to headingIndices, so the CAT
+    // counter stays 05/05 (this is a transition title, not a skill category).
+    {
+      const el = document.createElement('div');
+      el.className = 'warp-item';
+      const h = document.createElement('div');
+      h.className = 'warp-heading warp-heading--pg';
+      h.innerHTML = 'Project <br>Gallery';   // space → textContent reads "Project Gallery"; the break still stacks it
+      el.appendChild(h);
+      items.push({ el, type: 'heading', x: 0, y: 0, rot: 0, baseZ: -(TOTAL_Z - Z_GAP * 0.5) });
+      world.appendChild(el);
+    }
+
     // ---- Project/gallery FRAME FIELD: a constellation of UNIQUE section/project
     // captures (NO duplicates) that continues the SAME 3D field right after the last
     // skill card. The camera flies THROUGH them exactly like the cards (same scrub,
@@ -1974,11 +2000,23 @@
     // (called from the render loop below) — one continuous live element that emerges,
     // reaches the front, then expands to full screen. See initProjectsHall.
 
-    /* Starfield — denser, varied sizes & brightness, plus a
-       sprinkle of chartreuse accent stars for atmosphere.
-       All visual properties are set once at creation; the
-       per-frame render loop only touches transform/opacity
-       so the bigger field doesn't cost extra per-frame CPU. */
+    /* Starfield — a richer, evenly-distributed field that now spans the
+       ENTIRE flythrough: the skill-card runway AND the project/gallery
+       frame field that follows it. Previously star depth stopped at
+       TOTAL_Z (where the frame field begins), so the floating frames flew
+       through empty black; now stars surround them at the same density as
+       the rest of the scene, so the frames read as embedded in one space.
+       Stars vary in size, brightness, opacity and depth for a 3D (not
+       flat-wallpaper) feel. All visual properties are set once at creation;
+       the per-frame loop only touches transform/opacity, and stars carry
+       NO box-shadow (a blurred glow inflates each star's GPU layer far past
+       its pixel size) — so the denser field stays cheap on the compositor. */
+    // Depth span = skill-card runway (TOTAL_Z) + the frame field
+    // (FRAME_Z0..FRAME_Z0+FIELD_DEPTH) + a tail that reaches past the last
+    // frame to the gallery's arrival depth, so deep stars are still AHEAD of
+    // the camera while it flies through the frames AND during the final
+    // approach (they then fade with the backdrop as the gallery expands).
+    const STAR_Z_SPAN = FRAME_Z0 + FIELD_DEPTH + 2600;
     let seed = 12345;
     const rnd = () => {
       seed = (seed * 9301 + 49297) % 233280;
@@ -1988,30 +2026,33 @@
       const el = document.createElement('div');
       el.className = 'warp-star';
 
-      const size      = 1 + rnd() * 2.4;          // 1 – 3.4 px
-      const baseAlpha = 0.40 + rnd() * 0.55;      // 0.40 – 0.95 (brighter than before)
-      const isAccent  = rnd() < 0.10;             // ~10% extra-bright (white, not green)
+      // Bias toward small (power curve) so most stars read as fine points,
+      // with occasional larger ones for variation. Brightness floor is high
+      // (~0.70 alpha, most stars near-full) so the field reads bright and
+      // luminous — brightness comes from ALPHA + a near-white tint, NOT a
+      // box-shadow glow. Dropping the glow is the main GPU win: a blurred
+      // shadow inflates each star's composited layer to many times its pixel
+      // area (VRAM + overdraw); flat round dots are cheap.
+      const size      = 1.0 + Math.pow(rnd(), 1.5) * 2.1;   // ~1.0 – 3.1 px (mostly small)
+      const baseAlpha = 0.70 + Math.pow(rnd(), 0.9) * 0.30; // ~0.70 – 1.0 (biased bright, median ~0.86)
+      const isAccent  = rnd() < 0.06;                       // ~6% extra-bright + a touch larger
 
-      el.style.width  = size.toFixed(2) + 'px';
-      el.style.height = size.toFixed(2) + 'px';
+      const px = (isAccent ? size + 0.6 : size).toFixed(2) + 'px';
+      el.style.width  = px;
+      el.style.height = px;
       if (isAccent) {
-        // Bright white accent stars (was chartreuse — removed so there's no green
-        // glow; the warp scene IS the gallery fly-in's background now).
-        el.style.background = 'rgba(245, 242, 235, ' + Math.min(1, baseAlpha + 0.1).toFixed(2) + ')';
-        el.style.boxShadow  = '0 0 6px rgba(242, 238, 229, 0.5)';
+        // Extra-bright near-white accents (no green; no glow — see above).
+        el.style.background = 'rgba(253, 252, 248, ' + Math.min(1, baseAlpha + 0.12).toFixed(2) + ')';
       } else {
-        el.style.background = 'rgba(242, 238, 229, ' + baseAlpha.toFixed(2) + ')';
-        if (size > 2.2) {
-          el.style.boxShadow = '0 0 4px rgba(242, 238, 229, 0.40)';
-        }
+        el.style.background = 'rgba(250, 247, 240, ' + baseAlpha.toFixed(2) + ')';
       }
 
       world.appendChild(el);
       items.push({
         el, type: 'star',
-        x: (rnd() - 0.5) * 3800,                  // wider spread for depth
+        x: (rnd() - 0.5) * 3800,                  // wide spread — fills periphery + behind frames
         y: (rnd() - 0.5) * 3800,
-        baseZ: -rnd() * TOTAL_Z
+        baseZ: -rnd() * STAR_Z_SPAN               // spans cards + frame field → even density throughout
       });
     }
 
@@ -2030,12 +2071,26 @@
         let alpha;
         if (vizZ < -3200)      alpha = 0;
         else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
-        else if (vizZ > 80 && item.type !== 'star') alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
+        else if (item.type === 'star') {
+          // Stars fade out fast once they pass the camera (vizZ > 0) instead
+          // of being held at full opacity while perspective balloons them into
+          // big, hard-edged near-camera quads. That cull keeps the GPU light
+          // (no giant overdrawn layers) and the pass reads as a clean streak.
+          alpha = vizZ > 0 ? Math.max(0, 1 - vizZ / 300) : 1;
+        }
+        else if (vizZ > 80) alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
         else                   alpha = 1;
         if (alpha < 0) alpha = 0;
-        // Write opacity only when it actually changed (most items hold a
-        // steady 1 or 0 across frames) — avoids ~hundreds of redundant
-        // style mutations per frame. First paint writes (cache undefined).
+        // Invisible items: write opacity 0 once, then skip the transform build
+        // + write entirely. Per-frame work scales with VISIBLE items, not the
+        // total — so a large star field (most of it faded out at any moment)
+        // stays cheap on both the main thread and the compositor.
+        if (alpha <= 0) {
+          if (item._lastOp !== '0') { item.el.style.opacity = '0'; item._lastOp = '0'; }
+          continue;
+        }
+        // Write opacity only when it actually changed (most visible items hold
+        // a steady 1 across frames) — avoids redundant style mutations.
         const op = alpha.toFixed(3);
         if (op !== item._lastOp) { item.el.style.opacity = op; item._lastOp = op; }
 
