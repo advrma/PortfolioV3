@@ -438,17 +438,17 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
      cream and the wordmark behind it. drop-shadow blurs only the SHADOW
      copy, so the character pixels stay sharp. It re-rasterises on frame
      change, not every rAF (renderFrame skips unchanged frames; the
-     per-frame transform is composite-only), so the cost stays bounded;
-     perf-lite trims it to one cheap layer. Key light reads upper-left,
+     per-frame transform is composite-only). Kept to ONE layer with a
+     modest blur: this is the only shadow that re-rasterises while the
+     crawl plays, so a single cheap pass (instead of two big-blur passes)
+     is the biggest GPU saving on the page. Key light reads upper-left,
      so the shadow falls down-right. */
-  filter:
-    drop-shadow(6px 11px 22px rgba(20, 16, 10, 0.15))
-    drop-shadow(16px 34px 72px rgba(18, 14, 9, 0.12));
+  filter: drop-shadow(7px 16px 34px rgba(21, 16, 10, 0.24));
 }
 /* Weak devices: a single, smaller-blur cast shadow — cheaper to
    re-rasterise as the crawl advances frames. */
 body.perf-lite .hero-stage__canvas {
-  filter: drop-shadow(8px 16px 30px rgba(20, 16, 10, 0.15));
+  filter: drop-shadow(8px 15px 26px rgba(19, 15, 9, 0.22));
 }
 
 /* Cloned topo contour pattern inside the pinned hero + gallery
@@ -543,18 +543,19 @@ body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 }
 .goodpart__side--l { justify-self: end; text-align: right; }
 .goodpart__side--r { justify-self: start; text-align: left; }
-/* Layered cast shadow on the giant statement — applied here (not on the glyph)
-   because .goodpart__word is overflow:hidden for the reveal wipe and would clip a
-   text-shadow. Stacked drop-shadows on the un-clipped side cast the same warm-dark,
-   em-scaled depth as the rest of the copy. */
+/* Premium graduated cast shadow on the giant statement — applied here (not on the
+   glyph) because .goodpart__word is overflow:hidden for the reveal wipe and would clip
+   a text-shadow. Three stacked drop-shadows on the un-clipped side: crisp contact + soft
+   mid + wide ambient, warm-to-cool tint, em-scaled to match the rest of the copy. The
+   headline is static once revealed, so the layer rasterises once — no per-frame cost. */
 .goodpart__side {
   filter:
-    drop-shadow(0 0.014em 0.012em rgba(26, 20, 10, 0.46))
-    drop-shadow(0 0.05em 0.055em rgba(22, 17, 9, 0.34))
-    drop-shadow(0 0.11em 0.2em rgba(20, 16, 10, 0.24));
+    drop-shadow(0 0.01em 0.01em rgba(28, 21, 11, 0.56))
+    drop-shadow(0 0.045em 0.06em rgba(24, 18, 10, 0.4))
+    drop-shadow(0 0.14em 0.24em rgba(20, 16, 10, 0.24));
 }
 body.perf-lite .goodpart__side {
-  filter: drop-shadow(0 0.055em 0.07em rgba(26, 20, 10, 0.4));
+  filter: drop-shadow(0 0.055em 0.07em rgba(26, 20, 10, 0.52));
 }
 /* Nudge STUFF a little toward GOOD (leftward). */
 .goodpart__word--stuff { margin-left: -0.1em; }
@@ -658,15 +659,16 @@ body.perf-lite .goodpart__side {
   overflow: visible;
   opacity: 0;                /* JS sets the dash offsets, then flips to 1 */
   pointer-events: none;      /* hover stays on .hero-sign (the h1) */
-  /* Premium lift — three warm, em-scaled shadow layers (crisp contact +
-     soft mid + diffuse ambient) so the signature floats just off the
-     cream paper. em units track the responsive font-size; warm-dark to
-     sit with the cream. Static (no animation) so the scroll-fade and
-     perf-lite stay cheap — the layer is rasterised once, opacity-only. */
+  /* Premium graduated lift — three warm, em-scaled layers: a crisp dark
+     CONTACT edge, a soft MID, and a wide diffuse AMBIENT halo, with a
+     subtle warm-to-cool tint shift (28,21,11 → 20,16,10) for depth that
+     reads hand-crafted rather than flat. em units track the responsive
+     font-size. Static (no animation) so it rasterises once and the extra
+     layer costs nothing per frame; the scroll-fade is opacity-only. */
   filter:
-    drop-shadow(0 0.018em 0.016em rgba(26, 20, 10, 0.34))
-    drop-shadow(0 0.06em 0.075em rgba(26, 20, 10, 0.26))
-    drop-shadow(0 0.13em 0.22em rgba(22, 17, 9, 0.18));
+    drop-shadow(0 0.012em 0.012em rgba(28, 21, 11, 0.46))
+    drop-shadow(0 0.055em 0.075em rgba(24, 18, 10, 0.32))
+    drop-shadow(0 0.16em 0.3em rgba(20, 16, 10, 0.2));
 }
 .hero-sign__stroke {
   fill: rgba(12, 12, 10, 0.66);    /* same ink as the name */
@@ -680,7 +682,7 @@ body.perf-lite .goodpart__side {
 /* Weak devices: one soft layer instead of three so the opacity scroll-fade
    stays light (the name lives in the perf-sensitive hero). */
 body.perf-lite .hero-sign__draw {
-  filter: drop-shadow(0 0.05em 0.07em rgba(26, 20, 10, 0.32));
+  filter: drop-shadow(0 0.05em 0.07em rgba(26, 20, 10, 0.44));
 }
 /* Spotlight lens: a solid ink circle that follows the cursor; inside,
    "software engineer" shows in cream, counter-translated so it stays
@@ -1607,12 +1609,13 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   text-transform: uppercase;
   text-align: left;
   color: var(--ink);
-  /* Layered cast shadow lifts the heavy display copy off the cream — contact + mid + soft
-     ambient, warm-dark to harmonise with the paper. em units so it tracks the responsive size. */
+  /* Premium graduated cast shadow — crisp contact + soft mid + wide diffuse ambient,
+     warm-to-cool tint (28,21,11 → 20,16,10) for hand-crafted depth. em units track the
+     responsive size. Text-shadow paints with the glyph, so three layers stays cheap. */
   text-shadow:
-    0 0.016em 0.014em rgba(26, 20, 10, 0.46),
-    0 0.055em 0.06em rgba(22, 17, 9, 0.36),
-    0 0.12em 0.22em rgba(20, 16, 10, 0.26);
+    0 0.012em 0.012em rgba(28, 21, 11, 0.58),
+    0 0.05em 0.07em rgba(24, 18, 10, 0.42),
+    0 0.15em 0.26em rgba(20, 16, 10, 0.26);
   min-height: 9.8em;                        /* reserve the typed lines so it doesn't jump while typing */
 }
 /* Each character fades in/out via opacity (layout-neutral, so wrapping stays fixed). All lines
@@ -1632,7 +1635,7 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
 }
 /* Weak devices: drop to a single soft layer. */
 body.perf-lite .igbio {
-  text-shadow: 0 0.06em 0.08em rgba(26, 20, 10, 0.42);
+  text-shadow: 0 0.06em 0.08em rgba(26, 20, 10, 0.54);
 }
 .igpost__header { display: flex; align-items: center; gap: 16px; padding: 0 0 18px; }
 .igpost__avatar {
@@ -1847,17 +1850,19 @@ body.perf-lite .igbio {
   font-size: clamp(21px, 1.7vw, 30px);
   line-height: 1.38;
   color: var(--ink);
-  /* Soft lift to echo the signature — two warm, em-scaled layers (crisp
-     contact + soft drop). Kept lighter/tighter than the big wordmark so
-     the script intro copy stays crisp and legible. */
+  /* Premium graduated lift to echo the signature — three warm, em-scaled
+     layers (crisp contact + soft mid + diffuse ambient) with a warm-to-cool
+     tint. Kept tighter than the big wordmark so the script intro copy stays
+     crisp and legible while gaining depth. */
   text-shadow:
-    0 0.045em 0.05em rgba(26, 20, 10, 0.42),
-    0 0.12em 0.2em rgba(22, 17, 9, 0.30);
+    0 0.028em 0.028em rgba(28, 21, 11, 0.52),
+    0 0.09em 0.12em rgba(24, 18, 10, 0.36),
+    0 0.22em 0.34em rgba(20, 16, 10, 0.22);
 }
 /* Weak devices: one soft layer — the typed text re-renders each char as it
    types, so keep the shadow cheap. */
 body.perf-lite .callcard__def {
-  text-shadow: 0 0.07em 0.1em rgba(26, 20, 10, 0.40);
+  text-shadow: 0 0.07em 0.1em rgba(26, 20, 10, 0.52);
 }
 /* Sizer reserves the FULL wrapped height up front (so the arrow never jumps);
    the live/typed text is overlaid on it and wraps identically. */
@@ -2187,6 +2192,11 @@ html.is-dark .hall__glow {
   text-transform: uppercase;
   color: var(--ink);
   opacity: 0.85;
+  /* Two-layer lift on the mono HUD chrome so every gallery label carries the
+     shadow (em-scaled off the small font, warm-to-cool tint). */
+  text-shadow:
+    0 0.05em 0.09em rgba(26, 20, 10, 0.34),
+    0 0.14em 0.24em rgba(20, 16, 10, 0.2);
 }
 .hall__hint {
   position: absolute;
@@ -2197,6 +2207,9 @@ html.is-dark .hall__glow {
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: rgba(0,0,0,0.45);
+  text-shadow:
+    0 0.05em 0.09em rgba(26, 20, 10, 0.34),
+    0 0.14em 0.24em rgba(20, 16, 10, 0.2);
 }
 .hall__hint span::before {
   content: "↓  ";
@@ -2246,6 +2259,9 @@ html.is-dark .hall__glow {
   border-bottom: 1px solid rgba(0,0,0,0.15);
   padding-bottom: 6px;
   margin-bottom: 24px;
+  text-shadow:
+    0 0.05em 0.09em rgba(26, 20, 10, 0.34),
+    0 0.14em 0.24em rgba(20, 16, 10, 0.2);
 }
 .hall-slide__title {
   font-family: var(--f-serif, "Instrument Serif", serif);
@@ -2269,12 +2285,24 @@ html.is-dark .hall__glow {
   font-size: clamp(24px, 2.4vw, 38px);
   line-height: 1.05;
   color: var(--ink-mute);
+  /* Lighter two-layer lift — thin serif italic, so kept soft to stay legible. */
+  text-shadow:
+    0 0.02em 0.03em rgba(28, 21, 11, 0.38),
+    0 0.08em 0.15em rgba(20, 16, 10, 0.24);
 }
 .hall-slide__title-main {
   display: flex;
   align-items: center;
   gap: clamp(15px, 1.35vw, 22px);
   perspective: 900px;            /* enables the gentle 3D tilt on hover */
+  /* Premium graduated lift on the project wordmark — crisp contact + soft
+     mid + wide ambient, warm-to-cool tint, em-scaled. Matches the landing's
+     shadow language so the gallery reads as one system. (The logo chip keeps
+     its own box-shadow; text-shadow only touches the glyphs.) */
+  text-shadow:
+    0 0.012em 0.012em rgba(28, 21, 11, 0.52),
+    0 0.05em 0.07em rgba(24, 18, 10, 0.36),
+    0 0.14em 0.24em rgba(20, 16, 10, 0.24);
 }
 
 /* ------------------------------------------------------------------
@@ -2446,6 +2474,11 @@ html.is-dark .hall__glow {
   line-height: 1.7;
   color: rgba(0,0,0,0.62);
   margin: 0 0 36px;
+  /* Two-layer lift — more apparent now, still tuned to stay legible at this
+     size / light weight (crisp contact + soft drop). */
+  text-shadow:
+    0 0.025em 0.03em rgba(28, 21, 11, 0.28),
+    0 0.07em 0.13em rgba(20, 16, 10, 0.17);
 }
 
 /* ------------------------------------------------------------------
@@ -2561,12 +2594,19 @@ html.is-dark .hall__glow {
   text-transform: uppercase;
   color: rgba(0,0,0,0.45);
   align-self: center;
+  text-shadow:
+    0 0.05em 0.09em rgba(26, 20, 10, 0.34),
+    0 0.14em 0.24em rgba(20, 16, 10, 0.2);
 }
 .hall-slide__meta-value {
   font-family: var(--f-serif, "Instrument Serif", serif);
   font-style: italic;
   font-size: clamp(14px, 1vw, 17px);
   color: var(--ink);
+  /* Two-layer lift to match the copy above. */
+  text-shadow:
+    0 0.025em 0.03em rgba(28, 21, 11, 0.32),
+    0 0.08em 0.14em rgba(20, 16, 10, 0.19);
 }
 /* GitHub / repo link — inherits the serif-italic meta value look, with an
    underline + green accent on hover (matching the body's hyper-word accent). */
@@ -3505,6 +3545,11 @@ body.perf-lite .term__cursor { animation: none; }
   font-family: var(--f-mono);
   font-size: 11px; letter-spacing: 0.22em;
   color: var(--ink-mute);
+  /* Light two-layer lift on the mono eyebrow (matches the landing's shadow
+     language — warm-to-cool, em-scaled). */
+  text-shadow:
+    0 0.04em 0.08em rgba(26, 20, 10, 0.28),
+    0 0.1em 0.18em rgba(20, 16, 10, 0.16);
 }
 .contact__meta .contact__num {
   padding: 4px 10px;
@@ -3521,6 +3566,13 @@ body.perf-lite .term__cursor { animation: none; }
   line-height: 0.86;
   letter-spacing: -0.02em;
   color: var(--ink);
+  /* Premium graduated cast shadow — crisp contact + soft mid + wide diffuse
+     ambient, warm-to-cool tint, em-scaled to the huge type. Inherits to the
+     italic "something" + "good." for one cohesive lift off the cream. */
+  text-shadow:
+    0 0.01em 0.01em rgba(28, 21, 11, 0.42),
+    0 0.045em 0.06em rgba(24, 18, 10, 0.28),
+    0 0.13em 0.22em rgba(20, 16, 10, 0.18);
   display: flex; flex-direction: column;
   gap: 0;
 }
@@ -3552,6 +3604,10 @@ body.perf-lite .term__cursor { animation: none; }
   font-size: clamp(16px, 1.15vw, 19px);
   line-height: 1.55;
   color: var(--ink-mute);
+  /* Soft two-layer lift, tuned to stay legible at body size. */
+  text-shadow:
+    0 0.02em 0.03em rgba(28, 21, 11, 0.24),
+    0 0.06em 0.12em rgba(20, 16, 10, 0.14);
 }
 
 .contact__email {
@@ -3562,7 +3618,13 @@ body.perf-lite .term__cursor { animation: none; }
   border-radius: 999px;
   transition: transform .4s var(--ease-out-quart), background .3s ease;
   margin-bottom: 50px;
-  box-shadow: 0 30px 60px -30px rgba(12,12,10,0.6);
+  /* Premium layered lift on the raised pill — tight contact through wide
+     ambient so it floats convincingly off the cream. */
+  box-shadow:
+    0 2px 4px rgba(12, 10, 6, 0.28),
+    0 8px 16px rgba(12, 10, 6, 0.22),
+    0 22px 44px -12px rgba(12, 10, 6, 0.4),
+    0 40px 70px -30px rgba(12, 10, 6, 0.55);
 }
 .contact__email:hover { transform: translateY(-3px); background: #000; }
 .contact__email-label {
@@ -3589,6 +3651,9 @@ body.perf-lite .term__cursor { animation: none; }
   color: var(--ink);
   border-bottom: 1px solid var(--line-soft);
   transition: color .25s ease, border-color .25s ease;
+  text-shadow:
+    0 0.04em 0.08em rgba(26, 20, 10, 0.28),
+    0 0.1em 0.18em rgba(20, 16, 10, 0.16);
 }
 .contact__socials a:hover { color: var(--accent-deep); border-color: var(--accent-deep); }
 
@@ -3603,6 +3668,9 @@ body.perf-lite .term__cursor { animation: none; }
   font-family: var(--f-mono);
   font-size: 10px; letter-spacing: 0.22em;
   color: var(--ink-mute);
+  text-shadow:
+    0 0.04em 0.08em rgba(26, 20, 10, 0.26),
+    0 0.1em 0.18em rgba(20, 16, 10, 0.15);
 }
 .footer__col { display: flex; align-items: center; gap: 8px; }
 .footer__col--center { justify-content: center; }
