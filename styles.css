@@ -3538,6 +3538,13 @@ body.perf-lite .term__cursor { animation: none; }
   margin: 0 auto;
   padding-bottom: clamp(80px, 12vh, 160px);
   position: relative;
+  /* Nudge the whole copy block left so it clears the (right-shifted) weave.
+     Scale the shift with the free side-space: ~0 on narrow screens (where the
+     1200px block already hugs the edges) up to ~230px on wide ones, so it
+     mirrors the weave without ever clipping the copy.
+     NOTE: keep the weave canvas OUT of this element — this transform would
+     otherwise become the containing block for its position:fixed. */
+  transform: translateX(min(0px, (100vw - 1400px) * -0.24));
 }
 /* Woven torus-knot backdrop. Fixed + centred in the viewport so the knot is
    always fully visible and never clipped by the section edges. Fades in with

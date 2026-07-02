@@ -4691,7 +4691,7 @@
     // torus knot spans ~radius*1.5 + tube in-plane, so at camera z=5 (visible
     // half-height ~3.84) these values keep the whole knot inside the frame with
     // a comfortable margin — fills the screen but is never clipped.
-    const knot = new THREE.TorusKnotGeometry(1.8, 0.52, 220, 30);
+    const knot = new THREE.TorusKnotGeometry(1.5, 0.44, 220, 30);
     const knotPos = knot.attributes.position;
     const vCount = knotPos.count;
 
@@ -4734,6 +4734,10 @@
     });
     const points = new THREE.Points(geometry, material);
     points.rotation.y = 0.5;   // slight lean for depth (camera is rolled 90°)
+    // Camera rolled 90°: +Y shifts right, -X shifts up on screen. Keep the
+    // up-shift modest so the top of the knot never clips the frame.
+    points.position.y = 1.5;    // right, but with a real right margin (mirrors text's left)
+    points.position.x = -0.1;   // a little lower (screen-down = world +X)
     scene.add(points);
 
     // The canvas is fixed + centred in the viewport (see CSS), so it just needs
@@ -4772,8 +4776,10 @@
       const pos = geometry.attributes.position.array;
       const hh = halfH(), hw = hh * camera.aspect;
       // Camera is rolled 90° (screen-right → world +Y, screen-up → world -X),
-      // so map the cursor into world space accordingly for the repulsion.
-      const mx = -mouse.y * hh, my = mouse.x * hw;
+      // so map the cursor into world space; then subtract the knot's position
+      // offset so the repulsion is computed in the particles' local frame.
+      const mx = -mouse.y * hh - points.position.x;
+      const my = mouse.x * hw - points.position.y;
       const pushing = mouse.active;
 
       for (let i = 0; i < COUNT; i++) {
