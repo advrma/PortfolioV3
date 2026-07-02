@@ -33,6 +33,18 @@
   --gutter: clamp(20px, 4vw, 64px);
   --section-y: clamp(80px, 12vw, 180px);
 
+  /* Fluid type scale — clamp(mobile-safe min, vw, 2K-matching max). The MAX equals
+     the value the 2560 design was tuned at, so the wide look is unchanged, while the
+     vw middle scales everything proportionally down to phones. Most large type in
+     this file already uses inline clamp(); this token covers the small mono labels
+     so they scale too instead of looking oversized on smaller / OS-scaled viewports. */
+  --fs-label: clamp(10px, 0.72vw, 11px);   /* mono eyebrows / HUD tags */
+
+  /* Responsive breakpoints — vanilla @media mirroring Tailwind sm/md/lg/xl/2xl:
+       sm 640px · md 768px · lg 1024px · xl 1280px · 2xl 1536px
+     (CSS custom properties can't be used inside @media, so these are the agreed
+     numeric thresholds the media queries below use.) */
+
   /* Easing */
   --ease-out-quart: cubic-bezier(.25,1,.5,1);
   --ease-soft: cubic-bezier(.6,.05,.2,1);
@@ -633,7 +645,11 @@ body.perf-lite .goodpart__side {
   margin: 0;
   font-family: var(--f-sign);
   font-weight: 700;
-  font-size: clamp(96px, 20vw, 360px);
+  /* Sized so the (~5.5em-wide, nowrap) name holds the SAME ~77%-of-viewport
+     proportion it has at 2560 across every width: at 2560 the 360px cap ≈ 14vw
+     so the 2K look is unchanged, but below ~1900px it now scales down with the
+     viewport instead of staying capped and overflowing both edges. */
+  font-size: clamp(44px, 14vw, 360px);
   line-height: 1;
   white-space: nowrap;
   letter-spacing: 0.01em;
@@ -817,7 +833,7 @@ body.perf-lite .hero-sign__draw {
   top: clamp(96px, 11vh, 130px);
   display: inline-flex; align-items: center; gap: 12px;
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: var(--fs-label);
   letter-spacing: 0.18em;
   color: var(--ink-mute);
   z-index: 5;
@@ -1532,6 +1548,14 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   opacity: 1;
   filter: blur(0) brightness(1);
   pointer-events: auto;
+}
+/* md and below (≤768): the IG section is a wide horizontal layout (tilted panel +
+   Anton bio side-by-side) that can't fit a phone/small-tablet — the bio ran off the
+   right edge. Hide it here, matching the other cinema asides (which already hide at
+   ≤768). The character reel still plays; only the desktop-only aside is dropped.
+   This rule sits AFTER `.cinema__aside--igpost{display:flex}` so it wins the cascade. */
+@media (max-width: 768px) {
+  .cinema__aside--igpost { display: none; }
 }
 /* On the IG page, lift the character canvas above the cinema overlay so the bio text
    tucks BEHIND the character (canvas made pointer-transparent so the post/dock/stories
