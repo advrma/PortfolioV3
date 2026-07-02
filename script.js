@@ -4319,6 +4319,143 @@
     });
   }
   /* ------------------------------------------------------------
+     initXpArrow — cursor-follow guide arrow (vanilla port of the
+     canvas arrow in dynamic-hero.tsx). A dashed, curved accent
+     arrow trails the pointer and always points at whichever
+     experience role title is currently centered in the viewport,
+     so as you scroll it re-aims from one title to the next.
+     Draws only while the section is on screen; skipped under
+     reduced motion.
+     ------------------------------------------------------------ */
+  function initXpArrow() {
+    const canvas = document.querySelector('[data-xp-arrow]');
+    const xpx2 = document.querySelector('[data-xpx2]');
+    const section = document.getElementById('experience');
+    if (!canvas || !xpx2 || !section) return;
+    if (reduceMotionMQ && reduceMotionMQ.matches) return;
+
+    const ctx = canvas.getContext('2d');
+    // The role names we can aim at (the big scramble word inside each title).
+    const targets = [...xpx2.querySelectorAll('.xpcard__title .text-scramble')];
+    if (!targets.length) return;
+
+    const ACCENT = { r: 216, g: 255, b: 56 };   // electric chartreuse
+    const mouse = { x: null, y: null };
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let running = false;
+    let rafId = null;
+
+    const sizeCanvas = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(window.innerWidth * dpr);
+      canvas.height = Math.round(window.innerHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    sizeCanvas();
+
+    const onMove = (e) => { mouse.x = e.clientX; mouse.y = e.clientY; };
+    const onResize = () => sizeCanvas();
+    window.addEventListener('mousemove', onMove, { passive: true });
+    window.addEventListener('resize', onResize);
+
+    // Pick the title whose vertical center is nearest the viewport center —
+    // that's the "active" role while scrolling through the pinned panels.
+    const activeTarget = () => {
+      const midY = window.innerHeight / 2;
+      let best = null, bestD = Infinity;
+      for (const el of targets) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        const d = Math.abs(r.top + r.height / 2 - midY);
+        if (d < bestD) { bestD = d; best = r; }
+      }
+      return best;
+    };
+
+    const draw = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+      if (mouse.x === null) return;
+      const rect = activeTarget();
+      if (!rect) return;
+
+      const x0 = mouse.x, y0 = mouse.y;
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      // Aim the arrowhead at the edge of the title (a little padding out).
+      const a = Math.atan2(cy - y0, cx - x0);
+      const x1 = cx - Math.cos(a) * (rect.width / 2 + 14);
+      const y1 = cy - Math.sin(a) * (rect.height / 2 + 14);
+
+      const midX = (x0 + x1) / 2, midY = (y0 + y1) / 2;
+      const offset = Math.min(200, Math.hypot(x1 - x0, y1 - y0) * 0.5);
+      const t = Math.max(-1, Math.min(1, (y0 - y1) / 200));
+      const controlX = midX;
+      const controlY = midY + offset * t;
+
+      const r = Math.hypot(x1 - x0, y1 - y0);
+      // Fade in with distance, and ease out as the cursor nears the title.
+      const opacity = Math.max(0, Math.min(1, (r - Math.max(rect.width, rect.height) / 2) / 480));
+      if (opacity <= 0.01) return;
+
+      ctx.strokeStyle = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${opacity})`;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${0.5 * opacity})`;
+      ctx.shadowBlur = 8;
+
+      // Curved dashed shaft.
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(controlX, controlY, x1, y1);
+      ctx.setLineDash([10, 6]);
+      ctx.stroke();
+      ctx.restore();
+
+      // Solid arrowhead at the title end.
+      const angle = Math.atan2(y1 - controlY, x1 - controlX);
+      const head = 12;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - head * Math.cos(angle - Math.PI / 6), y1 - head * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - head * Math.cos(angle + Math.PI / 6), y1 - head * Math.sin(angle + Math.PI / 6));
+      ctx.stroke();
+    };
+
+    const loop = () => {
+      if (!running) return;
+      draw();
+      rafId = requestAnimationFrame(loop);
+    };
+    const start = () => {
+      if (running) return;
+      running = true;
+      rafId = requestAnimationFrame(loop);
+    };
+    const stop = () => {
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = null;
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    };
+
+    // Only run the loop while the experience section is on screen.
+    if (typeof ScrollTrigger !== 'undefined') {
+      ScrollTrigger.create({
+        trigger: section, start: 'top bottom', end: 'bottom top',
+        onToggle: (self) => (self.isActive ? start() : stop()),
+      });
+    } else if ('IntersectionObserver' in window) {
+      new IntersectionObserver((es) => (es[0].isIntersecting ? start() : stop()), { threshold: 0 })
+        .observe(section);
+    } else {
+      start();
+    }
+  }
+  /* ------------------------------------------------------------
      initThemeShift — "lights off" dark mode.
      As the page scrolls past the project gallery into the
      experience section, flip html.is-dark on. The palette
@@ -4520,6 +4657,191 @@
     });
   }
 
+  /* ------------------------------------------------------------
+     initContactWeave — "woven light" backdrop for the contact
+     headline (vanilla port of woven-light-hero.tsx). A torus-knot
+     shaped cloud of fine particles turns slowly behind the type
+     and shies away from the cursor. Recoloured to the page — warm
+     graphite threads with occasional chartreuse filaments on the
+     cream, multiply-blended so it reads as woven thread, not neon.
+     Allocation-free physics + trimmed particle count; only renders
+     while the contact section is on screen; static under
+     reduced-motion.
+     ------------------------------------------------------------ */
+  function initContactWeave() {
+    const canvas = document.querySelector('[data-contact-weave]');
+    const section = document.getElementById('contact');
+    const inner = section && section.querySelector('.contact__inner');
+    const headline = inner && inner.querySelector('.contact__headline');
+    if (!canvas || !section || !inner || !headline) return;
+    if (typeof THREE === 'undefined') return;
+
+    const reduce = reduceMotionMQ && reduceMotionMQ.matches;
+    const lite = document.body.classList.contains('perf-lite');
+    const COUNT = lite ? 4400 : 9500;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
+    camera.position.z = 5;
+    camera.rotation.z = Math.PI / 2;   // roll the view 90° so the knot lies horizontal
+
+    // Sample the knot's surface for particle seed positions. NOTE: THREE's
+    // torus knot spans ~radius*1.5 + tube in-plane, so at camera z=5 (visible
+    // half-height ~3.84) these values keep the whole knot inside the frame with
+    // a comfortable margin — fills the screen but is never clipped.
+    const knot = new THREE.TorusKnotGeometry(1.8, 0.52, 220, 30);
+    const knotPos = knot.attributes.position;
+    const vCount = knotPos.count;
+
+    const positions = new Float32Array(COUNT * 3);
+    const original = new Float32Array(COUNT * 3);
+    const velocities = new Float32Array(COUNT * 3);
+    const colors = new Float32Array(COUNT * 3);
+
+    const graphite = new THREE.Color();
+    const accent = new THREE.Color(0x9bbe18);   // muted deep chartreuse
+    for (let i = 0; i < COUNT; i++) {
+      const v = (i * 2654435761 % vCount);       // spread across the surface
+      const x = knotPos.getX(v), y = knotPos.getY(v), z = knotPos.getZ(v);
+      const k = i * 3;
+      positions[k] = original[k] = x;
+      positions[k + 1] = original[k + 1] = y;
+      positions[k + 2] = original[k + 2] = z;
+      // ~1 in 6 particles is an accent filament; the rest are warm graphite
+      // with a little tonal jitter so the weave has depth.
+      if (i % 6 === 0) {
+        colors[k] = accent.r; colors[k + 1] = accent.g; colors[k + 2] = accent.b;
+      } else {
+        const t = 0.14 + Math.random() * 0.12;   // warm dark grey
+        graphite.setRGB(t * 1.05, t, t * 0.82);
+        colors[k] = graphite.r; colors[k + 1] = graphite.g; colors[k + 2] = graphite.b;
+      }
+    }
+    knot.dispose();
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const material = new THREE.PointsMaterial({
+      size: lite ? 0.05 : 0.038,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    const points = new THREE.Points(geometry, material);
+    points.rotation.y = 0.5;   // slight lean for depth (camera is rolled 90°)
+    scene.add(points);
+
+    // The canvas is fixed + centred in the viewport (see CSS), so it just needs
+    // to match the viewport size. The knot renders in the canvas centre → dead
+    // centre of the screen, fully visible, never clipped by the section.
+    const place = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+
+    // Cursor → world (on the z=0 plane) for the repulsion, in canvas space.
+    const mouse = { x: 0, y: 0, active: false };
+    const halfH = () => Math.tan((75 * Math.PI / 180) / 2) * camera.position.z;
+    if (!reduce) {
+      window.addEventListener('mousemove', (e) => {
+        const r = canvas.getBoundingClientRect();
+        if (!r.width) return;
+        mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+        mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+        mouse.active = e.clientX >= r.left - 220 && e.clientX <= r.right + 220 &&
+                       e.clientY >= r.top - 220 && e.clientY <= r.bottom + 220;
+      }, { passive: true });
+    }
+
+    const R = 1.5, R2 = R * R;
+    let running = false, rafId = null, last = performance.now();
+
+    const step = (now) => {
+      if (!running) return;
+      const dt = Math.min((now - last) / 16.67, 2);   // frame-normalised
+      last = now;
+      const pos = geometry.attributes.position.array;
+      const hh = halfH(), hw = hh * camera.aspect;
+      // Camera is rolled 90° (screen-right → world +Y, screen-up → world -X),
+      // so map the cursor into world space accordingly for the repulsion.
+      const mx = -mouse.y * hh, my = mouse.x * hw;
+      const pushing = mouse.active;
+
+      for (let i = 0; i < COUNT; i++) {
+        const k = i * 3, k1 = k + 1, k2 = k + 2;
+        let px = pos[k], py = pos[k1], pz = pos[k2];
+        let vx = velocities[k], vy = velocities[k1], vz = velocities[k2];
+
+        if (pushing) {
+          const dx = px - mx, dy = py - my, dz = pz;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 < R2) {
+            const d = Math.sqrt(d2) || 0.0001;
+            const f = (R - d) * 0.009 / d;
+            vx += dx * f; vy += dy * f; vz += dz * f;
+          }
+        }
+        // spring back to the woven seed position, then damp
+        vx += (original[k] - px) * 0.013;
+        vy += (original[k1] - py) * 0.013;
+        vz += (original[k2] - pz) * 0.013;
+        vx *= 0.90; vy *= 0.90; vz *= 0.90;
+
+        pos[k] = px + vx * dt;
+        pos[k1] = py + vy * dt;
+        pos[k2] = pz + vz * dt;
+        velocities[k] = vx; velocities[k1] = vy; velocities[k2] = vz;
+      }
+      geometry.attributes.position.needsUpdate = true;
+      // Camera is rolled 90°, so spin about world X → an on-screen turntable
+      // (horizontal) rotation, matching the original motion.
+      points.rotation.x += 0.0016 * dt;
+
+      renderer.render(scene, camera);
+      rafId = requestAnimationFrame(step);
+    };
+
+    const start = () => {
+      if (running) return;
+      place();
+      canvas.classList.add('is-live');
+      if (reduce) { renderer.render(scene, camera); return; }   // static frame
+      running = true; last = performance.now();
+      rafId = requestAnimationFrame(step);
+    };
+    const stop = () => {
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = null;
+      // The canvas is fixed/full-viewport, so fade it out when the section
+      // leaves — it must not linger over the neighbouring sections.
+      canvas.classList.remove('is-live');
+    };
+
+    let rt;
+    window.addEventListener('resize', () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => { place(); if (reduce && canvas.classList.contains('is-live')) renderer.render(scene, camera); }, 140);
+    });
+    if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.addEventListener('refresh', place);
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((es) => (es[0].isIntersecting ? start() : stop()), { threshold: 0, rootMargin: '-8% 0px -8% 0px' })
+        .observe(section);
+    } else {
+      start();
+    }
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -4618,6 +4940,12 @@
 
     // Data-globe experience showcase.
     initXpShowcase();
+
+    // Cursor-follow guide arrow that points at the active experience title.
+    initXpArrow();
+
+    // Woven-light torus-knot backdrop behind the contact headline.
+    initContactWeave();
 
     // Light → dark "lights off" theme flip at the gallery→experience boundary.
     initThemeShift();

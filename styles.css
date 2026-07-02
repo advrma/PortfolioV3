@@ -3539,6 +3539,28 @@ body.perf-lite .term__cursor { animation: none; }
   padding-bottom: clamp(80px, 12vh, 160px);
   position: relative;
 }
+/* Woven torus-knot backdrop. Fixed + centred in the viewport so the knot is
+   always fully visible and never clipped by the section edges. Fades in with
+   the section; click-through; kept under the copy (z-index 0). */
+.contact__weave {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.3s ease;
+  mix-blend-mode: multiply;   /* graphite threads settle into the cream */
+}
+.contact__weave.is-live { opacity: 1; }
+/* Keep all the real content above the weave. */
+.contact__meta,
+.contact__headline,
+.contact__lede,
+.contact__email,
+.contact__socials,
+.footer { position: relative; z-index: 1; }
 .contact__meta {
   display: flex; gap: 12px; align-items: center;
   margin-bottom: 30px;
@@ -4408,6 +4430,20 @@ body.perf-lite .xpx__wire-flow { animation: none; }
    — but scoped (no global scroll hijack). Driven by initXpShowcase.
    ========================================================= */
 .xpx2 { position: relative; z-index: 1; }
+
+/* Cursor-follow guide arrow (canvas). Fixed to the viewport, above the cards,
+   click-through. Only visible while the section is on screen (.is-on). */
+.xp-arrow {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity .45s ease;
+}
+.xpx2.is-on .xp-arrow { opacity: 1; }
 
 /* --- rotating globe backdrop (fixed; appears once you're mostly into the
    section and powers down when it ends — scale + blur + fade "materialise"). --- */

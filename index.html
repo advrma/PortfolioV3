@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=208" />
+<link rel="stylesheet" href="styles.css?v=211" />
 
 <!-- Critical preloader styles inlined for reliable first paint.
      A heavy film grain (noise-animation) covers the empty hero
@@ -751,6 +751,12 @@
         </div>
       </section>
     </div>
+
+    <!-- Cursor-follow guide arrow: a dashed curved arrow that trails the pointer
+         and points at whichever experience title is currently in view. Vanilla
+         port of dynamic-hero.tsx's canvas arrow. Drawn only while the section
+         is on screen. -->
+    <canvas class="xp-arrow" data-xp-arrow aria-hidden="true"></canvas>
   </div>
 </section>
 
@@ -764,6 +770,10 @@
 <!-- ============= CONTACT ============= -->
 <section class="contact" id="contact">
   <div class="contact__inner">
+    <!-- Woven-light backdrop: a slowly turning torus-knot of fine particles,
+         recoloured to the page (graphite threads with chartreuse filaments) and
+         woven behind the headline. Vanilla port of woven-light-hero.tsx. -->
+    <canvas class="contact__weave" data-contact-weave aria-hidden="true"></canvas>
     <div class="contact__meta">
       <span class="contact__num">06</span>
       <span class="contact__label">— GET IN TOUCH</span>
@@ -810,7 +820,7 @@
 
 </main>
 
-<script src="script.js?v=171" defer></script>
+<script src="script.js?v=178" defer></script>
 <script src="vendor/globe.js?v=4" defer></script>
 </body>
 </html>
