@@ -2458,10 +2458,15 @@
     // A few project planes show a looping video instead of a still image
     // (index → src). The video is rendered as a THREE.VideoTexture on the
     // SAME plane, so the shadow + outline + perspective are unchanged.
+    // NOTE: these filenames must match the git-committed case EXACTLY or they 404
+    // on case-sensitive hosts (Vercel/Linux) while working on Windows. git tracks
+    // 'Splitz.mp4' / 'Peerconnect.mp4' capitalized (a Windows case-rename git never
+    // recorded) but 'stealth.mp4' lowercase — hence the mixed case here. Verify with
+    // `git ls-files Project-gallery-videos` before changing.
     const VIDEO_SRC = {
       0: 'Project-gallery-videos/stealth.mp4',
-      1: 'Project-gallery-videos/splitz.mp4',
-      2: 'Project-gallery-videos/peerconnect.mp4'
+      1: 'Project-gallery-videos/Splitz.mp4',
+      2: 'Project-gallery-videos/Peerconnect.mp4'
     };
     // Hovering a video plane shows a live link-preview card (vanilla port of
     // the Aceternity LinkPreview) and clicking it opens the URL.
