@@ -641,7 +641,9 @@
     let cur = document.getElementById('igImg');
     if (!media || !dotsWrap || !cur) return;
     const srcs = [];
-    for (let k = 1; k <= 14; k++) srcs.push('instagram-images/' + k + '.png');
+    // NOTE: folder is 'Instagram-Images' (capital I's) — must match the on-disk /
+    // git-committed case exactly, or it 404s on case-sensitive hosts (e.g. Vercel/Linux).
+    for (let k = 1; k <= 14; k++) srcs.push('Instagram-Images/' + k + '.png');
     const n = srcs.length;
     let idx = 0;
     let animating = false;
