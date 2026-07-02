@@ -221,6 +221,14 @@ body:not(.is-pre-load) .hero-stage__canvas {
   transition: opacity 0.6s var(--ease-out-quart);
 }
 
+/* Keep the preload progress bar hidden through the greeting +
+   curtain lift so the sheet reveals a clean stage; it fades back
+   in only once the hero takes over (by then loading is usually
+   done, so in practice it never shows). */
+body.is-pre-load .hero__loading {
+  opacity: 0;
+}
+
 body:not(.is-pre-load) .nav,
 body:not(.is-pre-load) .hero__eyebrow,
 body:not(.is-pre-load) .hero__title-word,
@@ -3544,7 +3552,7 @@ body.perf-lite .term__cursor { animation: none; }
      mirrors the weave without ever clipping the copy.
      NOTE: keep the weave canvas OUT of this element — this transform would
      otherwise become the containing block for its position:fixed. */
-  transform: translateX(min(0px, (100vw - 1400px) * -0.24));
+  transform: translateX(min(0px, (100vw - 1400px) * -0.32));
 }
 /* Woven torus-knot backdrop. Fixed + centred in the viewport so the knot is
    always fully visible and never clipped by the section edges. Fades in with

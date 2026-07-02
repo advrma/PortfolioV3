@@ -24,92 +24,84 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=215" />
+<link rel="stylesheet" href="styles.css?v=217" />
 
-<!-- Critical preloader styles inlined for reliable first paint.
-     A heavy film grain (noise-animation) covers the empty hero
-     background (cream + topo contours); the grain dissolves left to
-     right to reveal the ADITYA VERMA wordmark, then the whole thing
-     fades to the hero. JS (initPreloader) drives the wipe. -->
+<!-- Critical preloader styles inlined for a reliable first paint.
+     A dark "welcome" screen greets the visitor with a couple of
+     cycled lines over a soft glow, then the dark sheet lifts on a
+     curved edge (an SVG <path> whose `d` is morphed) to reveal the
+     hero beneath. JS (initPreloader) drives the cycle + the lift. -->
 <style>
   .preloader {
     position: fixed; inset: 0;
     z-index: 9999;
-    background: #F2EEE5;
+    background: #0B0B0A;            /* solid dark — safe first paint */
     overflow: hidden;
     isolation: isolate;
-    transition: opacity 0.7s ease;
   }
-  .preloader.is--fading { opacity: 0; pointer-events: none; }
-  .preloader.is--gone   { display: none !important; }
+  .preloader.is--gone { display: none !important; }
 
-  /* Empty hero background: cream + faint topo contour lines. */
-  .preloader__bg {
-    position: absolute; inset: 0; z-index: 0;
-    background: #F2EEE5;
-    overflow: hidden;
+  /* The lifting sheet: a full-bleed SVG whose single <path> is the
+     dark curtain. initPreloader morphs `d` so the curved lower edge
+     rises up and off screen, uncovering the hero. */
+  .preloader__curtain {
+    position: absolute; inset: 0; z-index: 1;
+    display: block; width: 100%; height: 100%;
+    pointer-events: none;
   }
-  .preloader__topo {
-    position: absolute; inset: -5%;
-    width: 110%; height: 110%;
-    color: rgba(12, 12, 10, 0.22);
-    opacity: 0.5;
-  }
+  .preloader__curtain path { fill: #0B0B0A; }
 
-  /* The wordmark, revealed as the grain dissolves over it. */
-  .preloader__name {
+  /* Cycled greeting, stacked over the sheet with a small pulsing
+     accent dot beneath it (a quiet heartbeat / full-stop). */
+  .preloader__greet {
     position: absolute; inset: 0; z-index: 2;
-    margin: 0;
-    display: flex; align-items: center; justify-content: center;
-    gap: 0.28em;
-    font-family: "Anton", "Archivo Black", sans-serif;
-    font-weight: 400;
-    font-size: clamp(2.4rem, 11vw, 9rem);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #0C0C0A;
-    white-space: nowrap;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 2.1rem; padding: 8vw;
+    text-align: center;
+    transition: opacity 0.4s ease;
     pointer-events: none;
   }
-
-  /* Heavy film grain on top; a soft horizontal mask wipes it away
-     left to right (--wipe, driven by JS) so the name emerges. */
-  .preloader__grain {
-    position: absolute; inset: 0; z-index: 3;
-    overflow: hidden;
+  .preloader__greet.is--out { opacity: 0; }
+  /* soft warm glow behind the words for depth */
+  .preloader__greet::before {
+    content: ""; position: absolute;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(78vw, 760px); height: min(52vh, 460px);
+    background: radial-gradient(closest-side,
+        rgba(216, 255, 56, 0.09), rgba(216, 255, 56, 0) 72%);
     pointer-events: none;
-    -webkit-mask-image: linear-gradient(90deg, transparent var(--wipe, -10%), #000 calc(var(--wipe, -10%) + 10%));
-            mask-image: linear-gradient(90deg, transparent var(--wipe, -10%), #000 calc(var(--wipe, -10%) + 10%));
   }
-  .preloader__grain-tex {
-    position: absolute; inset: -14%;
-    width: 128%; height: 128%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 200px 200px;
-    filter: grayscale(1) contrast(2.6) brightness(1.08);
-    opacity: 0.92;
-    animation: noise-animation 0.55s steps(6) infinite;
-    will-change: transform;
+  .preloader__greet-text {
+    position: relative; margin: 0;
+    font-family: "Instrument Serif", Georgia, serif;
+    font-style: italic; font-weight: 400;
+    font-size: clamp(2.4rem, 7.4vw, 5.2rem);
+    line-height: 1.03; letter-spacing: 0.005em;
+    color: #F3EFE6;
+    opacity: 0; transform: translateY(0.5em);
+    transition: opacity 0.44s ease,
+                transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .preloader__greet-text.is--in { opacity: 1; transform: translateY(0); }
+  .preloader__greet-text.is--leaving { opacity: 0; transform: translateY(-0.5em); }
+  .preloader__greet-dot {
+    position: relative;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #D8FF38;
+    box-shadow: 0 0 14px rgba(216, 255, 56, 0.55);
+    animation: preload-beat 1.5s ease-in-out infinite;
+  }
+  @keyframes preload-beat {
+    0%, 100% { opacity: 0.28; transform: scale(0.9); }
+    50%      { opacity: 1;    transform: scale(1); }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .preloader__grain-tex { animation: none; }
-    .preloader { transition: none; }
-  }
-
-  /* noise-animation: film-grain jitter (from layout-preloader). */
-  @keyframes noise-animation {
-    0%   { transform: translate(0, 0); }
-    10%  { transform: translate(-2%, -3%); }
-    20%  { transform: translate(-4%, 2%); }
-    30%  { transform: translate(2%, -4%); }
-    40%  { transform: translate(-2%, 5%); }
-    50%  { transform: translate(-4%, 2%); }
-    60%  { transform: translate(3%, 0); }
-    70%  { transform: translate(0, 3%); }
-    80%  { transform: translate(-3%, 0); }
-    90%  { transform: translate(2%, 2%); }
-    100% { transform: translate(1%, 0); }
+    .preloader__greet,
+    .preloader__greet-text { transition-duration: 0.001s; }
+    .preloader__greet-dot { animation: none; opacity: 0.9; }
   }
 </style>
 
@@ -119,29 +111,21 @@
 </head>
 <body class="is-pre-load">
 
-<!-- ============= PRELOADER (noise / grain reveal) =============
-     Heavy film grain over the empty hero background (cream + topo);
-     the grain dissolves left to right to reveal the ADITYA VERMA
-     wordmark, then fades to the hero. JS: initPreloader. -->
+<!-- ============= PRELOADER (arc welcome / reveal) =============
+     A dark welcome screen: a couple of cycled greetings over a soft
+     glow, then the dark sheet lifts on a curved edge to reveal the
+     hero beneath. JS: initPreloader. -->
 <section class="preloader" id="preloader" aria-hidden="true">
-  <div class="preloader__bg">
-    <svg class="preloader__topo" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g stroke="currentColor" fill="none" stroke-width="0.6" opacity="0.35">
-        <path d="M-100,640 Q200,500 420,580 T880,520 T1300,640 T1750,540" />
-        <path d="M-100,700 Q220,560 460,640 T920,580 T1340,700 T1750,620" />
-        <path d="M-100,760 Q240,620 500,700 T960,640 T1380,760 T1750,700" />
-        <path d="M-100,820 Q260,680 540,760 T1000,700 T1420,820 T1750,780" />
-        <path d="M-100,880 Q280,740 580,820 T1040,760 T1460,880 T1750,860" />
-        <path d="M-100,580 Q220,440 460,520 T920,460 T1340,580 T1750,500" />
-        <path d="M-100,520 Q220,380 460,460 T920,400 T1340,520 T1750,440" />
-        <path d="M-100,460 Q220,320 460,400 T920,340 T1340,460 T1750,380" />
-        <path d="M-100,400 Q220,260 460,340 T920,280 T1340,400 T1750,320" />
-        <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
-      </g>
-    </svg>
+  <!-- Dark curtain — its curved lower edge is morphed upward in JS. -->
+  <svg class="preloader__curtain" id="preloaderCurtain" viewBox="0 0 100 100"
+       preserveAspectRatio="none" aria-hidden="true">
+    <path id="preloaderCurtainPath" d="M -20 -120 H 120 V 112 Q 50 138 -20 112 Z" />
+  </svg>
+  <!-- Cycled greeting + pulsing accent dot. -->
+  <div class="preloader__greet" id="preloaderGreet" aria-hidden="true">
+    <p class="preloader__greet-text" id="preloaderGreetText">Hii</p>
+    <span class="preloader__greet-dot" aria-hidden="true"></span>
   </div>
-  <h2 class="preloader__name" aria-label="Aditya Verma"><span>Aditya</span><span>Verma</span></h2>
-  <div class="preloader__grain" id="preloaderGrain"><div class="preloader__grain-tex"></div></div>
 </section>
 
 <!-- ============= AMBIENT BACKGROUND LAYERS ============= -->
@@ -803,7 +787,7 @@
 
     <ul class="contact__socials">
       <li><a href="https://linkedin.com/in/adityavrma" target="_blank" rel="noopener">LinkedIn <span>↗</span></a></li>
-      <li><a href="#" target="_blank" rel="noopener">GitHub <span>↗</span></a></li>
+      <li><a href="https://github.com/averm118" target="_blank" rel="noopener">GitHub <span>↗</span></a></li>
       <li><a href="tel:+16025823165">+1 602-582-3165 <span>↗</span></a></li>
     </ul>
   </div>
@@ -822,7 +806,7 @@
 
 </main>
 
-<script src="script.js?v=185" defer></script>
-<script src="vendor/globe.js?v=4" defer></script>
+<script src="script.js?v=192" defer></script>
+<script src="vendor/globe.js?v=5" defer></script>
 </body>
 </html>

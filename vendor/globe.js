@@ -939,7 +939,8 @@ DAT.Globe = function (container, opts) {
   function createMarkers() {
     var locs = [
       { lat: 15.9,  lng: 79.74 },    // Andhra Pradesh, India  (Blue Ocean Biotech)
-      { lat: 33.45, lng: -112.07 }   // Phoenix, Arizona, USA  (College of Health Solutions)
+      { lat: 33.45, lng: -112.07 },  // Phoenix, Arizona, USA  (College of Health Solutions)
+      { lat: 51.51, lng: -0.13 }     // London, UK
     ];
     var ringTex = new THREE.Texture(generateRingTexture()); ringTex.needsUpdate = true;
     var dotTex  = new THREE.Texture(generateDotTexture());  dotTex.needsUpdate = true;

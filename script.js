@@ -1604,60 +1604,120 @@
   }
 
   /* -------------------------------------------------------
-     initPreloader — noise / grain reveal.
-     Heavy film grain covers the empty hero background; a soft
-     horizontal mask (--wipe) dissolves it left to right so the
-     ADITYA VERMA wordmark emerges, then the whole preloader fades
-     and the hero takes over. Removing .is-pre-load kicks the hero
-     name's handwriting draw-on. rAF-driven; safety-timed.
+     initPreloader — arc welcome / reveal.
+     A dark sheet greets the visitor with a couple of cycled
+     lines, then lifts on a curved edge (an SVG <path> whose `d`
+     is morphed) to uncover the hero. The hero's entrance
+     animations (canvas fade-in, UI stagger, name draw-on, reel)
+     are held until the sheet is ~70% lifted — a touch before it
+     fully clears (see wakeHero) — so the construct-in overlaps the
+     last of the rise and the hand-off reads as one smooth motion.
+     rAF-driven; safety-timed.
      ------------------------------------------------------- */
   function initPreloader() {
     const loader = document.getElementById('preloader');
     if (!loader) { startHeroReel(); return; }
-    const grain = document.getElementById('preloaderGrain');
+    const greetEl = document.getElementById('preloaderGreet');
+    const textEl  = document.getElementById('preloaderGreetText');
+    const pathEl  = document.getElementById('preloaderCurtainPath');
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
+    const timers = [];
     let done = false;
-    function finishLoader() {
+    let heroStarted = false;
+    function kickHero() { if (heroStarted) return; heroStarted = true; startHeroReel(); }
+
+    // Wake the hero: removing .is-pre-load fades the canvas in and fires the
+    // UI stagger + name draw-on; kickHero() starts the character reel. Fired a
+    // touch BEFORE the sheet finishes lifting so the entrance overlaps the last
+    // of the rise and the whole hand-off reads as one continuous motion.
+    let woke = false;
+    function wakeHero() {
+      if (woke) return;
+      woke = true;
+      document.body.classList.remove('is-pre-load');
+      kickHero();
+    }
+
+    // Dark-sheet shape at progress p (0 = full cover, 1 = lifted clear
+    // of the viewport). The lower edge is a shallow curve whose centre
+    // trails the sides, so the sheet peels up like a soft arch.
+    function arcD(p) {
+      const edge = 112 - p * 140;   // 112 (covers) -> -28 (clear)
+      const ctrl = edge + 26;       // curved lower edge (centre trails)
+      return 'M -20 -120 H 120 V ' + edge.toFixed(2) +
+             ' Q 50 ' + ctrl.toFixed(2) + ' -20 ' + edge.toFixed(2) + ' Z';
+    }
+
+    function finish() {
       if (done) return;
       done = true;
-      document.body.classList.remove('is-pre-load');   // kicks the hero name draw-on
-      document.body.style.overflow = prevOverflow;
-      startHeroReel();
-      setTimeout(() => loader.classList.add('is--gone'), 750);
-    }
-    function exit() {
-      clearTimeout(safety);
-      loader.classList.add('is--fading');               // fade preloader out
-      setTimeout(finishLoader, 700);                    // then hand off to the hero
+      timers.forEach(clearTimeout);
+      wakeHero();                                    // ensure the hero is awake (idempotent)
+      document.body.style.overflow = prevOverflow;   // unlock scroll
+      loader.classList.add('is--gone');
     }
 
     // Absolute safety — never leave the user stuck on the loader.
-    const safety = setTimeout(exit, 9000);
+    timers.push(setTimeout(finish, 9000));
 
-    // Reduced motion: skip the grain reveal, fade straight in.
+    // Reduced motion: hold one calm greeting, then hand off — no cycle,
+    // no arc animation.
     if (reduceMotionMQ && reduceMotionMQ.matches) {
-      if (grain) grain.style.setProperty('--wipe', '105%');
-      setTimeout(exit, 350);
+      if (textEl) { textEl.textContent = 'Hii'; textEl.classList.add('is--in'); }
+      wakeHero();
+      timers.push(setTimeout(finish, 900));
       return;
     }
 
-    const DURATION = 3000;   // grain dissolves over this long
-    const HOLD = 560;        // hold on the revealed name before exit
-    // easeInOutQuad
-    const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-    const t0 = performance.now();
+    const GREETINGS = ['Hii', 'It’s nice to see you'];
+    const IN_MS = 440, HOLD_MS = 780, OUT_MS = 400, REVEAL_MS = 1500;
+    let gi = 0;
 
-    function frame(now) {
-      const p = Math.min((now - t0) / DURATION, 1);
-      // --wipe runs -10% -> 105%, dissolving the grain left to right.
-      if (grain) grain.style.setProperty('--wipe', (-10 + ease(p) * 115).toFixed(2) + '%');
-      if (p < 1) requestAnimationFrame(frame);
-      else setTimeout(exit, HOLD);
+    // Lift the sheet off the hero. It stays dormant for most of the rise
+    // (clean cream stage + halo), then wakes once the sheet is ~70% lifted —
+    // a touch before it fully clears — so the canvas fade + UI construct-in
+    // overlap the last of the rise and the hand-off reads as one smooth motion.
+    function beginReveal() {
+      loader.style.background = 'transparent';          // only the curtain covers now
+      if (greetEl) greetEl.classList.add('is--out');    // dismiss the greeting
+
+      // Strong ease-in-out (slow ends, quick middle) ~ cubic-bezier(0.85,0,0.15,1).
+      const ease = (t) => (t < 0.5 ? 16 * t * t * t * t * t
+                                   : 1 - Math.pow(-2 * t + 2, 5) / 2);
+      const WAKE_AT = 0.7;   // visual progress at which the hero begins its entrance
+      const t0 = performance.now();
+      (function raf(now) {
+        const p = Math.min((now - t0) / REVEAL_MS, 1);
+        const v = ease(p);
+        if (pathEl) pathEl.setAttribute('d', arcD(v));
+        if (v >= WAKE_AT) wakeHero();                   // start the entrance before the sheet clears
+        if (p < 1) requestAnimationFrame(raf);
+        else finish();
+      })(performance.now());
     }
-    requestAnimationFrame(frame);
+
+    // Cycle the greetings one after another, then reveal.
+    function showGreet() {
+      textEl.textContent = GREETINGS[gi];
+      textEl.classList.remove('is--leaving');
+      void textEl.offsetWidth;                          // restart the enter transition
+      textEl.classList.add('is--in');
+      timers.push(setTimeout(() => {
+        textEl.classList.remove('is--in');
+        textEl.classList.add('is--leaving');
+        timers.push(setTimeout(() => {
+          gi += 1;
+          if (gi < GREETINGS.length) showGreet();
+          else beginReveal();
+        }, OUT_MS));
+      }, IN_MS + HOLD_MS));
+    }
+
+    if (textEl) showGreet();
+    else beginReveal();
   }
 
   /* -------------------------------------------------------
@@ -4395,15 +4455,15 @@
       const controlY = midY + offset * t;
 
       const r = Math.hypot(x1 - x0, y1 - y0);
-      // Fade in with distance, and ease out as the cursor nears the title.
-      const opacity = Math.max(0, Math.min(1, (r - Math.max(rect.width, rect.height) / 2) / 480));
+      // Keep it VERY subtle: slow fade-in with distance, capped at a low
+      // opacity, thin hairline, and no glow — a faint hint, not a highlight.
+      const opacity = Math.max(0, Math.min(0.28, (r - Math.max(rect.width, rect.height) / 2) / 900));
       if (opacity <= 0.01) return;
 
       ctx.strokeStyle = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${opacity})`;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
       ctx.lineCap = 'round';
-      ctx.shadowColor = `rgba(${ACCENT.r}, ${ACCENT.g}, ${ACCENT.b}, ${0.5 * opacity})`;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 0;
 
       // Curved dashed shaft.
       ctx.save();
@@ -4414,9 +4474,9 @@
       ctx.stroke();
       ctx.restore();
 
-      // Solid arrowhead at the title end.
+      // Small arrowhead at the title end.
       const angle = Math.atan2(y1 - controlY, x1 - controlX);
-      const head = 12;
+      const head = 8;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x1 - head * Math.cos(angle - Math.PI / 6), y1 - head * Math.sin(angle - Math.PI / 6));
@@ -4691,7 +4751,7 @@
     // torus knot spans ~radius*1.5 + tube in-plane, so at camera z=5 (visible
     // half-height ~3.84) these values keep the whole knot inside the frame with
     // a comfortable margin — fills the screen but is never clipped.
-    const knot = new THREE.TorusKnotGeometry(1.5, 0.44, 220, 30);
+    const knot = new THREE.TorusKnotGeometry(1.42, 0.42, 220, 30);
     const knotPos = knot.attributes.position;
     const vCount = knotPos.count;
 
@@ -4736,9 +4796,32 @@
     points.rotation.y = 0.5;   // slight lean for depth (camera is rolled 90°)
     // Camera rolled 90°: +Y shifts right, -X shifts up on screen. Keep the
     // up-shift modest so the top of the knot never clips the frame.
-    points.position.y = 1.5;    // right, but with a real right margin (mirrors text's left)
+    points.position.y = 1.75;   // further right → wider gap from the text
     points.position.x = -0.1;   // a little lower (screen-down = world +X)
     scene.add(points);
+
+    // Floor contact shadow — a soft, flattened ellipse a little below the knot
+    // so it reads as levitating over a surface that catches its shadow. Static
+    // (added to the scene, not the spinning points) and drawn BEHIND the knot;
+    // darkens the cream through the canvas's multiply blend. Under the 90°
+    // camera roll, screen-down = world +X and screen-horizontal = world Y, so a
+    // wide/short sprite scale gives a floor ellipse in perspective.
+    const shadeCv = document.createElement('canvas');
+    shadeCv.width = shadeCv.height = 128;
+    const sg = shadeCv.getContext('2d');
+    const grd = sg.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(20, 17, 10, 0.9)');
+    grd.addColorStop(0.45, 'rgba(20, 17, 10, 0.4)');
+    grd.addColorStop(1, 'rgba(20, 17, 10, 0)');
+    sg.fillStyle = grd; sg.fillRect(0, 0, 128, 128);
+    const shadow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(shadeCv),
+      transparent: true, depthTest: false, depthWrite: false, opacity: 0.55,
+    }));
+    shadow.position.set(3.15, points.position.y, 0);  // just below the knot, same horizontal
+    shadow.scale.set(4.6, 0.95, 1);                   // wide + flat floor ellipse
+    shadow.renderOrder = -1;                          // behind the knot
+    scene.add(shadow);
 
     // The canvas is fixed + centred in the viewport (see CSS), so it just needs
     // to match the viewport size. The knot renders in the canvas centre → dead
