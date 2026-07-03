@@ -854,7 +854,7 @@ body.perf-lite .hero-sign__draw {
   z-index: 5;
   font-family: var(--f-sign);
   font-weight: 500;
-  font-size: clamp(26px, 3.4vw, 54px);
+  font-size: clamp(26px, 2.15vw, 54px);
   line-height: 1;
   letter-spacing: 0.01em;
   color: rgba(86, 60, 40, 0.82);   /* warm brownish tone (vs the name's ink) */
@@ -911,7 +911,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
 .hero__title-row--top { justify-content: flex-start; }
 .hero__title-row--bottom { justify-content: space-between; flex-wrap: wrap; }
 .hero__title-word {
-  font-size: clamp(64px, 15vw, 220px);
+  font-size: clamp(64px, 8.6vw, 220px);
   line-height: 0.78;
   display: inline-block;
   position: relative;
@@ -921,7 +921,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   font-family: var(--f-serif);
   font-style: italic;
   font-weight: 400;
-  font-size: clamp(28px, 5vw, 80px);
+  font-size: clamp(28px, 3.15vw, 80px);
   color: var(--ink-mute);
   line-height: 0.95;
   padding-bottom: clamp(8px, 1.5vh, 22px);
@@ -1092,7 +1092,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
 .hero__card-role {
   display: flex; flex-direction: column;
   font-family: var(--f-display);
-  font-size: clamp(22px, 1.8vw, 30px);
+  font-size: clamp(22px, 1.2vw, 30px);
   line-height: 0.95;
   letter-spacing: 0.01em;
   text-align: right;
@@ -1207,7 +1207,7 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   /* Big, but sized to still fit ~half the screen; text-wrap: balance
      evens the line lengths so the block reads as a clean shape rather
      than a ragged stack with orphan words. */
-  font-size: clamp(30px, 5vw, 84px);
+  font-size: clamp(30px, 3.3vw, 84px);
   line-height: 1.2;        /* tuned with the width so the 6-line block is ~square */
   letter-spacing: -0.012em;
   text-wrap: balance;
@@ -1635,7 +1635,7 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
   margin: 0 0 0 clamp(30px, 7vw, 170px);   /* sit in the gap; the lines run right, ends behind the character */
   font-family: var(--f-display);            /* Anton — heavy condensed display, like the skills headings */
   font-weight: 400;                         /* Anton ships one heavy weight */
-  font-size: clamp(28px, 3.4vw, 76px);      /* scaled down to fit the longer paragraph */
+  font-size: clamp(28px, 3vw, 76px);      /* scaled down to fit the longer paragraph */
   line-height: 0.98;
   letter-spacing: 0.005em;
   text-transform: uppercase;
@@ -1879,7 +1879,7 @@ body.perf-lite .igbio {
   /* Fun, hand-written script — pairs with the hand-drawn arrow. */
   font-family: var(--f-sign);
   font-weight: 600;
-  font-size: clamp(21px, 1.7vw, 30px);
+  font-size: clamp(21px, 1.2vw, 30px);
   line-height: 1.38;
   color: var(--ink);
   /* Premium graduated lift to echo the signature — three warm, em-scaled
@@ -1962,7 +1962,7 @@ body.perf-lite .callcard__def {
   margin: 0;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(40px, 7vw, 96px);
+  font-size: clamp(40px, 3.75vw, 96px);
   line-height: 0.92;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -2298,7 +2298,7 @@ html.is-dark .hall__glow {
 .hall-slide__title {
   font-family: var(--f-serif, "Instrument Serif", serif);
   font-weight: 400;
-  font-size: clamp(40px, 4.4vw, 64px);
+  font-size: clamp(40px, 2.5vw, 64px);
   line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0 0 22px;
@@ -2314,7 +2314,7 @@ html.is-dark .hall__glow {
   font-family: var(--f-serif);
   font-style: italic;
   font-weight: 400;
-  font-size: clamp(24px, 2.4vw, 38px);
+  font-size: clamp(24px, 1.5vw, 38px);
   line-height: 1.05;
   color: var(--ink-mute);
   /* Lighter two-layer lift — thin serif italic, so kept soft to stay legible. */
@@ -2433,7 +2433,7 @@ html.is-dark .hall__glow {
   user-select: none;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(44px, 5.2vw, 76px);
+  font-size: clamp(44px, 3vw, 76px);
   letter-spacing: -0.005em;
   text-transform: uppercase;
   line-height: 0.92;
@@ -2745,7 +2745,7 @@ html.is-dark .hall__glow {
 }
 .stat-card__num {
   font-family: var(--f-display);
-  font-size: clamp(48px, 5vw, 76px);
+  font-size: clamp(48px, 3vw, 76px);
   line-height: 0.9;
   letter-spacing: -0.01em;
   color: var(--ink);
@@ -2784,7 +2784,7 @@ html.is-dark .hall__glow {
   display: flex; gap: 30px;
   white-space: nowrap;
   font-family: var(--f-display);
-  font-size: clamp(22px, 2.2vw, 32px);
+  font-size: clamp(22px, 1.3vw, 32px);
   letter-spacing: 0.04em;
   color: var(--ink);
   animation: tickerScroll 32s linear infinite;
@@ -2901,7 +2901,7 @@ html.is-dark .hall__glow {
 .warp-heading {
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(96px, 16vw, 240px);
+  font-size: clamp(96px, 9.4vw, 240px);
   color: rgba(242, 238, 229, 0.92);
   text-transform: uppercase;
   white-space: nowrap;
@@ -3000,7 +3000,7 @@ html.is-dark .hall__glow {
   margin: clamp(16px, 2vw, 28px) 0 0;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(28px, 2.6vw, 40px);
+  font-size: clamp(28px, 1.6vw, 40px);
   line-height: 0.92;
   letter-spacing: 0.005em;
   text-transform: uppercase;
@@ -3028,7 +3028,7 @@ html.is-dark .hall__glow {
   position: absolute;
   bottom: 18px; right: 18px;
   font-family: var(--f-display);
-  font-size: clamp(50px, 5vw, 76px);
+  font-size: clamp(50px, 3vw, 76px);
   line-height: 1;
   color: rgba(242, 238, 229, 0.06);
   font-weight: 400;
@@ -3145,7 +3145,7 @@ html.is-dark .hall__glow {
   margin: 0;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(22px, 1.9vw, 28px);
+  font-size: clamp(22px, 1.15vw, 28px);
   letter-spacing: 0.01em;
   color: var(--ink);
   line-height: 1;
@@ -3335,7 +3335,7 @@ body.perf-lite .term__cursor { animation: none; }
   margin: 9px 0 7px;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(26px, 2.7vw, 37px);
+  font-size: clamp(26px, 1.45vw, 37px);
   letter-spacing: 0.01em;
   line-height: 1;
   color: var(--ink);
@@ -3623,7 +3623,7 @@ body.perf-lite .term__cursor { animation: none; }
   margin: 0 0 30px;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(60px, 11vw, 200px);
+  font-size: clamp(60px, 7.85vw, 200px);
   line-height: 0.86;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -3695,7 +3695,7 @@ body.perf-lite .term__cursor { animation: none; }
 }
 .contact__email-addr {
   font-family: var(--f-display);
-  font-size: clamp(20px, 1.8vw, 28px);
+  font-size: clamp(20px, 1.15vw, 28px);
   letter-spacing: 0.02em;
 }
 .contact__email svg { width: 32px; height: 16px; }
@@ -4058,7 +4058,7 @@ html.is-dark .xp__frame.xp__frame--active { opacity: 1; }
   margin: 14px 0 0;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(40px, 6vw, 92px);
+  font-size: clamp(40px, 3.6vw, 92px);
   line-height: .92;
   letter-spacing: -0.01em;
   color: var(--xtext, #ECE7DA);
@@ -4261,7 +4261,7 @@ body.perf-lite .xpn__orb b { animation: none; opacity: .35; }
   margin: 8px 0 10px;
   font-family: var(--f-display);
   font-weight: 400;
-  font-size: clamp(22px, 2.3vw, 30px);
+  font-size: clamp(22px, 1.2vw, 30px);
   line-height: 1.02;
   letter-spacing: .005em;
   color: var(--xtext);
@@ -4595,13 +4595,13 @@ body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
   margin: 0;
   font-family: var(--f-serif, "Instrument Serif", serif);
   font-weight: 400;
-  font-size: clamp(40px, 4.4vw, 64px);
+  font-size: clamp(40px, 2.5vw, 64px);
   line-height: 1.05; letter-spacing: -.01em;
   color: var(--ink);
   opacity: 0; translate: 0 18px; transition: opacity .5s ease .08s, translate .5s ease .08s;
 }
 .xpcard__title.visible { opacity: 1; translate: 0 0; }
-.xpcard .text-scramble { font-size: clamp(34px, 3.8vw, 54px); }
+.xpcard .text-scramble { font-size: clamp(34px, 2.15vw, 54px); }
 .xpcard.right .text-scramble { align-items: flex-end; }
 /* Let multi-word role titles wrap at word boundaries. Spaces are dropped
    from layout (display:none) and word spacing comes from column-gap, so a
