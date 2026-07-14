@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=222" />
+<link rel="stylesheet" href="styles.css?v=223" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark "welcome" screen greets the visitor with a couple of
@@ -136,6 +136,10 @@
 <div class="grain" aria-hidden="true"></div>
 <!-- Accent scan blade for the light↔dark theme change (GSAP · initThemeShift). -->
 <div class="theme-sweep" aria-hidden="true"></div>
+<!-- .topo-wrap carries the JS scroll parallax; the svg carries the CSS
+     drift. Both are whole-element composited transforms (the drift used
+     to run on the inner <g>, which repainted the layer every frame). -->
+<div class="topo-wrap" aria-hidden="true">
 <svg class="topo-bg" aria-hidden="true" viewBox="0 0 1600 1200" preserveAspectRatio="xMidYMid slice">
   <g stroke="currentColor" fill="none" stroke-width="0.6" opacity="0.35">
     <path d="M-100,640 Q200,500 420,580 T880,520 T1300,640 T1750,540" />
@@ -150,6 +154,7 @@
     <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
   </g>
 </svg>
+</div>
 
 <!-- ============= SCROLL PROGRESS ============= -->
 <div class="scroll-progress" aria-hidden="true"><span></span></div>
@@ -293,9 +298,15 @@
 
     <!-- Sole canvas — full viewport, cover-fit on source.
          Sized + cropped in JS so character feels naturally
-         framed at frame 0. -->
-    <canvas id="cinemaCanvas" class="hero-stage__canvas"
-            aria-label="3D portrait of Aditya's brand persona"></canvas>
+         framed at frame 0. The .hero-stage__breathe wrapper
+         carries the idle-breath as a compositor CSS animation;
+         it composes with the canvas's own JS transform (crawl +
+         cursor parallax), so the reel loop can fully suspend at
+         rest instead of writing a transform every frame. -->
+    <div class="hero-stage__breathe">
+      <canvas id="cinemaCanvas" class="hero-stage__canvas"
+              aria-label="3D portrait of Aditya's brand persona"></canvas>
+    </div>
 
     <!-- Loading state — removes itself when preload completes -->
     <div class="hero__loading" id="heroLoading" aria-hidden="true">
@@ -806,7 +817,7 @@
 
 </main>
 
-<script src="script.js?v=194" defer></script>
-<script src="vendor/globe.js?v=5" defer></script>
+<script src="script.js?v=195" defer></script>
+<script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

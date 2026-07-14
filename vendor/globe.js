@@ -1021,8 +1021,13 @@ DAT.Globe = function (container, opts) {
   }
 
   function animate() {
+    if (container.getAttribute("data-active") !== "1") {
+      // Off-screen: poll a few times a second instead of waking at 60Hz to
+      // do nothing — the section observer flips data-active back on.
+      setTimeout(function () { requestAnimationFrame(animate); }, 280);
+      return;
+    }
     requestAnimationFrame(animate);
-    if (container.getAttribute("data-active") !== "1") return; // paused off-screen
     render();
   }
 

@@ -86,7 +86,10 @@
   let heroTerminal = null;   // left-aside terminal controller (see initHeroTerminal)
   let onBioUserScroll = null;   // set by initIgBio; lets a real user scroll instantly start the bio's disappear
   let callcard = null;       // upper-left typing intro controller (see initCallcard)
-  const topoBg = document.querySelector('.topo-bg');
+  // Parallax targets the WRAPPER (.topo-wrap): the svg itself carries the
+  // CSS drift animation, so the two transforms live on separate elements
+  // and both stay compositor-only (never re-rasterising the topo layer).
+  const topoBg = document.querySelector('.topo-wrap');
   const aurora = document.querySelector('.aurora');
 
   let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -949,17 +952,30 @@
       const falloff = dist <= 1 ? 1 : Math.max(0, 1 - (dist - 1) / 2);   // fade over 2 radii
       targetX = clamp(dy, -1, 1) * MAX_RX * falloff;
       targetY = -clamp(dx, -1, 1) * MAX_RY * falloff;
+      kick();
     }
-    function onLeave() { targetX = 0; targetY = 0; }
+    function kick() { if (running && !raf) raf = requestAnimationFrame(tick); }
+    function onLeave() { targetX = 0; targetY = 0; kick(); }
     function tick() {
       rotX += (targetX - rotX) * SMOOTH;
       rotY += (targetY - rotY) * SMOOTH;
       fx.style.setProperty('--rx', rotX.toFixed(2) + 'deg');
       fx.style.setProperty('--ry', rotY.toFixed(2) + 'deg');
+      // Settled → stop scheduling (mousemove re-kicks). Without this the
+      // lerp kept writing two custom props — a style recalc every frame —
+      // for as long as the aside stayed revealed, cursor parked or not.
+      if (Math.abs(targetX - rotX) < 0.02 && Math.abs(targetY - rotY) < 0.02) {
+        rotX = targetX; rotY = targetY;
+        raf = 0;
+        return;
+      }
       raf = requestAnimationFrame(tick);
     }
     function start() {
       if (running) return;
+      // Re-check here (not just at init): the FPS probe can add perf-lite
+      // a few seconds into the session, after this module was created.
+      if (document.body.classList.contains('perf-lite')) return;
       running = true;
       window.addEventListener('mousemove', onMove);
       document.addEventListener('mouseleave', onLeave);
@@ -971,6 +987,7 @@
       window.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseleave', onLeave);
       cancelAnimationFrame(raf);
+      raf = 0;
       targetX = targetY = rotX = rotY = 0;
       fx.style.setProperty('--rx', '0deg');
       fx.style.setProperty('--ry', '0deg');
@@ -1037,23 +1054,11 @@
   }
   function easeInCubic(t)  { return t * t * t; }
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-  // Gentlest in/out ease — softer accel + a barely-there hold at the ends.
-  function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
-
-  /* Breath shaping — maps the linear cycle phase p∈[0,1) to a position in
-     -1..1 (+1 = fully inhaled). Instead of a plain sine (whose speed is a
-     symmetric cosine), the SPEED graph here has real curves: a quicker eased
-     INHALE over the first BREATHE_INHALE of the cycle, a longer/gentler EXHALE
-     over the rest, and — because easeInOutSine has zero slope at both ends —
-     a gentle settle at the top and bottom where velocity eases to zero. Sine
-     easing (vs cubic) keeps the acceleration soft so the whole curve reads as
-     smooth. Continuous and zero-velocity at the wrap (p=0≡1), so it never jolts. */
-  const BREATHE_INHALE = 0.42;   // fraction of the cycle spent inhaling
-  function breathePos(p) {
-    return p < BREATHE_INHALE
-      ? easeInOutSine(p / BREATHE_INHALE) * 2 - 1                                  // -1 → +1 (inhale)
-      : (1 - easeInOutSine((p - BREATHE_INHALE) / (1 - BREATHE_INHALE))) * 2 - 1;  // +1 → -1 (exhale)
-  }
+  /* Breath shaping — the eased inhale/exhale curve now lives in styles.css
+     as @keyframes heroBreathe on the .hero-stage__breathe wrapper (0% → 42%
+     inhale, 42% → 100% exhale, each segment easeInOutSine via
+     cubic-bezier(0.37, 0, 0.63, 1), ±7px over 3.2s). Compositor-driven, so
+     the reel loop no longer has to run at rest just to breathe. */
   function rangeProgress(frame, start, end) {
     return clamp01((frame - start) / (end - start));
   }
@@ -1167,11 +1172,9 @@
   const CURSOR_SETTLE  = 0.2;     // px
   const MAX_CURSOR_TX  = 12;      // ±px, opposite X
   const MAX_CURSOR_TY  = 4;       // ±px, opposite Y
-  // Idle breathing — a slow VERTICAL sine added to the canvas Y. It is composed
-  // into the same transform as the cursor parallax (never a separate animation),
-  // so the two add cleanly and moving the mouse never snaps the figure back.
-  const BREATHE_AMP_PX    = 7;     // ±px vertical travel
-  const BREATHE_PERIOD_MS = 3200;  // one full inhale+exhale (faster = livelier)
+  // Idle breathing: compositor-side CSS animation on .hero-stage__breathe
+  // (±7px / 3.2s — see @keyframes heroBreathe in styles.css). Its transform
+  // COMPOSES with the canvas's JS transform, so cursor motion never snaps it.
 
   // STAGED PLAYBACK — instead of one continuous forward run to TIMELINE_MAX,
   // the reel pauses at scripted checkpoints. Each fresh forward scroll gesture
@@ -1228,21 +1231,14 @@
     else if (dt < 1) dt = 16.667;
     const rate = dt / 16.667;
 
-    // --- Idle breathing (vertical) ---
-    // A slow vertical sine the character breathes with. It is ALWAYS folded into
-    // the canvas transform below (during the walk it's masked by the larger
-    // motion; at a stop it's the visible breath), so there's no class toggle and
-    // nothing to snap when it starts/ends or when the cursor moves. Disabled for
-    // reduced motion and weak devices (perf-lite) — there the loop suspends at
-    // rest instead (see the stop branch). The phase rides wall-clock time so it
-    // stays smooth regardless of frame rate.
-    const allowBreath = !(reduceMotionMQ && reduceMotionMQ.matches)
-      && !document.body.classList.contains('perf-lite');
-    // Shaped breath (see breathePos): eased inhale/exhale with holds, so the
-    // speed profile curves rather than running as a flat sine. +1 = inhaled =
-    // up, which is negative canvas Y.
-    const breathPhase = (nowT % BREATHE_PERIOD_MS) / BREATHE_PERIOD_MS;
-    const breatheY = allowBreath ? -breathePos(breathPhase) * BREATHE_AMP_PX : 0;
+    // --- Idle breathing ---
+    // Lives ENTIRELY on the compositor now: a CSS keyframe animation on the
+    // .hero-stage__breathe wrapper (styles.css) that replicates the old
+    // breathePos() curve exactly. It composes with this loop's canvas
+    // transform, so nothing snaps — and, crucially, the loop can fully
+    // SUSPEND at rest again. Folding a breathe offset into the JS transform
+    // kept a style write + full commit running every rAF for the whole
+    // session, which measured as THE dominant hero frame cost on slow CPUs.
 
     // --- Advance the reel (CONTINUOUS crawl) ---
     //   INTRO (!hasScrolled): autoplay 0 → HOLD_FRAME on load.
@@ -1330,7 +1326,7 @@
     const finalX = motion.cursorRenderedX + scrollX;
     cinemaCanvas.style.transform =
       'translate3d(calc(-50% + ' + finalX.toFixed(2) + 'px), ' +
-      (motion.cursorRenderedY + breatheY).toFixed(2) + 'px, 0)';
+      motion.cursorRenderedY.toFixed(2) + 'px, 0)';
     renderFrame(animP * (FRAME_COUNT - 1), shouldAdvance);
     renderCinemaUI(animP);
     updateAside(timelineProgress);   // reveal the side statement opposite the character
@@ -1343,9 +1339,11 @@
     const cursorSettled =
       Math.abs(cdx) < CURSOR_SETTLE && Math.abs(cdy) < CURSOR_SETTLE;
 
-    if (!shouldAdvance && cursorSettled && !allowBreath) {
-      // Weak device / reduced motion: no idle animation — settle exactly and
-      // suspend the loop to save power (the original at-rest behaviour).
+    if (!shouldAdvance && cursorSettled) {
+      // At rest: settle exactly and SUSPEND the loop — zero main-thread work
+      // while the character idles (the compositor-side breathe wrapper keeps
+      // the figure alive). Wake-up paths: scroll input (onUpdate/fallback)
+      // and the cursor listeners — both call kickMotion.
       motion.cursorRenderedX = motion.cursorTargetX;
       motion.cursorRenderedY = motion.cursorTargetY;
       const finalX2 =
@@ -1356,10 +1354,8 @@
       motion.running = false;
       return;
     }
-    // Otherwise keep ticking: the reel is still moving, the cursor is still
-    // settling, OR breathing is active. Because the breath lives in the same
-    // transform as the cursor parallax (written above), the loop running at rest
-    // keeps the mouse response live — moving the cursor never snaps the figure.
+    // Otherwise keep ticking: the reel is still moving or the cursor is
+    // still settling toward its parallax target.
     requestAnimationFrame(motionTick);
   }
 
@@ -2040,12 +2036,19 @@
       { name: 'splitz',     x:  0.06, y:  0.27, rot: -11, dz: 2620 },
       { name: 'careerlens', x:  0.25, y:  0.17, rot:   6, dz: 2980 }
     ];
+    const frameBgEls = [];   // bg images assigned on approach (IO below)
     FRAME_FIELD.forEach((f) => {
       const el = document.createElement('div');
       el.className = 'warp-item';
       const fr = document.createElement('div');
       fr.className = 'warp-frame';
-      fr.style.backgroundImage = "url('section-frames/" + f.name + ".jpg')";
+      // Don't fetch the ten section-frame JPGs (~3–4MB) during page load —
+      // they'd compete with the hero image sequence for bandwidth + decode
+      // time. The observer below assigns the real backgrounds once the
+      // skills section is half a viewport away — still hundreds of vh of
+      // flythrough before any frame becomes visible.
+      fr.dataset.bg = 'section-frames/' + f.name + '.jpg';
+      frameBgEls.push(fr);
       el.appendChild(fr);
       items.push({
         el, type: 'card', rot: f.rot,
@@ -2055,6 +2058,21 @@
       });
       world.appendChild(el);
     });
+    function loadFrameBgs() {
+      frameBgEls.forEach((fr) => {
+        if (fr.dataset.bg) { fr.style.backgroundImage = "url('" + fr.dataset.bg + "')"; delete fr.dataset.bg; }
+      });
+    }
+    if ('IntersectionObserver' in window) {
+      const frameWarm = new IntersectionObserver((es) => {
+        if (!es.some((e) => e.isIntersecting)) return;
+        loadFrameBgs();
+        frameWarm.disconnect();
+      }, { rootMargin: '50% 0px' });
+      frameWarm.observe(section);
+    } else {
+      loadFrameBgs();
+    }
 
     // ---- The Project Gallery preview is NO LONGER a static DOM frame here (that
     // caused a visible screenshot→live swap). Instead the LIVE gallery pin itself
@@ -2143,18 +2161,30 @@
         else if (vizZ > 80) alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
         else                   alpha = 1;
         if (alpha < 0) alpha = 0;
-        // Invisible items: write opacity 0 once, then skip the transform build
-        // + write entirely. Per-frame work scales with VISIBLE items, not the
-        // total — so a large star field (most of it faded out at any moment)
-        // stays cheap on both the main thread and the compositor.
+        // Invisible items: hide once, then skip the transform build + write
+        // entirely. `visibility: hidden` (not just opacity 0) matters here —
+        // an opacity-0 element that carries a 3D transform still produces a
+        // compositor layer, and with ~2/3 of the 1300-star field faded out at
+        // any moment the compositor was walking hundreds of dead layers on
+        // every commit (traced: Layerize dominated the warp frame cost).
+        // Hidden elements drop out of that walk entirely, so per-frame work
+        // scales with VISIBLE items on both the main thread AND compositor.
         if (alpha <= 0) {
-          if (item._lastOp !== '0') { item.el.style.opacity = '0'; item._lastOp = '0'; }
+          if (item._lastOp !== '0') {
+            item.el.style.opacity = '0';
+            item.el.style.visibility = 'hidden';
+            item._lastOp = '0';
+          }
           continue;
         }
         // Write opacity only when it actually changed (most visible items hold
         // a steady 1 across frames) — avoids redundant style mutations.
         const op = alpha.toFixed(3);
-        if (op !== item._lastOp) { item.el.style.opacity = op; item._lastOp = op; }
+        if (op !== item._lastOp) {
+          if (item._lastOp === '0') item.el.style.visibility = '';
+          item.el.style.opacity = op;
+          item._lastOp = op;
+        }
 
         let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
         if (item.type === 'star') {
@@ -2331,6 +2361,7 @@
       // Fallback: position items at static spiral, no camera motion.
       state.visible = false;
       items.forEach((item) => {
+        item.el.style.visibility = '';   // undo any paintItems cull (static view shows all)
         if (item.type === 'star') {
           item.el.style.opacity = '0.4';
           item.el.style.transform =
@@ -2342,6 +2373,20 @@
             (item.rot ? ` rotateZ(${item.rot}deg)` : '');
         }
       });
+    }
+
+    // Off-stage culling: while the skills section is nowhere near the
+    // viewport, hide the 3D world (visibility — not display, so no layout
+    // shift) and its ~1300 star/card elements drop out of the compositor's
+    // per-commit work. With them live, EVERY page commit — even while idling
+    // in the hero — walked that whole layer list (traced: Layerize+Commit
+    // were ~40% of hero frame time on a throttled CPU). The 75% rootMargin
+    // restores it well before the hero→skills reveal can expose the scene,
+    // so nothing ever pops on screen.
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((es) => {
+        world.style.visibility = es.some((e) => e.isIntersecting) ? '' : 'hidden';
+      }, { rootMargin: '75% 0px' }).observe(section);
     }
 
     // Cursor tilt on the world (separate from the canvas cursor parallax)
@@ -2359,6 +2404,10 @@
 
     let lastCameraZ = -1;
     let lastTilt = '';
+    let lastFov = '';
+    let lastVelStr = '';
+    let lastCoordStr = '';
+    let lastCatStr = '';
 
     function render(time) {
       // Smooth velocity toward target
@@ -2383,13 +2432,26 @@
         lastTilt = tiltKey;
       }
 
-      // Dynamic perspective — closer FOV when scrolling fast (warp feel)
-      const fov = 1000 - Math.min(Math.abs(state.velocity) * 6, 450);
-      viewport.style.perspective = `${fov.toFixed(0)}px`;
+      // Dynamic perspective — closer FOV when scrolling fast (warp feel).
+      // Write only on change: an unconditional perspective write invalidates
+      // style for EVERY 3D child (1300+ stars) even on frames where the
+      // value is identical (e.g. while velocity sits at the cap).
+      const fov = (1000 - Math.min(Math.abs(state.velocity) * 6, 450)).toFixed(0);
+      if (fov !== lastFov) {
+        viewport.style.perspective = fov + 'px';
+        lastFov = fov;
+      }
 
-      // HUD
-      if (velEl)   velEl.textContent   = Math.abs(state.velocity).toFixed(2);
-      if (coordEl) coordEl.textContent = Math.abs(state.cameraZ).toFixed(0).padStart(6, '0');
+      // HUD — write only when the rendered string actually changed (each
+      // textContent set replaces the text node and dirties layout).
+      if (velEl) {
+        const velStr = Math.abs(state.velocity).toFixed(2);
+        if (velStr !== lastVelStr) { velEl.textContent = velStr; lastVelStr = velStr; }
+      }
+      if (coordEl) {
+        const coordStr = Math.abs(state.cameraZ).toFixed(0).padStart(6, '0');
+        if (coordStr !== lastCoordStr) { coordEl.textContent = coordStr; lastCoordStr = coordStr; }
+      }
       if (catEl) {
         // current heading index based on cameraZ (no loop)
         const clampedZ = Math.max(0, Math.min(state.cameraZ, TOTAL_Z));
@@ -2397,9 +2459,10 @@
         for (let h = 0; h < headingIndices.length; h++) {
           if (clampedZ >= headingIndices[h] * Z_GAP - Z_GAP * 0.5) active = h;
         }
-        catEl.textContent =
+        const catStr =
           String(active + 1).padStart(2, '0') + ' / ' +
           String(headingIndices.length).padStart(2, '0');
+        if (catStr !== lastCatStr) { catEl.textContent = catStr; lastCatStr = catStr; }
       }
 
       // Item transforms — shared with the initial-frame paint so the
@@ -2476,7 +2539,10 @@
     const VIDEO_DX    = -1.6;   // shift left (world units) so the bigger plane grows into
                                 // the centre gap — clear of the text panel and the right edge
     const videoEls = [];        // <video> elements (for play/pause)
-    const videoTextures = [];   // their VideoTextures (flagged needsUpdate each frame)
+    const videoTextures = [];   // their VideoTextures (uploaded only while their plane is near view)
+    const videoMeshes = [];     // the plane mesh per video (for the visibility test)
+    const videoNear = [];       // per-video "near the camera view" state (hysteresis)
+    const _vNdc = new THREE.Vector3();   // scratch for the per-frame projection
     let videoOnScreen = false;  // gallery pin (with a video) is in view → keep rendering
 
     const scene = new THREE.Scene();
@@ -2572,12 +2638,16 @@
         vid.src = VIDEO_SRC[i];
         vid.loop = true;
         vid.muted = true; vid.defaultMuted = true;
-        vid.autoplay = true;
         vid.playsInline = true;
         vid.setAttribute('playsinline', '');
         vid.setAttribute('webkit-playsinline', '');
         vid.setAttribute('muted', '');
-        vid.preload = 'auto';
+        // metadata-only at page load: the three clips are ~19MB combined and
+        // used to download (and even start decoding) while the HERO was still
+        // fetching its image sequence. A one-shot observer on #skills flips
+        // them to preload='auto' with a full flythrough of lead time, and the
+        // render loop starts playback per-plane as each one nears the view.
+        vid.preload = 'metadata';
         const vtex = new THREE.VideoTexture(vid);
         vtex.minFilter = THREE.LinearFilter;
         vtex.magFilter = THREE.LinearFilter;
@@ -2586,9 +2656,10 @@
         mat.map = vtex;
         mat.color.set(0xffffff);
         mat.needsUpdate = true;
-        const p = vid.play(); if (p && p.catch) p.catch(() => {});  // muted autoplay
         videoEls.push(vid);
         videoTextures.push(vtex);
+        videoMeshes.push(mesh);
+        videoNear.push(false);
         vidEl = vid;
       } else {
         loader.load(IMAGES[i] || IMAGES[0], (tex) => {
@@ -2841,26 +2912,46 @@
       paintGallery(0);
     }
 
-    // Play the painting video(s) only while the gallery pin is on screen
-    // (and pause otherwise) so it isn't decoding in the background. While on
-    // screen, `videoOnScreen` keeps the render loop ticking every frame so the
-    // VideoTexture is re-uploaded continuously — no freeze at the loop seam.
+    // Gate video work on the gallery pin being on screen at all. While on,
+    // `videoOnScreen` keeps the render loop ticking and the per-plane gating
+    // in render() decides WHICH clip actually plays + uploads (the visible
+    // one) — the rest stay paused. Off screen, everything pauses so nothing
+    // decodes in the background.
     if (videoEls.length && 'IntersectionObserver' in window) {
       const pinEl = section.querySelector('.hall__pin');
       if (pinEl) {
         new IntersectionObserver((entries) => {
           const on = entries.some((e) => e.isIntersecting);
           videoOnScreen = on;
-          videoEls.forEach((v) => {
-            if (on) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
-            else v.pause();
-          });
-          if (on) kickRender();
+          if (on) {
+            kickRender();   // render() resumes the near-view clip(s)
+          } else {
+            videoEls.forEach((v, i) => { v.pause(); videoNear[i] = false; });
+          }
         }, { threshold: 0 }).observe(pinEl);
       }
     } else if (videoEls.length) {
       // No IntersectionObserver: keep them playing + rendering unconditionally.
       videoOnScreen = true;
+      videoEls.forEach((v) => { const p = v.play(); if (p && p.catch) p.catch(() => {}); });
+    }
+
+    // Warm the clips while the user is still flying through the skills warp:
+    // flip preload metadata → auto once #skills actually enters the viewport.
+    // That still leaves ~7 viewports of flythrough before the first video
+    // plane can appear, but it's late enough that the ~19MB of clips never
+    // competes with the hero image sequence at page load. (No rootMargin —
+    // the section overlaps the hero's tail, so any margin fires at the top.)
+    if (videoEls.length && 'IntersectionObserver' in window) {
+      const skillsSec = document.getElementById('skills');
+      if (skillsSec) {
+        const warm = new IntersectionObserver((es) => {
+          if (!es.some((e) => e.isIntersecting)) return;
+          videoEls.forEach((v) => { v.preload = 'auto'; try { v.load(); } catch (e) {} });
+          warm.disconnect();
+        }, { rootMargin: '0px' });
+        warm.observe(skillsSec);
+      }
     }
 
     // ---- Hover link-preview over the video plane(s) ----
@@ -3138,8 +3229,27 @@
       if (flyZ > 0.01) paintCollage();
 
       updateUI(currentScroll);
-      // Push the latest video frame(s) onto their textures before drawing.
-      for (let i = 0; i < videoTextures.length; i++) videoTextures[i].needsUpdate = true;
+      // Per-plane video gating: a clip only plays (decodes) and re-uploads
+      // its texture while ITS plane is near the camera's view. Paintings sit
+      // ~2.0 NDC apart on the wall, so panning keeps ONE clip live and the
+      // others paused on their last frame — previously all three decoded and
+      // re-uploaded 1080p frames on every render. ON at |ndc|<1.6 pre-rolls
+      // playback just before a plane's edge can enter the viewport (widest
+      // plane edge shows at ~1.5); OFF at >1.85 stays under the 2.0 neighbour
+      // distance, and the gap between the two avoids play/pause thrash.
+      for (let i = 0; i < videoTextures.length; i++) {
+        const v = videoEls[i];
+        videoMeshes[i].getWorldPosition(_vNdc).project(camera);
+        const ax = Math.abs(_vNdc.x);
+        const near = videoOnScreen && (videoNear[i] ? ax < 1.85 : ax < 1.6);
+        videoNear[i] = near;
+        if (near) {
+          if (v.paused) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+          if (v.readyState >= 2) videoTextures[i].needsUpdate = true;
+        } else if (!v.paused) {
+          v.pause();
+        }
+      }
       renderer.render(scene, camera);
 
       // Keep ticking while the camera is still easing toward target
@@ -4124,21 +4234,39 @@
     if (!perfProbeArmed || perfProbeRan) return;
     perfProbeRan = true;
 
-    const SETTLE = 900;    // skip the reel's own start-up burst
-    const SAMPLE = 1600;   // measure over this window
-    const THRESH = 50;     // sustained FPS below this → go lite
-
-    setTimeout(() => {
-      if (document.hidden) { perfProbeRan = false; return; }  // can't judge a hidden tab; allow a later retry
+    const SETTLE  = 900;    // skip the reel's own start-up burst
+    const SAMPLE  = 1600;   // measure over this window
+    const THRESH  = 50;     // FPS below this → suspicious
+    const CONFIRM = 2600;   // wait before the confirming second sample
+    // ONE slow sample is not proof: right after the preloader hands off,
+    // background frame decodes / shader compiles / font rasters can dip a
+    // perfectly healthy machine below THRESH for a second or two — and the
+    // old one-shot probe then froze the ambient visuals PERMANENTLY on
+    // devices that were actually fine ("animations don't work on my other
+    // desktop"). Perf-lite now needs TWO consecutive slow samples, the
+    // second taken after the load rush has had time to clear.
+    function sample(ms, cb) {
       let frames = 0;
       const start = performance.now();
       function count(now) {
         frames++;
-        if (now - start < SAMPLE) { requestAnimationFrame(count); return; }
-        const fps = (frames / (now - start)) * 1000;
-        if (fps < THRESH) document.body.classList.add('perf-lite');
+        if (now - start < ms) { requestAnimationFrame(count); return; }
+        cb((frames / (now - start)) * 1000);
       }
       requestAnimationFrame(count);
+    }
+
+    setTimeout(() => {
+      if (document.hidden) { perfProbeRan = false; return; }  // can't judge a hidden tab; allow a later retry
+      sample(SAMPLE, (fps) => {
+        if (fps >= THRESH) return;                 // healthy — keep full visuals
+        setTimeout(() => {
+          if (document.hidden) { perfProbeRan = false; return; }
+          sample(SAMPLE, (fps2) => {
+            if (fps2 < THRESH) document.body.classList.add('perf-lite');
+          });
+        }, CONFIRM);
+      });
     }, SETTLE);
   }
 

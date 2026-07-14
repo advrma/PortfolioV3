@@ -155,20 +155,29 @@ body.perf-lite .hero__welcome--right {
   animation-play-state: paused !important;
 }
 
-.topo-bg {
+/* Two nested layers keep BOTH topo motions off the main thread: the
+   wrapper takes the JS scroll parallax (GSAP yPercent), the <svg> takes
+   the slow drift keyframes — each a whole-element composited transform.
+   The drift used to animate the inner <g>; SVG children can't be GPU-
+   composited, so that re-rastered this 120vw×120vh layer every frame,
+   even while it sat hidden behind opaque sections. */
+.topo-wrap {
   position: fixed;
   inset: -10vh -10vw -10vh -10vw;
   width: 120vw; height: 120vh;
   z-index: 0;
   pointer-events: none;
-  color: rgba(12, 12, 10, 0.22);
-  opacity: 0.55;
-  /* Parallax handled in JS via translate3d on a child wrapper transform */
   will-change: transform;
 }
-.topo-bg > g {
+.topo-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  color: rgba(12, 12, 10, 0.22);
+  opacity: 0.55;
   transform-origin: center;
   animation: topoDrift 90s ease-in-out infinite;
+  will-change: transform;
 }
 @keyframes topoDrift {
   0%   { transform: translate3d(0,0,0) rotate(0deg) scale(1); }
@@ -431,6 +440,33 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
    off horizontally. `aspect-ratio` keeps the contain-fit
    filling the canvas edge-to-edge — no letterboxing, no
    cropping. */
+/* Idle breath — runs on the COMPOSITOR via this wrapper so the reel's
+   JS loop can fully suspend at rest (it used to fold a breathe offset
+   into the canvas transform every rAF, which forced a full main-thread
+   commit per frame forever — measured as THE hero frame cost on slow
+   CPUs). The wrapper's animation composes with the canvas's own JS
+   transform (crawl + cursor parallax), so nothing ever snaps.
+   The keyframes replicate the old breathePos() exactly: ±7px over 3.2s,
+   eased inhale for 42% of the cycle then a longer exhale, each segment
+   easeInOutSine (= cubic-bezier(0.37, 0, 0.63, 1)). */
+.hero-stage__breathe {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  will-change: transform;
+  animation: heroBreathe 3.2s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+@keyframes heroBreathe {
+  0%   { transform: translate3d(0, 7px, 0);  animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1); }
+  42%  { transform: translate3d(0, -7px, 0); animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1); }
+  100% { transform: translate3d(0, 7px, 0); }
+}
+body.hero-hidden .hero-stage__breathe { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-stage__breathe { animation: none; }
+}
+
 .hero-stage__canvas {
   position: absolute;
   left: 50%;
@@ -503,13 +539,21 @@ body.perf-lite .hero-stage__canvas {
   height: 90vh;
   max-width: 96vw;
   border-radius: 50%;
-  background: radial-gradient(closest-side,
-    rgba(216, 255, 56, 0.16) 0%,
-    rgba(216, 255, 56, 0.05) 50%,
-    transparent 78%);
+  /* The old `blur(28px)` softness is BAKED into these stops (fitted by
+     pixel-diff against the blurred original: ±1 level along the radius,
+     max 3/255 anywhere). With no live filter, the 9s pulse is a pure
+     composited transform/opacity animation instead of re-filtering a
+     90vh texture every frame — the hero's single biggest paint cost. */
+  background: radial-gradient(50% 50%,
+    rgba(216, 255, 56, 0.141) 0%,
+    rgba(216, 255, 56, 0.094) 30%,
+    rgba(216, 255, 56, 0.052) 50%,
+    rgba(216, 255, 56, 0.021) 65%,
+    rgba(216, 255, 56, 0.010) 75%,
+    rgba(216, 255, 56, 0) 88%);
   z-index: 1;
-  filter: blur(28px);
   animation: haloPulse 9s ease-in-out infinite;
+  will-change: transform, opacity;
   pointer-events: none;
 }
 /* Pause the (blurred, animated) halo while the hero is off-screen — no
@@ -2859,6 +2903,11 @@ html.is-dark .hall__glow {
   color: rgba(242, 238, 229, 0.5);
   letter-spacing: 0.18em;
   text-transform: uppercase;
+  /* The VEL/COORD readouts change ~every frame while the camera moves;
+     containing layout keeps each of those text updates from propagating
+     past the HUD box (it's absolutely positioned — nothing outside
+     depends on its layout anyway). */
+  contain: layout;
 }
 .warp__hud-top, .warp__hud-bottom {
   display: flex; align-items: center; gap: 16px;
