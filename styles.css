@@ -362,18 +362,6 @@ body:not(.is-pre-load) .hero__card--role     { transition-delay: 0.85s; }
   box-shadow: 0 0 0 3px rgba(12,12,10,0.06);
 }
 
-.nav__menu {
-  width: 38px; height: 38px;
-  border-radius: 10px;
-  border: 1px solid var(--line-soft);
-  background: var(--glass);
-  backdrop-filter: blur(8px);
-  display: grid; place-items: center;
-  transition: background .3s var(--ease-out-quart);
-}
-.nav__menu svg { width: 18px; height: 18px; }
-.nav__menu:hover { background: #fff; }
-
 /* =========================================================
    HERO STAGE — outer container provides the scroll runway.
    The inner `__pin` is sticky for the full runway, so the
@@ -2261,7 +2249,7 @@ html.is-dark .hall__glow {
 .hall__logo {
   position: absolute;
   top: clamp(20px, 3vw, 40px);
-  left: clamp(20px, 3vw, 50px);
+  right: clamp(20px, 3vw, 50px);
   font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.18em;
@@ -2277,7 +2265,7 @@ html.is-dark .hall__glow {
 .hall__hint {
   position: absolute;
   bottom: clamp(20px, 3vw, 40px);
-  left: clamp(20px, 3vw, 50px);
+  right: clamp(20px, 3vw, 50px);
   font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.22em;
@@ -3852,7 +3840,6 @@ body.perf-lite .term__cursor { animation: none; }
     align-items: center;
     gap: 8px;
   }
-  .nav__menu { display: none; }
   .nav__monogram { display: none; }
   .nav__brand { font-size: 11px; letter-spacing: 0.04em; flex-shrink: 0; }
   .nav__cta {
