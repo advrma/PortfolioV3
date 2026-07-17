@@ -1194,6 +1194,10 @@
   // delta (update lastScrollProgress only) rather than treat it
   // as user input that could flip the play direction.
   let isAutoScrolling = false;
+  // Pending timer that hands scroll ownership back to the user shortly
+  // after the reel parks (trailing scroll events from the last
+  // programmatic scrollTo arrive async and must still be absorbed).
+  let autoScrollClearT = 0;
 
 
   /* Recomputed only on init + resize. */
@@ -1286,11 +1290,50 @@
       else if (motion.animFrame < 0) motion.animFrame = 0;
     }
 
-    // NOTE: the reel no longer drives the page scroll. It used to call
-    // window.scrollTo() every frame to drag the page along, which fought the
-    // user's own scrolling — the page got stuck / snapped back / flickered.
-    // The hero is CSS-sticky-pinned, so it stays in view on its own; the
-    // character just plays continuously while the user scrolls natively.
+    // --- Auto-scroll follow (2026-07, owner request) ---
+    // Keep the scrollbar in sync with the character: map animFrame
+    // (HOLD_FRAME → TIMELINE_MAX) onto the pin runway and pull scrollY
+    // down to that point. Three guards keep this from becoming the old
+    // scroll hijack (which scrolled unconditionally every frame and
+    // fought the user — removed 2026-06):
+    //   1. FORWARD-ONLY: never scrolls up, and if the user is already
+    //      ahead of the character it does nothing.
+    //   2. Only while the reel is actually TRAVELLING — parked reel =
+    //      fully native scrolling.
+    //   3. behavior:'instant' bypasses the page's scroll-behavior:smooth
+    //      (the old per-frame smooth-scroll restart was half the jank).
+    // ScrollTrigger/fallback absorb these via isAutoScrolling, so the
+    // programmatic scroll can't release checkpoints or flip direction.
+    // The follow works BOTH directions, but only ever moves the page in
+    // the reel's direction of travel: forward play may only scroll DOWN
+    // toward followY, reverse play may only scroll UP toward it. The
+    // direction match is load-bearing — without it, the still-high frame
+    // at the start of a reverse gesture put followY above the user's
+    // fresh upward scroll and yanked the page back down (verified:
+    // scrolling up at the runway end moved 8px instead of the wheel's
+    // 400). The user can always outrun the follow; it never drags them
+    // backwards against their input.
+    if (shouldAdvance && motion.hasScrolled && motion.pinRunway > 0) {
+      const scrollProg = clamp01(
+        (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME)
+      );
+      const followY = motion.heroSectionTop + motion.pinRunway * scrollProg;
+      const curY = window.scrollY;
+      const follow = advanceStep > 0
+        ? followY > curY + 1     // forward: pull the page down to the reel
+        : followY < curY - 1;    // reverse: pull the page up to the reel
+      if (follow) {
+        isAutoScrolling = true;
+        if (autoScrollClearT) { clearTimeout(autoScrollClearT); autoScrollClearT = 0; }
+        window.scrollTo({ top: followY, left: 0, behavior: 'instant' });
+      }
+    } else if (isAutoScrolling && !autoScrollClearT) {
+      // Reel parked: absorb the async event tail, then hand scroll back.
+      autoScrollClearT = setTimeout(() => {
+        isAutoScrolling = false;
+        autoScrollClearT = 0;
+      }, 160);
+    }
 
     // --- Cursor lerp ---
     const cdx = motion.cursorTargetX - motion.cursorRenderedX;
@@ -1489,6 +1532,33 @@
      past the hero stage.
      ------------------------------------------------------- */
   function initScrollTriggers() {
+    // Direct user-intent taps. Wheel/touch are ALWAYS the user
+    // (programmatic scrollTo never fires them), so they register
+    // gestures even while the auto-scroll follow is mid-travel and the
+    // scroll-event stream is being absorbed via isAutoScrolling.
+    // Without these, a counter-gesture during the ~1.5s of follow
+    // travel was swallowed whole (verified headless: a reverse wheel
+    // arriving just before park was absorbed, leaving gateIndex stale
+    // so the next forward gesture jumped TWO stops). The tiny delta
+    // only conveys direction; onHeroScrollInput's gesture-gap and
+    // arrival guards do the rest. Ordinary gestures fire here first
+    // and the trailing scroll events land inside GESTURE_GAP_MS, so
+    // they merge into the same gesture — no double-release.
+    window.addEventListener('wheel', (e) => {
+      if (!motion.heroVisible || !e.deltaY) return;
+      onHeroScrollInput(e.deltaY > 0 ? 0.001 : -0.001);
+    }, { passive: true });
+    let heroTouchY = 0;
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length) heroTouchY = e.touches[0].clientY;
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (!motion.heroVisible || !e.touches.length) return;
+      const dy = heroTouchY - e.touches[0].clientY;   // finger up = scroll down
+      heroTouchY = e.touches[0].clientY;
+      if (dy) onHeroScrollInput(dy > 0 ? 0.001 : -0.001);
+    }, { passive: true });
+
     if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') {
       // Fallback for when GSAP fails to load — direct scroll
       // listener with no smoothing, basic behavior preserved.
@@ -4209,6 +4279,222 @@
   }
 
   /* -------------------------------------------------------
+     Hero ripple grid — animated infinite grid behind the whole
+     character scene. Vanilla-WebGL port of the ogl "RippleGrid"
+     shader, recolored ink-on-cream to sit with the topo contours.
+     Perf contract matches the rest of the hero:
+       - DPR capped at 1 (the effect is a soft glow — low res is
+         invisible, and it bounds the fragment cost at 4K).
+       - The rAF loop runs ONLY while the hero pin is on screen
+         (own IntersectionObserver, same pattern as the reel gate).
+       - Reduced-motion renders ONE static frame, no loop.
+       - perf-lite (at init or when the FPS probe adds it later)
+         freezes on the current frame — grid stays visible, cost
+         drops to zero, mirroring the frozen CSS ambients.
+     ------------------------------------------------------- */
+  function initHeroGrid() {
+    const canvas = document.getElementById('heroGrid');
+    const heroSec = document.getElementById('hero');
+    const pin = document.querySelector('.hero-stage__pin');
+    if (!canvas || !heroSec || !pin) return;
+    let gl = null;
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: true, depth: false, stencil: false, antialias: false,
+        premultipliedAlpha: false, powerPreference: 'low-power',
+      });
+    } catch (e) { /* fall through */ }
+    if (!gl) { canvas.remove(); return; }
+
+    const VERT = [
+      'attribute vec2 position;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vUv = position * 0.5 + 0.5;',
+      '  gl_Position = vec4(position, 0.0, 1.0);',
+      '}',
+    ].join('\n');
+
+    // Port of the RippleGrid fragment shader with the knobs baked as
+    // constants (tuned for ink lines on cream paper): no rainbow, no
+    // rotation, no radial fade/vignette (grid covers the full pin);
+    // ripple 0.05, grid 10 / thickness 15, glow 0.1, mouse radius 1.2.
+    const FRAG = [
+      'precision highp float;',
+      'uniform float iTime;',
+      'uniform vec2 iResolution;',
+      'uniform vec2 mousePosition;',
+      'uniform float mouseInfluence;',
+      'uniform float uScroll;',
+      'varying vec2 vUv;',
+      'const float PI = 3.141592;',
+      // Warm sepia-gray rather than pure ink — matches the faint topo
+      // contour color so the grid reads as the same paper texture.
+      'const vec3  GRID_COLOR = vec3(0.20, 0.18, 0.14);',
+      'const float RIPPLE = 0.05;',
+      'const float GRID_SIZE = 10.0;',
+      'const float THICK = 15.0;',
+      'const float GLOW = 0.1;',
+      // Very subtle — the grid is paper texture, not a cage. Global
+      // ceiling; the radial centerFade below shapes it.
+      'const float OPACITY = 0.15;',
+      'const float MOUSE_R = 1.2;',
+      'void main() {',
+      '  vec2 uv = vUv * 2.0 - 1.0;',
+      '  uv.x *= iResolution.x / iResolution.y;',
+      '  float dist = length(uv);',
+      '  float func = sin(PI * (iTime - dist));',
+      '  vec2 rippleUv = uv + uv * func * RIPPLE;',
+      '  if (mouseInfluence > 0.0) {',
+      '    vec2 mouseUv = (mousePosition * 2.0 - 1.0);',
+      '    mouseUv.x *= iResolution.x / iResolution.y;',
+      '    float mouseDist = length(uv - mouseUv);',
+      '    float influence = mouseInfluence * exp(-mouseDist * mouseDist / (MOUSE_R * MOUSE_R));',
+      '    float mouseWave = sin(PI * (iTime * 2.0 - mouseDist * 3.0)) * influence;',
+      '    rippleUv += normalize(uv - mouseUv) * mouseWave * RIPPLE * 0.3;',
+      '  }',
+      // Page-scroll offset: the LATTICE slides up as the user scrolls
+      // down (uv is y-up, so subtracting shifts the pattern upward),
+      // while the ripple lens + fades stay locked to the screen.
+      '  rippleUv.y -= uScroll;',
+      '  vec2 a = sin(GRID_SIZE * 0.5 * PI * rippleUv - PI / 2.0);',
+      '  vec2 b = abs(a);',
+      '  vec2 smoothB = vec2(smoothstep(0.0, 0.5, b.x), smoothstep(0.0, 0.5, b.y));',
+      '  vec3 color = vec3(0.0);',
+      '  color += exp(-THICK * smoothB.x * (0.8 + 0.5 * sin(PI * iTime)));',
+      '  color += exp(-THICK * smoothB.y);',
+      '  color += 0.5 * exp(-(THICK / 4.0) * sin(smoothB.x));',
+      '  color += 0.5 * exp(-(THICK / 3.0) * smoothB.y);',
+      '  color += GLOW * exp(-THICK * 0.5 * smoothB.x);',
+      '  color += GLOW * exp(-THICK * 0.5 * smoothB.y);',
+      // Radial fade measured in SCREEN-proportional space (not the
+      // aspect-corrected uv the ripple uses), so the grid reaches the
+      // left/right edges just like top/bottom. length(fUv) is 1.0 at
+      // each edge midpoint — the fade only begins near the edges and
+      // the grid is full strength across the rest of the frame.
+      '  vec2 fUv = (vUv - 0.5) * 2.0;',
+      '  float centerFade = 1.0 - smoothstep(0.7, 1.05, length(fUv));',
+      '  float alpha = length(color) * centerFade * OPACITY;',
+      '  gl_FragColor = vec4(GRID_COLOR, clamp(alpha, 0.0, 1.0));',
+      '}',
+    ].join('\n');
+
+    function compile(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
+      return sh;
+    }
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) { canvas.remove(); return; }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
+    gl.useProgram(prog);
+
+    // Single fullscreen triangle.
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const locPos = gl.getAttribLocation(prog, 'position');
+    gl.enableVertexAttribArray(locPos);
+    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0, 0, 0, 0);
+
+    const uTime = gl.getUniformLocation(prog, 'iTime');
+    const uRes = gl.getUniformLocation(prog, 'iResolution');
+    const uMouse = gl.getUniformLocation(prog, 'mousePosition');
+    const uInf = gl.getUniformLocation(prog, 'mouseInfluence');
+    const uScroll = gl.getUniformLocation(prog, 'uScroll');
+
+    const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
+    const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, inf: 0, tinf: 0 };
+    // Shader-clock rate. The stock component runs the ripple at a 2s
+    // period — far too busy for this page. 0.22 stretches it to ~9s,
+    // the same lazy cadence as the halo pulse.
+    const TIME_SCALE = 0.22;
+    // Scroll-follow: the lattice tracks the page scroll at just under
+    // half speed — enough that scrolling visibly travels "down the
+    // grid", slow enough to read as a background plane with depth
+    // (same instinct as the topo parallax). uv is 2 units per
+    // viewport height, hence the * 2 in the uniform below.
+    const SCROLL_PARALLAX = 0.45;
+    let raf = 0;
+    let visible = true;
+    let viewH = 1;
+    const t0 = performance.now();
+
+    function draw(tSec) {
+      mouse.x += (mouse.tx - mouse.x) * 0.1;
+      mouse.y += (mouse.ty - mouse.y) * 0.1;
+      mouse.inf += (mouse.tinf - mouse.inf) * 0.05;
+      gl.uniform1f(uTime, tSec);
+      gl.uniform2f(uMouse, mouse.x, mouse.y);
+      gl.uniform1f(uInf, mouse.inf);
+      gl.uniform1f(uScroll, (window.scrollY / viewH) * 2 * SCROLL_PARALLAX);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    function tick(now) {
+      raf = 0;
+      if (!visible) return;
+      draw(((now - t0) / 1000) * TIME_SCALE);
+      // perf-lite can arrive later (adaptive FPS probe) — freeze on
+      // this frame; the grid stays visible at zero ongoing cost.
+      if (document.body.classList.contains('perf-lite')) return;
+      raf = requestAnimationFrame(tick);
+    }
+    function kick() {
+      if (!raf && visible && !reduce) raf = requestAnimationFrame(tick);
+    }
+
+    function resize() {
+      // DPR capped at 1 — soft glow content, invisible at this scale.
+      const w = Math.max(1, pin.clientWidth);
+      const h = Math.max(1, pin.clientHeight);
+      viewH = h;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(uRes, w, h);
+      if (reduce) draw(1.0);   // static frame (sin(PI*t) term ≈ 0)
+      else kick();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    if (reduce) return;        // static frame drawn; no loop, no mouse
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        visible = entries.some((e) => e.isIntersecting);
+        if (visible) kick();
+        else if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      }).observe(heroSec);
+    }
+
+    // Mouse ripple — listeners live on the pin (the canvas itself is
+    // pointer-events: none so hero hovers keep working).
+    pin.addEventListener('mousemove', (e) => {
+      const r = pin.getBoundingClientRect();
+      mouse.tx = (e.clientX - r.left) / r.width;
+      mouse.ty = 1 - (e.clientY - r.top) / r.height;
+    }, { passive: true });
+    pin.addEventListener('mouseenter', () => { mouse.tinf = 1; }, { passive: true });
+    pin.addEventListener('mouseleave', () => { mouse.tinf = 0; }, { passive: true });
+
+    kick();
+  }
+
+  /* -------------------------------------------------------
      Adaptive frame-rate fallback.
      The probe must sample the REAL heavy phase — the character
      reel running over the ambient effects — so it is armed at
@@ -5125,6 +5411,7 @@
     initHeroSign();
     initGoodPart();
     initWelcomeBreath();
+    initHeroGrid();
     initBlurAside();
     heroTerminal = initHeroTerminal();
     callcard = initCallcard();

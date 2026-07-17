@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=226" />
+<link rel="stylesheet" href="styles.css?v=228" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark "welcome" screen greets the visitor with a couple of
@@ -214,6 +214,13 @@
         <path d="M-100,340 Q220,200 460,280 T920,220 T1340,340 T1750,260" />
       </g>
     </svg>
+
+    <!-- Animated infinite ripple grid — full-pin WebGL shader layer
+         behind the whole hero scene (vanilla port of the ogl
+         RippleGrid component, recolored to the site's ink-on-cream;
+         see initHeroGrid). Same z as .pin-topo but later in the DOM,
+         so it paints over the contours and under the halo (z1). -->
+    <canvas class="hero-grid" id="heroGrid" aria-hidden="true"></canvas>
 
     <!-- Soft glow behind character -->
     <div class="hero-stage__halo" aria-hidden="true"></div>
@@ -812,7 +819,7 @@
 
 </main>
 
-<script src="script.js?v=195" defer></script>
+<script src="script.js?v=206" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

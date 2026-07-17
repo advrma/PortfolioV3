@@ -515,6 +515,20 @@ body.perf-lite .hero-stage__canvas {
   pointer-events: none;
 }
 
+/* Animated infinite ripple grid behind the hero scene — a WebGL
+   canvas driven by initHeroGrid (script.js). Ink-on-transparent,
+   covering the full pin edge-to-edge. The rAF loop only runs
+   while the hero pin is on screen (IO-gated, like the reel). */
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;              /* over .pin-topo (same z, later in DOM),
+                              under the halo (z1) + character (z2) */
+  pointer-events: none;
+}
+
 /* Soft glow trailing behind the character. Anchored to the
    bottom to match the new character position and slightly
    above so it reads as ambient backlight on the upper body. */
