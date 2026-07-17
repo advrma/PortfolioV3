@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=228" />
+<link rel="stylesheet" href="styles.css?v=244" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark "welcome" screen greets the visitor with a couple of
@@ -502,6 +502,13 @@
 ====================================================== -->
 <section class="warp" id="skills">
   <div class="warp__pin">
+    <!-- Check-pattern portal behind the card field: a WebGL tunnel
+         (initWarpTunnel) the camera flies through — grid pipe walls,
+         chromatic-aberration fringes, drifting axis + lens breathing.
+         Travel speed picks up with the user's scroll, so diving
+         through the stack reads as accelerating through the portal.
+         Same ambient-depth role as the gallery's backdrop video. -->
+    <canvas class="warp-tunnel" id="warpTunnel" aria-hidden="true"></canvas>
     <div class="warp__hud" aria-hidden="true">
       <div class="warp__hud-top">
         <span>STACK / READY</span>
@@ -542,8 +549,24 @@
          fixed .topo-bg shows through directly (same paper as every section). -->
     <!-- Soft accent glow pools — one behind the text, one behind the painting.
          Sits below the canvas so it reads as an ambient halo (CSS · .hall__glow). -->
+    <!-- Arrived-state ambient backdrop (ALCHE-style dark room): the
+         ACTIVE project's clip playing dim behind the 3D wall, under an
+         ink vignette. (The perspective grid lives INSIDE the THREE
+         scene — a textured plane behind the paintings — so it shares
+         the videos' exact perspective and pans with the camera.)
+         Hidden while the pin is entering (fly-in intro), faded in with
+         .hall__pin--clear. Video src/playback driven by
+         syncBackdropVideo() in initProjectsHall. -->
+    <div class="hall__backdrop" aria-hidden="true">
+      <video class="hall__bgvideo" id="hallBgVideo" muted loop playsinline preload="none"></video>
+    </div>
     <div class="hall__glow" aria-hidden="true"></div>
     <div class="hall__canvas" id="hallCanvas" aria-hidden="true"></div>
+    <!-- Bottom melt: dims the wall/grid/video wash to flat ink at the
+         pin's bottom edge so the hand-off into the (equally ink-topped)
+         experience section has no visible seam. Above the canvas (same
+         z, later in DOM), below the slide UI. -->
+    <div class="hall__melt" aria-hidden="true"></div>
 
     <!-- Top/bottom HUD lines reproduced for the 3D fly-in so it matches the
          skills section's HUD exactly (gray lines, no green). JS fades it with the
@@ -654,6 +677,25 @@
 
 <!-- ============= EXPERIENCE — TERMINAL + TIMELINE ============= -->
 <section class="xp" id="experience">
+  <!-- Continuation of the gallery's wall grid: a sticky full-viewport
+       window pinned behind the whole section. The inner plane carries
+       the same 88px lattice + plus markers and drifts forever
+       (compositor keyframes); #xpGridTilt's rotation is scrubbed by
+       ScrollTrigger (initXpGrid) from the gallery wall's pose to a
+       flatter resting tilt as this section scrolls in. -->
+  <div class="xp-gridwrap" aria-hidden="true">
+    <div class="xp-grid3d" id="xpGridTilt">
+      <!-- Scroll-follow carrier: translated 1:1 with the page scroll
+           (wrapped every lattice tile) so the grid reads as attached
+           to the background content — see initXpGrid. -->
+      <div class="xp-grid__scroll">
+        <!-- Check lattice — welded to the scroll-following background. -->
+        <div class="xp-grid__plane"></div>
+        <!-- Plus markers — separate layer, rises bottom→top forever. -->
+        <div class="xp-grid__plus"></div>
+      </div>
+    </div>
+  </div>
   <!-- Scroll-drawn frame: two symmetric strokes start at the top, race
        down both sides and close at the bottom as you scroll the section,
        wrapping the experience "page" in a blueprint frame (JS · initXpFrame). -->
@@ -819,7 +861,7 @@
 
 </main>
 
-<script src="script.js?v=206" defer></script>
+<script src="script.js?v=223" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

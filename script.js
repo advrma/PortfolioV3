@@ -2455,7 +2455,8 @@
     // so nothing ever pops on screen.
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((es) => {
-        world.style.visibility = es.some((e) => e.isIntersecting) ? '' : 'hidden';
+        const on = es.some((e) => e.isIntersecting);
+        world.style.visibility = on ? '' : 'hidden';
       }, { rootMargin: '75% 0px' }).observe(section);
     }
 
@@ -2532,7 +2533,10 @@
         const catStr =
           String(active + 1).padStart(2, '0') + ' / ' +
           String(headingIndices.length).padStart(2, '0');
-        if (catStr !== lastCatStr) { catEl.textContent = catStr; lastCatStr = catStr; }
+        if (catStr !== lastCatStr) {
+          catEl.textContent = catStr;
+          lastCatStr = catStr;
+        }
       }
 
       // Item transforms — shared with the initial-frame paint so the
@@ -2579,7 +2583,9 @@
     const P_HEIGHT    = 18;
     const CAM_Z       = 30;
     const WALL_ANGLE  = -0.25;  // wall recedes to the right
-    const BG_HEX      = 0xF4F1EA;
+    // Dark room (ALCHE restyle): fog fades distant paintings + the wall
+    // grid into near-black, matching the pin's ink background.
+    const BG_HEX      = 0x0C0C0A;
 
     // Placeholder painting images — abstract / tech-feel covers
     // for each project card. Swap with real shots later.
@@ -2616,12 +2622,10 @@
     let videoOnScreen = false;  // gallery pin (with a video) is in view → keep rendering
 
     const scene = new THREE.Scene();
-    // Transparent scene background (renderer alpha:true) so the
-    // .hall__pin's cream + cloned .pin-topo contours show through the
-    // canvas — the gallery then shares the same paper backdrop as the
-    // rest of the page. Fog still fades distant paintings toward the
-    // cream tone (fog.color is independent of scene.background), so
-    // depth reads the same as before; empty wall area is now the pin.
+    // Transparent scene background (renderer alpha:true) so the pin's
+    // dark-room backdrop (.hall__backdrop: ambient project clip + ink
+    // vignette) shows through the canvas. Fog fades distant paintings
+    // and the wall grid toward the same ink (BG_HEX).
     scene.background = null;
     scene.fog = new THREE.Fog(BG_HEX, 14, 130);
 
@@ -2689,10 +2693,80 @@
     galleryGroup.position.x = 8;
     scene.add(galleryGroup);
 
+    // ---- In-scene perspective grid (ALCHE-style dark wall) ----
+    // TWO independent planes INSIDE galleryGroup, just behind the
+    // paintings. Because they live in the same rotated group and are
+    // drawn by the same camera, their perspective matches the video
+    // planes EXACTLY and they pan 1:1 with the camera:
+    //   • linesTex/gridMesh — the check lattice. NO drift of its own:
+    //     welded to the wall, so it stays stuck to the videos.
+    //   • plusTex/plusMesh — the plus markers only, drifting fast on
+    //     their own clock (texture offset in render()).
+    // Fog fades both into the dark.
+    function makeGridTile(draw) {
+      const T = 264;                      // one tile = 3 × 88px cells
+      const c = document.createElement('canvas');
+      c.width = T; c.height = T;
+      draw(c.getContext('2d'), T);
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      return tex;
+    }
+    const linesTex = makeGridTile((g, T) => {
+      g.strokeStyle = 'rgba(236, 231, 218, 0.34)';
+      g.lineWidth = 1;
+      for (let i = 0; i <= 3; i++) {
+        const p = Math.min(i * 88 + 0.5, T - 0.5);
+        g.beginPath(); g.moveTo(p, 0); g.lineTo(p, T); g.stroke();
+        g.beginPath(); g.moveTo(0, p); g.lineTo(T, p); g.stroke();
+      }
+    });
+    const plusTex = makeGridTile((g) => {
+      // One plus per tile (= every 3rd intersection on the wall).
+      g.strokeStyle = 'rgba(236, 231, 218, 0.8)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(88, 77); g.lineTo(88, 99);
+      g.moveTo(77, 88); g.lineTo(99, 88);
+      g.stroke();
+    });
+    const GRID_TILE_W = 9;                // world units per tile (3u cells)
+    const GRID_W = SPACING_X * SLIDE_COUNT + 170;   // cover the pan + margins
+    const GRID_H = 130;
+    linesTex.repeat.set(GRID_W / GRID_TILE_W, GRID_H / GRID_TILE_W);
+    plusTex.repeat.set(GRID_W / GRID_TILE_W, GRID_H / GRID_TILE_W);
+    const gridGeo = new THREE.PlaneGeometry(GRID_W, GRID_H);
+    const gridMesh = new THREE.Mesh(
+      gridGeo,
+      new THREE.MeshBasicMaterial({
+        map: linesTex, transparent: true, opacity: 0.9, depthWrite: false
+      })
+    );
+    gridMesh.position.set(SPACING_X, 0, -12);   // centred over the wall, behind the planes
+    gridMesh.renderOrder = -2;
+    galleryGroup.add(gridMesh);
+    const plusMesh = new THREE.Mesh(
+      gridGeo,
+      new THREE.MeshBasicMaterial({
+        map: plusTex, transparent: true, opacity: 0.9, depthWrite: false
+      })
+    );
+    plusMesh.position.set(SPACING_X, 0, -11.5); // a hair in front of the lattice
+    plusMesh.renderOrder = -1;
+    galleryGroup.add(plusMesh);
+
     const loader   = new THREE.TextureLoader();
     const planeGeo = new THREE.PlaneGeometry(P_WIDTH, P_HEIGHT);
     const lineMat  = new THREE.LineBasicMaterial({ color: 0xDED7C8 });
-    const outlineMat = new THREE.LineBasicMaterial({ color: 0x222222 });
+    // Wall seam lines read as stray light diagonals in the dark room —
+    // keep the material driveable (paintCollage writes its opacity) but
+    // never draw it.
+    lineMat.visible = false;
+    // Light plane edging (was 0x222222 ink) — on the dark wall the
+    // screens carry a thin light border like the reference.
+    const outlineMat = new THREE.LineBasicMaterial({ color: 0xE8E3DA });
 
     const paintingGroups = [];
     for (let i = 0; i < SLIDE_COUNT; i++) {
@@ -2997,6 +3071,9 @@
             kickRender();   // render() resumes the near-view clip(s)
           } else {
             videoEls.forEach((v, i) => { v.pause(); videoNear[i] = false; });
+            // The backdrop mirror pauses with them (render() is about
+            // to stop ticking, so the per-frame sync can't do it).
+            if (bgVideo && !bgVideo.paused) bgVideo.pause();
           }
         }, { threshold: 0 }).observe(pinEl);
       }
@@ -3221,6 +3298,34 @@
     // when the section first scrolls into view.
     updateUI(0);
 
+    // ---- Ambient backdrop video (.hall__backdrop) ----
+    // Mirrors the ACTIVE project's clip as a faint fullscreen wash
+    // behind the wall. Playback is gated on (a) the pin having arrived
+    // (--clear — never during the dark fly-in intro), (b) the gallery
+    // being on screen, and (c) not perf-lite. Called every render()
+    // frame (cheap: two classList checks) so it reacts within a frame
+    // of any gate flipping; the off-screen IO pauses it directly.
+    // Src files are the same clips the wall plays, so they come from
+    // the browser cache — no extra downloads.
+    const bgVideo = document.getElementById('hallBgVideo');
+    if (bgVideo) bgVideo.muted = true;
+    let bgSrcIdx = -1;
+    function syncBackdropVideo() {
+      if (!bgVideo) return;
+      const wantPlay = videoOnScreen &&
+        hallPin.classList.contains('hall__pin--clear') &&
+        !document.body.classList.contains('perf-lite');
+      if (wantPlay && bgSrcIdx !== lastActiveIdx && VIDEO_SRC[lastActiveIdx]) {
+        bgSrcIdx = lastActiveIdx;
+        bgVideo.src = VIDEO_SRC[bgSrcIdx];
+      }
+      if (wantPlay && bgSrcIdx !== -1) {
+        if (bgVideo.paused) { const p = bgVideo.play(); if (p && p.catch) p.catch(() => {}); }
+      } else if (!bgVideo.paused) {
+        bgVideo.pause();
+      }
+    }
+
     function render() {
       raf = 0;
       // Hard-pin the page at the exit edge every frame while frozen, so any
@@ -3233,6 +3338,7 @@
         else updateMotionBlur(0);
         return;
       }
+      syncBackdropVideo();
       // Camera follow — a hold-spring while the exit gate is pinning the
       // page (recoil bounce), otherwise the normal eased scroll lerp. The
       // per-frame delta also drives the motion blur, so a fast catch-up
@@ -3320,6 +3426,14 @@
           v.pause();
         }
       }
+      // Fast constant drift on the PLUS layer only (the check lattice
+      // stays welded to the wall/videos). Horizontal right→left along
+      // the wall plane, so it travels in the same perspective as the
+      // lattice. One GPU uniform on a loop that's already ticking.
+      // ~5.5s per tile.
+      if (!reduceMotion) {
+        plusTex.offset.x = (performance.now() * 0.00018) % 1;
+      }
       renderer.render(scene, camera);
 
       // Keep ticking while the camera is still easing toward target
@@ -3357,28 +3471,8 @@
     }
     window.addEventListener('resize', resize);
 
-    // ----- Theme-aware wall lines -----
-    // The thin "wall lines" between paintings are a light cream-gray so they
-    // read as faint seams against the cream backdrop. Once the page flips to
-    // dark (scrolling into the experience section) the transparent gallery
-    // canvas shows the dark page through it, and that light line suddenly
-    // stands out as a bright diagonal. Swap the line color to the dark page
-    // tone whenever html.is-dark is active so it stays invisible, and force an
-    // immediate repaint — the render loop is often idle by the time the page
-    // has gone dark, so it wouldn't otherwise pick up the color change.
-    const applyHallTheme = () => {
-      const dark = document.documentElement.classList.contains('is-dark');
-      // Light: faint cream wall lines. Dark: hide them entirely — against the
-      // dark page they only read as a stray diagonal across the screen.
-      lineMat.color.set(0xDED7C8);
-      lineMat.transparent = true;
-      lineMat.opacity = dark ? 0 : 1;
-      renderer.render(scene, camera);
-    };
-    new MutationObserver(applyHallTheme).observe(document.documentElement, {
-      attributes: true, attributeFilter: ['class']
-    });
-    applyHallTheme();
+    // (The old theme-aware wall-line MutationObserver is gone: the hall
+    // is permanently dark and lineMat is never drawn — see its creation.)
 
     // ----- Free-scroll camera pan with per-project hold zones -----
     // The page scroll is NEVER locked or hijacked, so the section can
@@ -4419,15 +4513,18 @@
     // period — far too busy for this page. 0.22 stretches it to ~9s,
     // the same lazy cadence as the halo pulse.
     const TIME_SCALE = 0.22;
-    // Scroll-follow: the lattice tracks the page scroll at just under
-    // half speed — enough that scrolling visibly travels "down the
-    // grid", slow enough to read as a background plane with depth
-    // (same instinct as the topo parallax). uv is 2 units per
-    // viewport height, hence the * 2 in the uniform below.
-    const SCROLL_PARALLAX = 0.45;
+    // Reel-follow: the lattice tracks the CHARACTER (motion.animFrame
+    // mapped over the hold→end reel), not raw scrollY — so the grid
+    // stays glued to the figure even when the user outruns the
+    // auto-scroll follow and page/reel briefly diverge. 2.4 is the
+    // 120vh pin runway in uv units (uv is 2 per viewport height), so
+    // the travel distance matches what a scroll across the runway
+    // would cover, at 0.9× — near screen speed, so the ride down the
+    // grid is clearly felt, with a whisper of lag left for depth.
+    const SCROLL_PARALLAX = 0.9;
+    const REEL_TRAVEL = 2.4 * SCROLL_PARALLAX;
     let raf = 0;
     let visible = true;
-    let viewH = 1;
     const t0 = performance.now();
 
     function draw(tSec) {
@@ -4437,7 +4534,10 @@
       gl.uniform1f(uTime, tSec);
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uInf, mouse.inf);
-      gl.uniform1f(uScroll, (window.scrollY / viewH) * 2 * SCROLL_PARALLAX);
+      const reelProg = clamp01(
+        (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME)
+      );
+      gl.uniform1f(uScroll, reelProg * REEL_TRAVEL);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
@@ -4458,7 +4558,6 @@
       // DPR capped at 1 — soft glow content, invisible at this scale.
       const w = Math.max(1, pin.clientWidth);
       const h = Math.max(1, pin.clientHeight);
-      viewH = h;
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -4490,6 +4589,204 @@
     }, { passive: true });
     pin.addEventListener('mouseenter', () => { mouse.tinf = 1; }, { passive: true });
     pin.addEventListener('mouseleave', () => { mouse.tinf = 0; }, { passive: true });
+
+    kick();
+  }
+
+  /* -------------------------------------------------------
+     Skills-warp portal — check-pattern tunnel fly-through.
+     Same raw-WebGL skeleton as initHeroGrid (fullscreen
+     triangle, DPR 1, IO-gated loop, perf-lite freeze,
+     reduced-motion static frame). The shader looks down an
+     endless grid pipe: polar uv → (angle sector, 1/r depth),
+     glowing cell borders + faint checkerboard fill, spiral
+     twist, drifting axis, breathing barrel lens, and R/G/B
+     sampled at offset radii for chromatic-aberration fringes
+     in the old glitch title's red/lime/blue. Depth fog eats
+     the center so the pipe vanishes into black. Travel speed
+     accelerates with the user's scroll velocity.
+     ------------------------------------------------------- */
+  function initWarpTunnel() {
+    const canvas = document.getElementById('warpTunnel');
+    const section = document.getElementById('skills');
+    const pin = document.querySelector('.warp__pin');
+    if (!canvas || !section || !pin) return;
+    let gl = null;
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: true, depth: false, stencil: false, antialias: false,
+        premultipliedAlpha: false, powerPreference: 'low-power',
+      });
+    } catch (e) { /* fall through */ }
+    if (!gl) { canvas.remove(); return; }
+
+    const VERT = [
+      'attribute vec2 position;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vUv = position * 0.5 + 0.5;',
+      '  gl_Position = vec4(position, 0.0, 1.0);',
+      '}',
+    ].join('\n');
+
+    const FRAG = [
+      'precision highp float;',
+      'uniform float iTime;',
+      'uniform float uTravel;',
+      'uniform vec2 iResolution;',
+      'varying vec2 vUv;',
+      'const float PI = 3.141592;',
+      // Integer sector count → the pipe wall tiles seamlessly at ±PI.
+      'const float SECTORS = 24.0;',
+      'const float RINGS = 5.0;',
+      'const float OPACITY = 0.85;',
+      'float cells(vec2 p, float t) {',
+      '  float r = max(length(p), 1e-4);',
+      '  float a = atan(p.y, p.x);',
+      '  float depth = 0.30 / r;',
+      // Spiral twist that breathes over time, winding tighter deeper in.
+      '  a += 0.22 * sin(t * 0.26) * depth;',
+      '  vec2 tuv = vec2(a * (SECTORS / (2.0 * PI)), depth * RINGS + uTravel);',
+      '  vec2 f = abs(fract(tuv) - 0.5);',
+      // Soft glowing borders + every-other-cell fill = the check read.
+      '  float lines = smoothstep(0.36, 0.5, max(f.x, f.y));',
+      '  float check = mod(floor(tuv.x) + floor(tuv.y), 2.0) * 0.16;',
+      '  return lines + check;',
+      '}',
+      'void main() {',
+      '  vec2 uv = vUv * 2.0 - 1.0;',
+      '  uv.x *= iResolution.x / iResolution.y;',
+      // Drifting portal axis + breathing barrel lens (the "warp").
+      '  vec2 c = vec2(sin(iTime * 0.21), cos(iTime * 0.17)) * 0.16;',
+      '  vec2 p = uv - c;',
+      '  p *= 1.0 + 0.05 * sin(iTime * 0.33) * dot(p, p);',
+      '  float r = length(p);',
+      // Chromatic aberration — three radial samples, stronger at the rim.
+      '  float ab = 0.012 + 0.085 * r * r;',
+      '  float cr = cells(p * (1.0 - ab), iTime);',
+      '  float cg = cells(p, iTime);',
+      '  float cb = cells(p * (1.0 + ab), iTime);',
+      // Where the channels overlap the palette sums to warm cream;
+      // where they separate, red/lime/blue fringes (the glitch family).
+      '  vec3 col = cr * vec3(1.00, 0.25, 0.20)',
+      '           + cg * vec3(0.85, 1.00, 0.25)',
+      '           + cb * vec3(0.25, 0.50, 0.95);',
+      '  col *= 0.5;',
+      // Fog: the pipe vanishes into black down the center; soft rim
+      // easing keeps the near wall from slamming into the vignette.
+      '  float fog = smoothstep(0.03, 0.5, r);',
+      '  fog *= 1.0 - 0.35 * smoothstep(1.1, 1.7, r);',
+      // Fine grain shimmer so the plate never reads as a still.
+      '  float grain = fract(sin(dot(gl_FragCoord.xy + iTime * 60.0, vec2(12.9898, 78.233))) * 43758.5453);',
+      '  float m = max(col.r, max(col.g, col.b));',
+      '  float alpha = clamp(m, 0.0, 1.0) * fog * OPACITY * (0.9 + 0.1 * grain);',
+      '  gl_FragColor = vec4(col / max(m, 1e-3), alpha);',
+      '}',
+    ].join('\n');
+
+    function compile(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
+      return sh;
+    }
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) { canvas.remove(); return; }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const locPos = gl.getAttribLocation(prog, 'position');
+    gl.enableVertexAttribArray(locPos);
+    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0, 0, 0, 0);
+
+    const uTime = gl.getUniformLocation(prog, 'iTime');
+    const uRes = gl.getUniformLocation(prog, 'iResolution');
+    const uTravel = gl.getUniformLocation(prog, 'uTravel');
+
+    const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
+    // Travel accumulates (never jumps) so speed changes glide: a base
+    // drift plus a smoothed, capped scroll-velocity boost — diving
+    // through the skill stack accelerates the ride; scrolling back
+    // reverses it.
+    const BASE_SPEED = 0.45;         // depth cells / second
+    const SCROLL_GAIN = 0.0011;      // px/s → extra cells/s
+    const BOOST_CAP = 2.6;
+    let travel = 0;
+    let scrollVel = 0;
+    let lastNow = 0;
+    let lastY = 0;
+    let raf = 0;
+    let visible = true;
+    const t0 = performance.now();
+
+    function draw(now) {
+      gl.uniform1f(uTime, (now - t0) / 1000);
+      gl.uniform1f(uTravel, travel);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    function tick(now) {
+      raf = 0;
+      if (!visible) return;
+      const dt = Math.min(Math.max((now - lastNow) / 1000, 0.001), 0.1);
+      lastNow = now;
+      const y = window.scrollY;
+      scrollVel += ((y - lastY) / dt - scrollVel) * 0.08;
+      lastY = y;
+      const boost = Math.max(-BOOST_CAP, Math.min(BOOST_CAP, scrollVel * SCROLL_GAIN));
+      travel += dt * (BASE_SPEED + boost);
+      draw(now);
+      // perf-lite can arrive later (adaptive FPS probe) — freeze on
+      // this frame; the tunnel stays visible at zero ongoing cost.
+      if (document.body.classList.contains('perf-lite')) return;
+      raf = requestAnimationFrame(tick);
+    }
+    function kick() {
+      if (raf || !visible || reduce) return;
+      // Re-seed the clocks so a resume after an off-screen stretch
+      // doesn't register as one giant dt / scroll spike.
+      lastNow = performance.now();
+      lastY = window.scrollY;
+      raf = requestAnimationFrame(tick);
+    }
+
+    function resize() {
+      // DPR capped at 1 — the walls are soft glow, not hairlines.
+      const w = Math.max(1, pin.clientWidth);
+      const h = Math.max(1, pin.clientHeight);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(uRes, w, h);
+      if (reduce) { travel = 0.6; draw(t0); }   // one static frame
+      else kick();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    if (reduce) return;
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        visible = entries.some((e) => e.isIntersecting);
+        if (visible) kick();
+        else if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      }).observe(section);
+    }
 
     kick();
   }
@@ -5352,6 +5649,62 @@
     }
   }
 
+  /* -------------------------------------------------------
+     initXpGrid — perspective morph for the experience grid.
+     The .xp-gridwrap sticky window (styles.css) pins the
+     lattice behind the whole section; this scrubs the
+     rotation carrier from the gallery wall's on-screen pose
+     (receding to the right) to a flatter resting tilt as the
+     section scrolls into view — the grid reads as ONE surface
+     smoothly re-orienting across the section boundary. The
+     drift animation lives on the child plane (compositor), so
+     the scrub and the drift never fight.
+     ------------------------------------------------------- */
+  function initXpGrid() {
+    const tilt = document.getElementById('xpGridTilt');
+    const sec = document.getElementById('experience');
+    if (!tilt || !sec) return;
+    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined' ||
+        (reduceMotionMQ && reduceMotionMQ.matches)) {
+      return;                                     // static straight grid
+    }
+    // Perspective morph across the boundary: enters in the gallery
+    // wall's pose, settles STRAIGHT (flat-on) once the section owns
+    // the screen.
+    gsap.fromTo(tilt,
+      { rotationY: -16, rotationX: 4 },          // ≈ the gallery wall's read
+      {
+        rotationY: 0,
+        rotationX: 0,                             // settled: straight
+        ease: 'none',
+        scrollTrigger: {
+          trigger: sec,
+          start: 'top bottom',
+          end: 'top top',
+          scrub: true
+        }
+      });
+    // Scroll-follow: the lattice is attached to the background — it
+    // translates 1:1 with the page scroll, wrapped every 264px (one
+    // tile) so the periodic pattern never runs off the plane. Lives on
+    // its own carrier so it composes with the rotation scrub (above)
+    // and the CSS drift (child) instead of fighting them.
+    const scrollEl = sec.querySelector('.xp-grid__scroll');
+    if (scrollEl) {
+      const setY = gsap.quickSetter(scrollEl, 'y', 'px');
+      ScrollTrigger.create({
+        trigger: sec,
+        start: 'top bottom',
+        end: 'bottom top',
+        scrub: true,
+        onUpdate: (self) => {
+          const total = sec.offsetHeight + window.innerHeight;
+          setY(-((self.progress * total) % 264));
+        }
+      });
+    }
+  }
+
   function init() {
     // Always start the experience from the top so the intro
     // loader and hero reel run cleanly. Disable browser scroll
@@ -5412,6 +5765,7 @@
     initGoodPart();
     initWelcomeBreath();
     initHeroGrid();
+    initWarpTunnel();
     initBlurAside();
     heroTerminal = initHeroTerminal();
     callcard = initCallcard();
@@ -5437,6 +5791,11 @@
     // bottom of the page, so creating it after the hero/skills
     // triggers keeps refresh order top-to-bottom (per GSAP guidance).
     initProjectsHall();
+
+    // XP grid perspective morph — created AFTER the gallery's triggers
+    // (the experience section sits below it, keeping refresh order
+    // top-to-bottom per GSAP guidance).
+    initXpGrid();
 
     // Wrap each project description's words for the hover-decrypt
     // effect (vanilla port of hyper-text-with-decryption.tsx).

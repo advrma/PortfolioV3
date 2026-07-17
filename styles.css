@@ -2083,17 +2083,18 @@ body.perf-lite .callcard__def {
   background-color: var(--ink);
   transform-origin: 50% 0%;
 }
-/* Arrived: transparent so the global cream + topo shows through. */
-.hall__pin--clear { background-color: transparent; }
+/* Arrived: the dark room. LITERAL ink (not var(--ink) — the global
+   is-dark theme flip inverts that token and the hall must stay dark
+   in both page themes). */
+.hall__pin--clear { background-color: #0C0C0A; }
 
 /* The gallery shown as a FLOATING FRAME inside the warp (before it expands to
-   full screen). Cream page background + a soft drop shadow + rounded corners so
-   the scaled-down pin reads as a card floating on the dark warp scene. The shadow
-   scales with the pin's transform — natural for a card growing toward the viewer.
-   At full screen JS swaps this for --clear (transparent → global cream + topo). */
+   full screen): a dark card with a faint light ring + drop shadow so the
+   scaled-down pin reads as a screen floating on the warp scene. The shadow
+   scales with the pin's transform — natural for a card growing toward the viewer. */
 .hall__pin--frame {
-  background-color: var(--cream);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(12, 12, 10, 0.10);
+  background-color: #0C0C0A;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(236, 231, 218, 0.16);
   border-radius: 6px;
 }
 
@@ -2144,19 +2145,76 @@ body.perf-lite .callcard__def {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(42% 48% at 23% 50%, rgba(216, 255, 56, 0.085), transparent 70%),
-    radial-gradient(44% 56% at 69% 50%, rgba(216, 255, 56, 0.07),  transparent 72%);
-}
-html.is-dark .hall__glow {
+  /* Dark-room strengths (the hall is permanently dark — no theme variant). */
   background:
     radial-gradient(44% 50% at 23% 50%, rgba(216, 255, 56, 0.11), transparent 70%),
     radial-gradient(48% 58% at 69% 50%, rgba(216, 255, 56, 0.19), transparent 72%);
 }
+
+/* =========================================================
+   GALLERY AMBIENT BACKDROP (arrived state) — ALCHE-style:
+   the active project's clip playing as a dim wash behind the
+   3D wall. The perspective grid lives INSIDE the THREE scene
+   (a textured plane behind the paintings, see initProjectsHall)
+   so it shares the videos' exact perspective and pans/tilts
+   with the camera. This layer is compositor-only: plain
+   low-opacity video, no live filters. Hidden during the
+   fly-in intro; fades in with --clear.
+   ========================================================= */
+.hall__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;                /* with .hall__glow (which paints above it);
+                                THREE canvas z1 + slide UI sit on top */
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+.hall__pin--clear .hall__backdrop { opacity: 1; }
+.hall__bgvideo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 104%;
+  height: 104%;
+  transform: translate(-50%, -50%);
+  object-fit: cover;
+  opacity: 0.2;              /* dim ambient footage in the dark room */
+}
+/* Ink vignette + left-column wash over the footage so the wall and the
+   slide copy sit on near-black and every edge melts to dark. */
+.hall__backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(115% 95% at 50% 48%, transparent 40%, rgba(12, 12, 10, 0.92) 100%),
+    linear-gradient(100deg, rgba(12, 12, 10, 0.85) 0%, rgba(12, 12, 10, 0.4) 26%, rgba(12, 12, 10, 0) 52%);
+}
+
 .hall__canvas {
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+/* Bottom melt — flat ink at the pin's very bottom edge so the seam
+   into the experience section (whose top is the same flat ink) is
+   invisible. Subtle through most of its height, opaque only in the
+   last stretch, so the wall/video planes barely feel it. */
+.hall__melt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30vh;
+  z-index: 1;                /* over the canvas (later in DOM), under UI z2 */
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    rgba(12, 12, 10, 0) 0%,
+    rgba(12, 12, 10, 0.35) 55%,
+    rgba(12, 12, 10, 0.85) 82%,
+    #0C0C0A 100%);
 }
 
 /* Floating link-preview card shown when hovering a video painting (vanilla
@@ -2704,6 +2762,61 @@ html.is-dark .hall__glow {
   border-bottom-color: #15803d;
 }
 
+/* =========================================================
+   GALLERY DARK ROOM (ALCHE reference, owner request) — the
+   projects hall is permanently dark: the pin keeps an ink
+   background at arrival and all chrome/copy flips to warm
+   off-white. LITERAL colors on purpose (not var(--ink)/
+   var(--cream)): the global html.is-dark flip INVERTS those
+   tokens, and the hall must look identical in both themes.
+   These override the light rules above (same specificity,
+   later in the file). The pin/frame/glow dark values live in
+   their base rules directly.
+   ========================================================= */
+.hall__logo,
+.hall-slide__title,
+.hall-slide__meta-value,
+.hall-slide__meta-link { color: #ECE7DA; }
+.hall__logo,
+.hall__hint,
+.hall-slide__num,
+.hall-slide__meta-label { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.hall__hint,
+.hall-slide__num,
+.hall-slide__meta-label { color: rgba(236, 231, 218, 0.55); }
+.hall-slide__num { border-bottom-color: rgba(236, 231, 218, 0.22); }
+.hall-slide__title i,
+.hall-slide__title-sub { color: rgba(236, 231, 218, 0.75); }
+.hall-slide__title-sub { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.hall-slide__title-main {
+  text-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.65),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.hall-slide__desc {
+  color: rgba(236, 231, 218, 0.78);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.hall-slide__meta { border-top-color: rgba(236, 231, 218, 0.18); }
+.hall-slide__meta-value,
+.hall-slide__meta-link { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55); }
+.hall-slide__meta-link { border-bottom-color: rgba(236, 231, 218, 0.35); }
+.hall-slide__meta-link:hover { color: #4ade80; border-bottom-color: #4ade80; }
+/* Scramble titles + decrypt accent — dark-room variants. The hover
+   pill inverts (off-white pill, ink text) so the "lit-up" state still
+   reads as the inverse of its idle state, like it does on cream. */
+.hall .text-scramble__char { color: #ECE7DA; }
+.hall .text-scramble__underline-base { background: rgba(236, 231, 218, 0.18); }
+.hall .text-scramble__underline-active { background: #ECE7DA; }
+.hall .hyper-word.is-hl { color: #4ade80; }
+.hall .hyper-word.is-hl::before {
+  background: #ECE7DA;
+  box-shadow:
+    0 10px 22px -6px rgba(74, 222, 128, 0.35),
+    0 6px 10px -4px rgba(0, 0, 0, 0.5);
+}
+.hall .is-hyper-hover .hyper-word.is-hovered { color: #0C0C0A; }
+
 @media (max-width: 768px) {
   .hall { height: 580vh; }
   .hall-slide {
@@ -2892,6 +3005,32 @@ html.is-dark .hall__glow {
 }
 
 /* HUD chrome */
+/* =========================================================
+   WARP TUNNEL — check-pattern portal behind the card field.
+   A raw-WebGL fly-through (initWarpTunnel in script.js): the
+   screen looks down an endless grid pipe; travel accelerates
+   with the user's scroll, the axis drifts and the lens
+   breathes, and R/G/B samples are taken at slightly offset
+   radii for chromatic-aberration fringes (same red/lime/blue
+   family the old glitch title used). All the motion lives in
+   the shader — this layer is just the canvas plate.
+   Sizing/gating/perf-lite freeze all mirror .hero-grid.
+   ========================================================= */
+.warp-tunnel {
+  position: absolute;
+  inset: 0;
+  z-index: 0;               /* over the pin's ink, under the viewport (z1);
+                               the vignette (z14) darkens its edges too */
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* Dim ambient depth — the shader carries its own fog/opacity;
+     this is a final global trim so it never fights the cards. */
+  opacity: 0.55;
+}
+/* perf-lite keeps the frozen last frame (JS stops the loop) — a
+   static tunnel still reads as depth at zero ongoing cost. */
+
 .warp__hud {
   position: absolute;
   inset: clamp(18px, 2.2vw, 32px);
@@ -3256,7 +3395,104 @@ html.is-dark .hall__glow {
 .xp {
   position: relative;
   padding: var(--section-y) 0;
-  z-index: 1;
+  /* Above the gallery (z2): the section's FIXED children (globe, tag,
+     HUD, strip) paint viewport-wide during the hand-off, and at z1
+     they rendered UNDER the gallery pin — the globe appeared clipped
+     by the departing gallery. z3 lets the whole experience layer
+     overlap every gallery element during the transition. (No effect
+     on contact: the xp fixed elements fade out with .is-on before.) */
+  z-index: 3;
+  /* Top melt — the section opens on the SAME flat ink the gallery pin
+     melts to, then eases into the dark-page tone. FULLY OPAQUE on
+     purpose: the global is-dark flip happens mid-hand-off (top 85%),
+     and any transparency here showed the still-cream page behind it —
+     the "white part that turns dark" while crossing the boundary. The
+     section now carries its own dark everywhere, whatever the theme. */
+  background: linear-gradient(to bottom,
+    #0C0C0A 0,
+    #0C0C0A 12vh,
+    #0C0E12 60vh);
+}
+
+/* =========================================================
+   XP PERSPECTIVE GRID — continues the gallery's dark-room
+   wall into the experience section. A sticky full-viewport
+   window pinned behind the content for the whole section;
+   ScrollTrigger (initXpGrid) morphs the rotation carrier from
+   the gallery wall's pose to a flatter resting tilt as the
+   section scrolls in, while the inner plane drifts forever
+   (compositor-only keyframes — two-wrapper trick, the drift
+   and the scrubbed rotation live on separate elements).
+   Same lattice as the gallery's in-scene grid: 88px cells,
+   plus marker every 3rd intersection, warm off-white.
+   ========================================================= */
+.xp-gridwrap {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  /* Cancel the section's top padding so the grid is there from the
+     section's first pixel (seam continuity with the gallery), then
+     give the flow back so the content layout is unchanged. */
+  margin-top: calc(-1 * var(--section-y));
+  margin-bottom: calc(-100vh + var(--section-y));
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  perspective: 1400px;
+  perspective-origin: 60% 40%;
+  /* Fade the lattice in below the window's top edge — during the
+     hand-off that edge IS the section boundary, so the grid never
+     hard-starts on the seam line (and once pinned it reads as a
+     gentle top vignette under the HUD). */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%);
+}
+.xp-grid3d {                /* rotation carrier — JS-scrubbed */
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.xp-grid__scroll {          /* scroll-follow carrier (JS, wrapped) */
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+/* Check lattice — NO drift of its own: stuck to the scroll-following
+   background (the .xp-grid__scroll carrier moves it with the page). */
+.xp-grid__plane {
+  position: absolute;
+  inset: -70% -45%;
+  background-image:
+    linear-gradient(to right, rgba(236, 231, 218, 0.10) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(236, 231, 218, 0.10) 1px, transparent 1px);
+  background-size: 88px 88px;
+  /* Melt the lattice into the dark toward the edges. */
+  -webkit-mask-image: radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 92%);
+  mask-image: radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 92%);
+}
+/* Plus markers — separate layer on the same carrier (same perspective,
+   same scroll attachment) with its own constant bottom→top rise; the
+   translate loops exactly one 264px tile, so it's seamless. */
+.xp-grid__plus {
+  position: absolute;
+  inset: -70% -45%;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='264' height='264'%3E%3Cpath d='M132 121v22M121 132h22' stroke='rgba(236,231,218,0.38)' stroke-width='2'/%3E%3C/svg%3E");
+  background-size: 264px 264px;
+  background-position: 44px 44px;
+  animation: xpPlusRise 5s linear infinite;
+  will-change: transform;
+  -webkit-mask-image: radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 92%);
+  mask-image: radial-gradient(120% 100% at 50% 45%, #000 35%, transparent 92%);
+}
+@keyframes xpPlusRise {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -264px, 0); }
+}
+body.perf-lite .xp-grid__plus { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .xp-grid__plus { animation: none; }
 }
 .xp__head {
   max-width: 1180px;
