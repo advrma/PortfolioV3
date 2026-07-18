@@ -4598,13 +4598,15 @@
      Same raw-WebGL skeleton as initHeroGrid (fullscreen
      triangle, DPR 1, IO-gated loop, perf-lite freeze,
      reduced-motion static frame). The shader looks down an
-     endless grid pipe: polar uv → (angle sector, 1/r depth),
-     glowing cell borders + faint checkerboard fill, spiral
-     twist, drifting axis, breathing barrel lens, and R/G/B
-     sampled at offset radii for chromatic-aberration fringes
-     in the old glitch title's red/lime/blue. Depth fog eats
-     the center so the pipe vanishes into black. Travel speed
-     accelerates with the user's scroll velocity.
+     endless pipe centered on the screen: polar uv → (angle
+     sector, 1/r depth), and the walls carry the GALLERY
+     backdrop's pattern — thin check lattice + brighter plus
+     markers on a 3-cell tile, the plus layer riding slightly
+     faster (same two-layer parallax as the gallery). Breathing
+     barrel lens for warp, R/G/B sampled at offset radii for
+     chromatic-aberration fringes in the old glitch title's
+     red/lime/blue. Depth fog eats the center so the pipe
+     vanishes into black; travel accelerates with scroll.
      ------------------------------------------------------- */
   function initWarpTunnel() {
     const canvas = document.getElementById('warpTunnel');
@@ -4637,35 +4639,60 @@
       'varying vec2 vUv;',
       'const float PI = 3.141592;',
       // Integer sector count → the pipe wall tiles seamlessly at ±PI.
-      'const float SECTORS = 24.0;',
-      'const float RINGS = 5.0;',
-      'const float OPACITY = 0.85;',
-      'float cells(vec2 p, float t) {',
+      'const float SECTORS = 36.0;',
+      'const float RINGS = 9.0;',
+      'const float OPACITY = 1.0;',
+      'vec2 polar(vec2 p) {',
       '  float r = max(length(p), 1e-4);',
       '  float a = atan(p.y, p.x);',
-      '  float depth = 0.30 / r;',
-      // Spiral twist that breathes over time, winding tighter deeper in.
-      '  a += 0.22 * sin(t * 0.26) * depth;',
-      '  vec2 tuv = vec2(a * (SECTORS / (2.0 * PI)), depth * RINGS + uTravel);',
+      // Slow axial roll — the whole pipe turns almost imperceptibly,
+      // so the walls never read as a frozen radial print.
+      '  return vec2(a * (SECTORS / (2.0 * PI)) + iTime * 0.06, (0.30 / r) * RINGS);',
+      '}',
+      // The gallery backdrop's two layers, wrapped into a pipe:
+      // thin check lattice (the 88px line grid, dim)...
+      'float lat(vec2 p) {',
+      '  vec2 tuv = polar(p);',
+      '  tuv.y += uTravel;',
       '  vec2 f = abs(fract(tuv) - 0.5);',
-      // Soft glowing borders + every-other-cell fill = the check read.
-      '  float lines = smoothstep(0.36, 0.5, max(f.x, f.y));',
-      '  float check = mod(floor(tuv.x) + floor(tuv.y), 2.0) * 0.16;',
-      '  return lines + check;',
+      '  float lines = smoothstep(0.40, 0.48, max(f.x, f.y)) * 0.62;',
+      // Fine 3x subdivision along DEPTH only — intermediate rings
+      // nested between the cells (sub-ring : cell : plus-tile), so
+      // the pipe reads as depth-on-depth without angular clutter.
+      '  float f2 = abs(fract(tuv.y * 3.0) - 0.5);',
+      '  float sub = smoothstep(0.42, 0.49, f2) * 0.18;',
+      '  return max(lines, sub);',
+      '}',
+      // ...and long thin-stroke crosses on a 3-cell tile (264px on
+      // 88px), riding a touch faster for the same two-layer parallax.
+      'float plusMark(vec2 p) {',
+      '  vec2 tuv = polar(p);',
+      '  tuv.y += uTravel * 1.35;',
+      '  vec2 q = abs(fract(tuv / 3.0 + 0.5) - 0.5) * 3.0;',
+      '  float ph = (1.0 - smoothstep(0.34, 0.42, q.x)) * (1.0 - smoothstep(0.022, 0.055, q.y));',
+      '  float pv = (1.0 - smoothstep(0.34, 0.42, q.y)) * (1.0 - smoothstep(0.022, 0.055, q.x));',
+      // Very subtle — the crosses are punctuation, not the pattern.
+      '  return max(ph, pv) * 0.35;',
       '}',
       'void main() {',
       '  vec2 uv = vUv * 2.0 - 1.0;',
       '  uv.x *= iResolution.x / iResolution.y;',
-      // Drifting portal axis + breathing barrel lens (the "warp").
-      '  vec2 c = vec2(sin(iTime * 0.21), cos(iTime * 0.17)) * 0.16;',
-      '  vec2 p = uv - c;',
+      // Fixed axis — the portal leads dead-center; the breathing
+      // barrel lens (the "warp") scales radially so the vanishing
+      // point never wanders.
+      '  vec2 p = uv;',
       '  p *= 1.0 + 0.05 * sin(iTime * 0.33) * dot(p, p);',
       '  float r = length(p);',
-      // Chromatic aberration — three radial samples, stronger at the rim.
-      '  float ab = 0.012 + 0.085 * r * r;',
-      '  float cr = cells(p * (1.0 - ab), iTime);',
-      '  float cg = cells(p, iTime);',
-      '  float cb = cells(p * (1.0 + ab), iTime);',
+      // Chromatic aberration — three radial samples, stronger at the
+      // rim. The crosses get a much smaller offset than the lattice:
+      // their hairline strokes would fully separate into detached
+      // R/G/B stripes at the lattice's offset, while long lines only
+      // fringe at their edges.
+      '  float ab = 0.006 + 0.020 * r * r;',
+      '  float pab = ab * 0.35;',
+      '  float cr = max(lat(p * (1.0 - ab)), plusMark(p * (1.0 - pab)));',
+      '  float cg = max(lat(p), plusMark(p));',
+      '  float cb = max(lat(p * (1.0 + ab)), plusMark(p * (1.0 + pab)));',
       // Where the channels overlap the palette sums to warm cream;
       // where they separate, red/lime/blue fringes (the glitch family).
       '  vec3 col = cr * vec3(1.00, 0.25, 0.20)',

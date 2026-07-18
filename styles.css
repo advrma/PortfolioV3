@@ -3008,12 +3008,14 @@ body.perf-lite .callcard__def {
 /* =========================================================
    WARP TUNNEL — check-pattern portal behind the card field.
    A raw-WebGL fly-through (initWarpTunnel in script.js): the
-   screen looks down an endless grid pipe; travel accelerates
-   with the user's scroll, the axis drifts and the lens
-   breathes, and R/G/B samples are taken at slightly offset
-   radii for chromatic-aberration fringes (same red/lime/blue
-   family the old glitch title used). All the motion lives in
-   the shader — this layer is just the canvas plate.
+   screen looks down an endless pipe centered on the screen,
+   its walls wearing the gallery backdrop's pattern (check
+   lattice + plus markers, two-speed parallax); travel
+   accelerates with the user's scroll, the lens breathes, and
+   R/G/B samples are taken at slightly offset radii for
+   chromatic-aberration fringes (same red/lime/blue family
+   the old glitch title used). All the motion lives in the
+   shader — this layer is just the canvas plate.
    Sizing/gating/perf-lite freeze all mirror .hero-grid.
    ========================================================= */
 .warp-tunnel {
@@ -3026,7 +3028,7 @@ body.perf-lite .callcard__def {
   pointer-events: none;
   /* Dim ambient depth — the shader carries its own fog/opacity;
      this is a final global trim so it never fights the cards. */
-  opacity: 0.55;
+  opacity: 0.7;
 }
 /* perf-lite keeps the frozen last frame (JS stops the loop) — a
    static tunnel still reads as depth at zero ongoing cost. */

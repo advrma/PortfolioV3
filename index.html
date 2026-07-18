@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=244" />
+<link rel="stylesheet" href="styles.css?v=246" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark "welcome" screen greets the visitor with a couple of
@@ -503,11 +503,13 @@
 <section class="warp" id="skills">
   <div class="warp__pin">
     <!-- Check-pattern portal behind the card field: a WebGL tunnel
-         (initWarpTunnel) the camera flies through — grid pipe walls,
-         chromatic-aberration fringes, drifting axis + lens breathing.
-         Travel speed picks up with the user's scroll, so diving
-         through the stack reads as accelerating through the portal.
-         Same ambient-depth role as the gallery's backdrop video. -->
+         (initWarpTunnel) the camera flies through, vanishing point
+         dead-center. Walls carry the gallery backdrop's pattern
+         (check lattice + plus markers), with chromatic-aberration
+         fringes and lens breathing. Travel speed picks up with the
+         user's scroll, so diving through the stack reads as
+         accelerating through the portal. Same ambient-depth role
+         as the gallery's backdrop video. -->
     <canvas class="warp-tunnel" id="warpTunnel" aria-hidden="true"></canvas>
     <div class="warp__hud" aria-hidden="true">
       <div class="warp__hud-top">
@@ -861,7 +863,7 @@
 
 </main>
 
-<script src="script.js?v=223" defer></script>
+<script src="script.js?v=230" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>
