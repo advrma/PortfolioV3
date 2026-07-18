@@ -1603,13 +1603,16 @@ body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; ba
 @media (max-width: 768px) {
   .cinema__aside--igpost { display: none; }
 }
-/* On the IG page, lift the character canvas above the cinema overlay so the bio text
-   tucks BEHIND the character (canvas made pointer-transparent so the post/dock/stories
-   stay clickable through its transparent areas). Scoped via :has so other reel states,
-   and the intro, keep the canvas at its normal z-index. */
-.hero-stage__pin:has(.cinema__aside--igpost.is-revealed) .hero-stage__canvas {
+/* On the IG page, lift the character above the cinema overlay (z5) so the bio text
+   tucks BEHIND the figure. The raise MUST target .hero-stage__breathe — the idle-breath
+   compositor wrapper is the pin-level sibling of the overlay, and its animation makes
+   it a stacking context, so a z-index on the canvas inside it can never escape (that
+   was the regression: the old rule raised the canvas and the text stayed on top).
+   The wrapper is already pointer-events:none, so the post/dock/stories stay clickable
+   through the character's transparent areas. Scoped via :has so other reel states,
+   and the intro, keep the normal stacking. */
+.hero-stage__pin:has(.cinema__aside--igpost.is-revealed) .hero-stage__breathe {
   z-index: 6;
-  pointer-events: none;
 }
 /* 3D perspective for the Instagram section. The dark panel + IG content sit on ONE flat,
    uniformly-tilted plane: .igstage flattens its children (default transform-style: flat),
@@ -2089,12 +2092,18 @@ body.perf-lite .callcard__def {
 .hall__pin--clear { background-color: #0C0C0A; }
 
 /* The gallery shown as a FLOATING FRAME inside the warp (before it expands to
-   full screen): a dark card with a faint light ring + drop shadow so the
-   scaled-down pin reads as a screen floating on the warp scene. The shadow
-   scales with the pin's transform — natural for a card growing toward the viewer. */
+   full screen): a dark card with a crisp WHITE boundary + soft halo so the
+   scaled-down pin never gets lost in the dark scene. The ring width comes from
+   --frame-ring, written by paintGallery as (target px / scale) — box-shadow
+   scales with the pin's transform, so a fixed px ring would shrink to nothing
+   at fly-in scales (the old 1px ring vanished). The drop shadow still scales
+   naturally, like a card growing toward the viewer. */
 .hall__pin--frame {
   background-color: #0C0C0A;
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(236, 231, 218, 0.16);
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.7),
+    0 0 0 var(--frame-ring, 2px) rgba(255, 255, 255, 0.92),
+    0 0 calc(var(--frame-ring, 2px) * 14) rgba(255, 255, 255, 0.14);
   border-radius: 6px;
 }
 
@@ -2373,7 +2382,10 @@ body.perf-lite .callcard__def {
      view. ~15vw lands the text past where the off-camera painting
      edge sits on typical viewports. Mobile (below) overrides this. */
   left: clamp(40px, 15vw, 380px);
-  width: clamp(280px, 16.4vw, 420px);
+  /* Wide, low column (owner request): the description spreads out
+     instead of stacking tall — fewer, longer lines. Stays clear of
+     the painting, whose left edge sits past ~44vw on the wall. */
+  width: clamp(300px, 24vw, 620px);
   opacity: 0;
   transform: translate(0, calc(-50% + 18px));
   transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.22,1,.36,1);
@@ -2721,11 +2733,20 @@ body.perf-lite .callcard__def {
 }
 .hall-slide__meta {
   display: grid;
-  grid-template-columns: 70px 1fr;
+  /* Two label+value pairs per row (owner request): YEAR|STACK on the
+     first row, STATUS|CODE on the second — half the height of the old
+     one-pair-per-row stack. minmax(0,1fr) lets the long stack list
+     wrap instead of blowing the column out. */
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
   row-gap: 10px;
   column-gap: 14px;
   border-top: 1px solid rgba(0,0,0,0.12);
   padding-top: clamp(11px, 0.7vw, 18px);
+}
+/* Breathing room between the first pair's value and the second
+   pair's label (children 3 & 7 = the row's second label). */
+.hall-slide__meta-label:nth-child(4n + 3) {
+  margin-left: clamp(10px, 1.2vw, 26px);
 }
 .hall-slide__meta-label {
   font-family: var(--f-mono);
@@ -2776,17 +2797,17 @@ body.perf-lite .callcard__def {
 .hall__logo,
 .hall-slide__title,
 .hall-slide__meta-value,
-.hall-slide__meta-link { color: #ECE7DA; }
+.hall-slide__meta-link { color: #FFFFFF; }
 .hall__logo,
 .hall__hint,
 .hall-slide__num,
 .hall-slide__meta-label { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
 .hall__hint,
 .hall-slide__num,
-.hall-slide__meta-label { color: rgba(236, 231, 218, 0.55); }
-.hall-slide__num { border-bottom-color: rgba(236, 231, 218, 0.22); }
+.hall-slide__meta-label { color: rgba(255, 255, 255, 0.68); }
+.hall-slide__num { border-bottom-color: rgba(255, 255, 255, 0.26); }
 .hall-slide__title i,
-.hall-slide__title-sub { color: rgba(236, 231, 218, 0.75); }
+.hall-slide__title-sub { color: rgba(255, 255, 255, 0.85); }
 .hall-slide__title-sub { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
 .hall-slide__title-main {
   text-shadow:
@@ -2794,7 +2815,7 @@ body.perf-lite .callcard__def {
     0 6px 18px rgba(0, 0, 0, 0.45);
 }
 .hall-slide__desc {
-  color: rgba(236, 231, 218, 0.78);
+  color: rgba(255, 255, 255, 0.94);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
 .hall-slide__meta { border-top-color: rgba(236, 231, 218, 0.18); }
@@ -2805,7 +2826,7 @@ body.perf-lite .callcard__def {
 /* Scramble titles + decrypt accent — dark-room variants. The hover
    pill inverts (off-white pill, ink text) so the "lit-up" state still
    reads as the inverse of its idle state, like it does on cream. */
-.hall .text-scramble__char { color: #ECE7DA; }
+.hall .text-scramble__char { color: #FFFFFF; }
 .hall .text-scramble__underline-base { background: rgba(236, 231, 218, 0.18); }
 .hall .text-scramble__underline-active { background: #ECE7DA; }
 .hall .hyper-word.is-hl { color: #4ade80; }
@@ -4196,11 +4217,11 @@ html.is-dark .topo-bg { color: rgba(236, 231, 218, 0.14); }
    experience hand-off the gallery is still on screen, so those darks vanish.
    Flip them to light here — only while is-dark is active, so the gallery
    reads normally (dark-on-cream) the rest of the time. */
-html.is-dark .hall-slide__desc { color: rgba(236, 231, 218, 0.72); }
+html.is-dark .hall-slide__desc { color: rgba(255, 255, 255, 0.94); }
 html.is-dark .hall-slide__num,
 html.is-dark .hall-slide__meta-label,
-html.is-dark .hall__hint { color: rgba(236, 231, 218, 0.5); }
-html.is-dark .hall-slide__num { border-bottom-color: rgba(236, 231, 218, 0.18); }
+html.is-dark .hall__hint { color: rgba(255, 255, 255, 0.68); }
+html.is-dark .hall-slide__num { border-bottom-color: rgba(255, 255, 255, 0.26); }
 /* Hide the scroll-hint once the lights are off — it reads as clutter against
    the dark hand-off (the light gallery keeps it). */
 html.is-dark .hall__hint { opacity: 0; }

@@ -2989,6 +2989,9 @@
         galleryShown = true;
       }
       const rot = -4 * (1 - expandP);      // a frame's slight tilt → flat as it expands
+      // White boundary at constant SCREEN width: box-shadow scales with the
+      // pin's transform, so divide the target px by the scale each frame.
+      hallPin.style.setProperty('--frame-ring', (2.5 / Math.max(s, 0.02)).toFixed(1) + 'px');
       hallPin.classList.toggle('hall__pin--frame', expandP < 0.92);
       hallPin.classList.toggle('hall__pin--clear', expandP >= 0.92);
       if (s >= 0.999) {
@@ -4655,12 +4658,12 @@
       '  vec2 tuv = polar(p);',
       '  tuv.y += uTravel;',
       '  vec2 f = abs(fract(tuv) - 0.5);',
-      '  float lines = smoothstep(0.40, 0.48, max(f.x, f.y)) * 0.62;',
+      '  float lines = smoothstep(0.40, 0.48, max(f.x, f.y)) * 0.40;',
       // Fine 3x subdivision along DEPTH only — intermediate rings
       // nested between the cells (sub-ring : cell : plus-tile), so
       // the pipe reads as depth-on-depth without angular clutter.
       '  float f2 = abs(fract(tuv.y * 3.0) - 0.5);',
-      '  float sub = smoothstep(0.42, 0.49, f2) * 0.18;',
+      '  float sub = smoothstep(0.42, 0.49, f2) * 0.13;',
       '  return max(lines, sub);',
       '}',
       // ...and long thin-stroke crosses on a 3-cell tile (264px on
@@ -4669,10 +4672,12 @@
       '  vec2 tuv = polar(p);',
       '  tuv.y += uTravel * 1.35;',
       '  vec2 q = abs(fract(tuv / 3.0 + 0.5) - 0.5) * 3.0;',
-      '  float ph = (1.0 - smoothstep(0.34, 0.42, q.x)) * (1.0 - smoothstep(0.022, 0.055, q.y));',
-      '  float pv = (1.0 - smoothstep(0.34, 0.42, q.y)) * (1.0 - smoothstep(0.022, 0.055, q.x));',
-      // Very subtle — the crosses are punctuation, not the pattern.
-      '  return max(ph, pv) * 0.35;',
+      // Long hairline arms — the crosses span over a full lattice
+      // cell, thin as wire; their color (the section's chartreuse
+      // accent) is applied in main().
+      '  float ph = (1.0 - smoothstep(0.60, 0.70, q.x)) * (1.0 - smoothstep(0.022, 0.055, q.y));',
+      '  float pv = (1.0 - smoothstep(0.60, 0.70, q.y)) * (1.0 - smoothstep(0.022, 0.055, q.x));',
+      '  return max(ph, pv);',
       '}',
       'void main() {',
       '  vec2 uv = vUv * 2.0 - 1.0;',
@@ -4690,15 +4695,25 @@
       // fringe at their edges.
       '  float ab = 0.006 + 0.020 * r * r;',
       '  float pab = ab * 0.35;',
-      '  float cr = max(lat(p * (1.0 - ab)), plusMark(p * (1.0 - pab)));',
-      '  float cg = max(lat(p), plusMark(p));',
-      '  float cb = max(lat(p * (1.0 + ab)), plusMark(p * (1.0 + pab)));',
-      // Where the channels overlap the palette sums to warm cream;
-      // where they separate, red/lime/blue fringes (the glitch family).
-      '  vec3 col = cr * vec3(1.00, 0.25, 0.20)',
-      '           + cg * vec3(0.85, 1.00, 0.25)',
-      '           + cb * vec3(0.25, 0.50, 0.95);',
+      '  float cr = lat(p * (1.0 - ab));',
+      '  float cg = lat(p);',
+      '  float cb = lat(p * (1.0 + ab));',
+      '  float xr = plusMark(p * (1.0 - pab));',
+      '  float xg = plusMark(p);',
+      '  float xb = plusMark(p * (1.0 + pab));',
+      // Lattice: channels overlap to the section's neutral warm cream
+      // (the #ECE7DA family), fringing red / cyan-blue at the edges.
+      '  vec3 col = cr * vec3(0.90, 0.22, 0.18)',
+      '           + cg * vec3(0.72, 0.92, 0.45)',
+      '           + cb * vec3(0.35, 0.72, 1.05);',
       '  col *= 0.5;',
+      // Crosses: the section accent — channels sum to chartreuse
+      // (the #D8FF38 family of the HUD and card labels). The trim
+      // keeps them very, very subtle: the lime hue is what makes
+      // them findable, not brightness.
+      '  col += (xr * vec3(0.30, 0.18, 0.04)',
+      '        + xg * vec3(0.62, 0.74, 0.15)',
+      '        + xb * vec3(0.08, 0.22, 0.30)) * 0.15;',
       // Fog: the pipe vanishes into black down the center; soft rim
       // easing keeps the near wall from slamming into the vignette.
       '  float fog = smoothstep(0.03, 0.5, r);',
