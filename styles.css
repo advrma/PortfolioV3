@@ -1520,6 +1520,19 @@ body.perf-lite .hterm {
   filter: blur(0) brightness(1);
   /* purely decorative - let the mouse pass through (no hover interaction) */
 }
+/* Soften the check-pattern backdrop behind the testimonial wall so it
+   doesn't compete with the cards. A cream veil sits BEHIND the cards
+   (::before paints before the 3D scene, which is its own transform
+   stacking context) and fades out toward the left, so it mutes the grid
+   under the dense right side without cutting a hard seam at mid-screen. */
+.testi3d::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent 0%, var(--cream) 30%);
+  opacity: 0.72;
+}
 .testi3d__scene {
   position: absolute;
   top: 50%;

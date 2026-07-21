@@ -4363,7 +4363,12 @@
           'uniform float uTextVOff;',       // text band centre, fraction of box H
           'uniform float uHasText;',        // 1 once the texture is uploaded
           'const float SPHERE_R = 0.30;',  // orb radius (leaves a transparent margin)
-          'const float DISP = 0.038;',     // refraction strength (kept legible)
+          // View zoom-out: the ray fan is widened so the orb only fills 1/ZOOM
+          // of the buffer, leaving headroom for the entrance bounce to swell
+          // WITHOUT reaching the buffer edge. The canvas px size is scaled up
+          // by the same factor (see lensSize), so on-screen size is unchanged.
+          'const float ZOOM = 1.6;',
+          'const float DISP = 0.026;',     // refraction strength — less lensing/zoom through the glass
           'const int   DISP_STEPS = 8;',
           'const float SCATTER = 0.022;',
           'const int   N_BUBBLES = 6;',
@@ -4391,10 +4396,11 @@
           // squash-bounce (uClickTime) and a slow tumble baked in.
           'float map(vec3 p, vec3 c){',
           '  vec3 q = p - c;',
-          // Entrance/click squash-bounce. The overshoot is deliberately small
-          // (×1.5, not ×5) so the swollen orb never grows past the canvas
+          // Entrance/click squash-bounce — the big springy overshoot (×5,
+          // peaking near 1.6× size). The buffer ZOOM headroom above keeps
+          // this from clipping while it swells.
           '  float tt = uClickTime*5.0;',
-          '  float bounce = exp(-tt)*sin(tt)*1.5 + (1.0-exp(-tt));',
+          '  float bounce = exp(-tt)*sin(tt)*5.0 + (1.0-exp(-tt));',
           '  float s = bounce*0.5+0.5;',
           '  q /= s;',
           '  q.xz *= rot(exp(-uClickTime*3.0)*8.0);',
@@ -4446,7 +4452,7 @@
           'void main(){',
           '  vec2 uv = vUv;',
           '  float aspect = iResolution.y/iResolution.x;',
-          '  vec2 p = (uv-0.5)*vec2(1.0, aspect);',
+          '  vec2 p = (uv-0.5)*vec2(1.0, aspect) * ZOOM;',
           '  vec3 ro = vec3(0.0,0.0,-2.0);',
           '  float focal = 2.0;',
           '  vec3 rd = normalize(vec3(p, focal));',
@@ -4766,15 +4772,16 @@
         // sweep maps onto the full text (first/last letters reachable).
         const sw = el.offsetWidth, tw = lensText ? lensText.offsetWidth : 0;
         revealRatio = (sw > 0 && tw > 0) ? tw / sw : 1;
-        // Lens scales with the name's font size. The glass box is a good bit
-        // larger than the old circle (×1.7) so the blob keeps transparent
-        // margin on every side — its bubbles and the entrance pop never reach
-        // the canvas-buffer edge (which would clip the silhouette).
+        // Lens box size = the on-screen ×1.7 footprint times the shader's
+        // ZOOM (1.6) headroom, so the blob renders at 1/ZOOM of a buffer this
+        // big. That leaves ample transparent margin for the ×5 entrance
+        // bounce to swell into without ever touching the buffer edge, while
+        // the visible orb + text overlap stay exactly the same size.
         const fs = parseFloat(getComputedStyle(el).fontSize) || 280;
         // Prefer the WebGL liquid-glass orb; fall back to the 2D starfield
         // when WebGL is unavailable or the device dropped to perf-lite.
         if (glass && glass.ok()) {
-          const lensSize = Math.round(fs * 1.7);
+          const lensSize = Math.round(fs * 1.7 * 1.6);
           lens.style.width = lens.style.height = lensSize + 'px';
           lens.classList.add('hero-sign__lens--glass');
           buildLensTextGlass();
