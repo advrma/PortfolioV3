@@ -800,6 +800,32 @@ body.perf-lite .hero-sign__draw {
   display: block;
   pointer-events: none;
 }
+/* Liquid-glass orb canvas — fills the ink circle (clipped to it by the
+   lens' overflow:hidden + border-radius). Sits BELOW the counter-translated
+   inner (DOM order) so the reveal text and its own stacking stay on top.
+   The shader is opaque, so it covers the lens' ink fill entirely. */
+.hero-sign__lens-glass {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+}
+/* Glass mode: there is NO circle — the shader draws a free-floating blob on
+   a transparent field, so drop the lens' ink fill, its round clip and its
+   overflow crop. The "Software Engineer" wordmark is refracted inside the
+   shader, so the 2D stars canvas AND the crisp DOM text are both redundant
+   here (kept intact only for the perf-lite / no-WebGL fallback, which still
+   uses the ink circle path). */
+.hero-sign__lens--glass {
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+.hero-sign__lens--glass .hero-sign__lens-stars,
+.hero-sign__lens--glass .hero-sign__lens-text { display: none; }
 .hero-sign__lens-text {
   position: relative;   /* paints above the stars */
   z-index: 1;
@@ -2596,7 +2622,12 @@ body.perf-lite .callcard__def {
   transform-origin: left center;
   transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.text-scramble:hover .text-scramble__underline-active,
+/* .is-hovered is a JS-driven mirror of :hover (added on mouseenter,
+   removed on mouseleave AND when the gallery switches projects). It
+   replaces :hover here so the hover state can be force-cleared on a
+   project switch — a bare :hover would stay lit on the freshly-active
+   title just because the cursor sits where the previous title was. */
+.text-scramble.is-hovered .text-scramble__underline-active,
 .text-scramble:focus-visible .text-scramble__underline-active {
   transform: scaleX(1);
 }
@@ -2610,7 +2641,7 @@ body.perf-lite .callcard__def {
   pointer-events: none;
   z-index: -1;
 }
-.text-scramble:hover .text-scramble__glow,
+.text-scramble.is-hovered .text-scramble__glow,
 .text-scramble:focus-visible .text-scramble__glow {
   opacity: 1;
 }
@@ -2827,6 +2858,11 @@ body.perf-lite .callcard__def {
    pill inverts (off-white pill, ink text) so the "lit-up" state still
    reads as the inverse of its idle state, like it does on cream. */
 .hall .text-scramble__char { color: #FFFFFF; }
+/* Scrambling glyphs flash the neon accent on hover — the plain white
+   rule above (2 classes, later in the file) was beating the base
+   .is-scrambling accent, so the hover read as no colour change at all.
+   Re-assert it here at higher specificity, scoped to the dark room. */
+.hall .text-scramble__char.is-scrambling { color: var(--accent-deep); }
 .hall .text-scramble__underline-base { background: rgba(236, 231, 218, 0.18); }
 .hall .text-scramble__underline-active { background: #ECE7DA; }
 .hall .hyper-word.is-hl { color: #4ade80; }
@@ -3050,6 +3086,10 @@ body.perf-lite .callcard__def {
   /* Dim ambient depth — the shader carries its own fog/opacity;
      this is a final global trim so it never fights the cards. */
   opacity: 0.7;
+  /* JS writes a perspective + rotateX/rotateY tilt here on hover (the
+     same 3D perspective the warp cards get); keep it compositor-only. */
+  will-change: transform;
+  backface-visibility: hidden;
 }
 /* perf-lite keeps the frozen last frame (JS stops the loop) — a
    static tunnel still reads as depth at zero ongoing cost. */

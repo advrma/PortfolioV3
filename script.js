@@ -3291,10 +3291,27 @@
       // to the first one as the camera swings out beyond it.
       const idx  = Math.max(0, Math.min(SLIDE_COUNT - 1, raw));
       if (idx === lastActiveIdx) return;
+      const prevIdx = lastActiveIdx;
       lastActiveIdx = idx;
       for (let i = 0; i < SLIDE_COUNT; i++) {
         if (!slideEls[i]) continue;
         slideEls[i].classList.toggle('is-active', i === idx);
+      }
+      // Clear any lingering title hover when the project changes, so the
+      // newly-active title doesn't come up already lit / green just
+      // because the cursor is parked where the previous title sat. The
+      // `true` arms a brief hover-lock that swallows the synthetic
+      // mouseenter the browser fires on the new title during the switch.
+      document.querySelectorAll('.hall-slide .text-scramble').forEach(function (h) {
+        if (h.resetScramble) h.resetScramble(true);
+      });
+      // Auto-run the scramble on the newly-active title so it animates
+      // in on every switch. Skipped on the very first activation
+      // (prevIdx === -1) — the gallery isn't on screen yet, so the
+      // animation would just play unseen.
+      if (prevIdx !== -1 && slideEls[idx]) {
+        const host = slideEls[idx].querySelector('.text-scramble');
+        if (host && host.runScramble) host.runScramble();
       }
     }
     // Activate first slide immediately so the panel is visible
@@ -3963,8 +3980,39 @@
         }, INTERVAL_MS);
       }
 
-      host.addEventListener('mouseenter', scramble);
+      // Force the whole hover state off: retract underline/glow and
+      // stop any in-flight scramble (chars resolve to their final text).
+      // Used on mouseleave AND called externally when the gallery
+      // switches projects, so a new title never inherits the old hover.
+      let hoverLockUntil = 0;
+      host.resetScramble = function (lock) {
+        host.classList.remove('is-hovered');
+        if (timer) { clearInterval(timer); timer = null; }
+        for (let i = 0; i < text.length; i++) {
+          charEls[i].textContent = text[i];
+          charEls[i].classList.remove('is-scrambling');
+        }
+        // When a project switch triggers the reset, the active title
+        // changes under a stationary cursor and the browser re-fires
+        // mouseenter on the new title (element-under-pointer changed) —
+        // which would re-light it the instant after this reset. Lock
+        // out hover briefly so that synthetic re-entry is ignored; a
+        // genuine hover a moment later still works.
+        if (lock) hoverLockUntil = performance.now() + 400;
+      };
+
+      // Play the scramble on its own (no hover chrome) — the gallery
+      // calls this to auto-run the title animation on a project switch.
+      host.runScramble = scramble;
+
+      host.addEventListener('mouseenter', function () {
+        if (performance.now() < hoverLockUntil) return;
+        host.classList.add('is-hovered');
+        scramble();
+      });
+      host.addEventListener('mouseleave', function () { host.resetScramble(); });
       host.addEventListener('focus',      scramble);
+      host.addEventListener('blur',       function () { host.classList.remove('is-hovered'); });
     });
 
     // Lock each char to its natural width (batched: clear → read → write to
@@ -4276,6 +4324,358 @@
         starsRaf = requestAnimationFrame(drawStars);
       }
 
+      // ----- Liquid-glass orb (raw-WebGL port of "Liquid Glass Pro Max
+      // Plus", the VFX-JS pen). A raymarched refractive sphere with a
+      // cluster of floating bubbles (smin-melded), per-wavelength
+      // chromatic dispersion, fresnel rim + three specular glints, over
+      // the shader's own twinkling starfield. Self-contained (no CDN),
+      // DPR 1, and it only spins up while the name is hovered — zero cost
+      // otherwise, matching the starfield's own hover gate. Returns null
+      // if WebGL is unavailable, in which case the 2D starfield stands in.
+      function initLensGlass(cv) {
+        let gl = null;
+        try {
+          gl = cv.getContext('webgl', {
+            alpha: true, depth: false, stencil: false, antialias: true,
+            premultipliedAlpha: false, powerPreference: 'low-power',
+          });
+        } catch (e) { /* fall through */ }
+        if (!gl) return null;
+
+        const VERT =
+          'attribute vec2 position; varying vec2 vUv;' +
+          'void main(){ vUv = position*0.5+0.5; gl_Position = vec4(position,0.0,1.0); }';
+
+        const FRAG = [
+          'precision highp float;',
+          'varying vec2 vUv;',
+          'uniform float iTime;',
+          'uniform vec2  iResolution;',
+          'uniform vec2  uMouse;',
+          'uniform float uShape;',
+          'uniform float uClickTime;',
+          'uniform float uBubbles[24];',   // N_BUBBLES(6) * 4 = 24
+          'uniform sampler2D uText;',       // "Software Engineer" glyph texture
+          'uniform vec2  uLensCenter;',     // blob centre in the name-local px frame
+          'uniform float uLensSize;',       // canvas size in px
+          'uniform vec2  uNameBox;',        // "Aditya Verma" layout box (offsetW,H) px
+          'uniform float uTextVH;',         // text band height, fraction of box H
+          'uniform float uTextVOff;',       // text band centre, fraction of box H
+          'uniform float uHasText;',        // 1 once the texture is uploaded
+          'const float SPHERE_R = 0.30;',  // orb radius (leaves a transparent margin)
+          'const float DISP = 0.038;',     // refraction strength (kept legible)
+          'const int   DISP_STEPS = 8;',
+          'const float SCATTER = 0.022;',
+          'const int   N_BUBBLES = 6;',
+          'const float BUBBLE_SMOOTH = 0.06;',
+          'const vec3  ABSORB = vec3(2.0, 1.2, 1.0) * 3.0;',
+          'float smin(float a, float b, float k){',
+          '  float h = clamp(0.5 + 0.5*(b-a)/k, 0.0, 1.0);',
+          '  return mix(b,a,h) - k*h*(1.0-h);',
+          '}',
+          'vec2 hash22(vec2 p){',
+          '  vec3 p3 = fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973));',
+          '  p3 += dot(p3, p3.yzx+33.33);',
+          '  return fract((p3.xx+p3.yz)*p3.zy)*2.0-1.0;',
+          '}',
+          'mat2 rot(float t){ float c=cos(t), s=sin(t); return mat2(c,-s,s,c); }',
+          'float sdSphere(vec3 p, float r){ return length(p)-r; }',
+          'float sdBox(vec3 p, vec3 b, float r){',
+          '  vec3 q=abs(p)-b+r;',
+          '  return length(max(q,0.0))+min(max(q.x,max(q.y,q.z)),0.0)-r;',
+          '}',
+          'float sdRing(vec3 p, vec2 r){',
+          '  float s=length(p.xy)-r.x; return length(vec2(s,p.z))-r.y;',
+          '}',
+          // Signed distance to the melded orb+bubbles, with a click-driven
+          // squash-bounce (uClickTime) and a slow tumble baked in.
+          'float map(vec3 p, vec3 c){',
+          '  vec3 q = p - c;',
+          // Entrance/click squash-bounce. The overshoot is deliberately small
+          // (×1.5, not ×5) so the swollen orb never grows past the canvas
+          '  float tt = uClickTime*5.0;',
+          '  float bounce = exp(-tt)*sin(tt)*1.5 + (1.0-exp(-tt));',
+          '  float s = bounce*0.5+0.5;',
+          '  q /= s;',
+          '  q.xz *= rot(exp(-uClickTime*3.0)*8.0);',
+          '  vec3 sp = q;',
+          '  sp.y += sin(sp.z*29.0 + iTime*6.5)*0.01;',
+          '  sp.z += sin(sp.x*23.0 + sp.y*11.0 + iTime*7.0)*0.01;',
+          '  sp.xy *= rot(iTime*1.3);',
+          '  sp.xz *= rot(iTime*1.1);',
+          '  float d;',
+          '  if (uShape < 0.5) { d = sdSphere(sp, SPHERE_R); }',
+          '  else if (uShape < 1.5) { d = sdBox(sp, vec3(SPHERE_R*0.8), 0.03); }',
+          '  else { d = sdRing(sp, vec2(SPHERE_R*1.1, 0.05)); }',
+          '  for (int i=0;i<N_BUBBLES;i++){',
+          '    vec3 bPos = vec3(uBubbles[i*4], uBubbles[i*4+1], uBubbles[i*4+2]);',
+          '    float r = uBubbles[i*4+3];',
+          '    d = smin(d, sdSphere(q-bPos, max(r,0.001)), BUBBLE_SMOOTH);',
+          '  }',
+          '  return d*s;',
+          '}',
+          'vec3 calcNormal(vec3 p, vec3 c){',
+          '  vec2 e = vec2(0.001,0.0);',
+          '  return normalize(vec3(',
+          '    map(p+e.xyy,c)-map(p-e.xyy,c),',
+          '    map(p+e.yxy,c)-map(p-e.yxy,c),',
+          '    map(p+e.yyx,c)-map(p-e.yyx,c)));',
+          '}',
+          'vec3 spectrum(float x){',
+          '  return clamp(vec3(1.5-abs(4.0*x-1.0),1.5-abs(4.0*x-2.0),1.5-abs(4.0*x-3.0)),0.0,1.0);',
+          '}',
+          // What the glass refracts: "Software Engineer" laid over the EXACT
+          // footprint of "Aditya Verma". A fragment is mapped from canvas-uv
+          // into the signature's local pixel frame (blob centre uLensCenter,
+          // canvas uLensSize) then normalised by the name box (uNameBox), so
+          // the wordmark is spatially locked to the name — the blob is a lens
+          // revealing the text underneath, not a floating caption. The tilt is
+          // shared (canvas + name both ride the h1's rotation), so they align.
+          'vec3 sampleText(vec2 uv){',
+          '  vec3 glass = vec3(0.020,0.020,0.028);',   // dark glass body
+          '  if (uHasText < 0.5) return glass;',
+          '  vec2 loc = uLensCenter + vec2((uv.x-0.5)*uLensSize, (0.5-uv.y)*uLensSize);',
+          '  vec2 nb = loc / uNameBox;',               // 0..1 across the name box
+          '  float u = nb.x;',                          // full name width
+          '  float v = 0.5 - (nb.y - uTextVOff) / uTextVH;',
+          '  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return glass;',
+          '  float a = texture2D(uText, vec2(u, v)).a;',
+          '  return mix(glass, vec3(0.97,0.95,0.87), a);',
+          '}',
+          'vec4 getSrc(vec2 uv){ return vec4(sampleText(uv),1.0); }',
+          'void main(){',
+          '  vec2 uv = vUv;',
+          '  float aspect = iResolution.y/iResolution.x;',
+          '  vec2 p = (uv-0.5)*vec2(1.0, aspect);',
+          '  vec3 ro = vec3(0.0,0.0,-2.0);',
+          '  float focal = 2.0;',
+          '  vec3 rd = normalize(vec3(p, focal));',
+          '  vec3 c = vec3(uMouse*0.015, 0.0);',   // slight wobble; text stays locked
+          '  vec3 firstN=vec3(0.0), lastN=vec3(0.0);',
+          '  int hitCount=0;',
+          '  float thickness=0.0, tEntry=0.0, t=0.0;',
+          '  float minD=1e9;',   // closest the ray ever gets to the surface
+          '  bool inside=false;',
+          '  for (int i=0;i<40;i++){',
+          '    if (t>10.0) break;',
+          '    vec3 pos = ro+rd*t;',
+          '    float d = map(pos,c);',
+          '    if (!inside) minD = min(minD, d);',
+          '    float stepd = inside ? -d : d;',
+          '    if (stepd < 3e-4){',
+          '      vec3 n = calcNormal(pos,c);',
+          '      if (hitCount==0) firstN=n;',
+          '      lastN=n;',
+          '      if (!inside) { tEntry=t; } else { thickness += t-tEntry; }',
+          '      hitCount++;',
+          '      if (hitCount>=4) { break; }',
+          '      inside=!inside;',
+          '      t += 0.01;',
+          '    } else {',
+          '      t += stepd;',
+          '    }',
+          '  }',
+          '  if (hitCount>0){',
+          '    vec2 baseDisp = -(firstN.xy+lastN.xy)*0.5*DISP;',
+          '    float NdotR = max(dot(firstN,-rd),0.0);',
+          '    float scatter = pow(1.0-NdotR,2.0)*SCATTER;',
+          '    vec3 acc=vec3(0.0), wsum=vec3(0.0);',
+          '    for (int i=0;i<DISP_STEPS;i++){',
+          '      float wl = float(i)/float(DISP_STEPS-1);',
+          '      float k = wl*(1.3+float(hitCount)*0.2);',
+          '      vec2 h = hash22(uv*1000.0+float(i)*7.13+iTime)*scatter;',
+          '      vec3 w = spectrum(wl);',
+          '      acc += getSrc(uv+baseDisp*k+h).rgb*w;',
+          '      wsum += w;',
+          '    }',
+          '    vec3 col = acc/wsum*0.99;',
+          '    col -= float(hitCount)*0.05;',
+          '    col += 0.1;',
+          '    float fres = pow(1.0-NdotR,5.0);',
+          '    col *= 1.0+fres;',
+          '    float f2 = 1.0-pow(NdotR,3.0);',
+          '    col *= mix(vec3(1.0), exp(-ABSORB*thickness), f2);',
+          '    col *= 1.0+f2;',
+          '    vec3 ld = normalize(vec3(0.5,0.9,-0.3));',
+          '    float spec = pow(max(dot(reflect(-ld,firstN),-rd),0.0),200.0);',
+          '    col += spec*30.0;',
+          '    ld = normalize(vec3(-0.9,0.4,-0.3));',
+          '    spec = pow(max(dot(reflect(-ld,firstN),-rd),0.0),300.0);',
+          '    col += spec*3.0;',
+          '    ld = normalize(vec3(-0.1,-0.9,-0.1));',
+          '    spec = pow(max(dot(reflect(-ld,firstN),-rd),0.0),30.0);',
+          '    col += spec*0.5;',
+          '    col = min(col,1.0);',
+          '    col = 1.0 - abs(col+fres*0.5-1.0);',
+          '    gl_FragColor = vec4(col,1.0);',
+          '  } else {',
+          // Outside the blob: fully transparent, so there is no circle — just
+          // the free-floating glass shape. A thin feather off the closest
+          // approach (minD) anti-aliases the organic silhouette against the
+          // page (the raymarch edge is otherwise hard at DPR 1).
+          '    float edge = 1.0 - smoothstep(0.0, 0.006, minD);',
+          '    gl_FragColor = vec4(0.0, 0.0, 0.0, edge * 0.85);',
+          '  }',
+          '}',
+        ].join('\n');
+
+        function compile(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src);
+          gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
+          return sh;
+        }
+        const vs = compile(gl.VERTEX_SHADER, VERT);
+        const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+        if (!vs || !fs) return null;
+        const prog = gl.createProgram();
+        gl.attachShader(prog, vs);
+        gl.attachShader(prog, fs);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+        gl.useProgram(prog);
+
+        const gbuf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, gbuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+        const gloc = gl.getAttribLocation(prog, 'position');
+        gl.enableVertexAttribArray(gloc);
+        gl.vertexAttribPointer(gloc, 2, gl.FLOAT, false, 0, 0);
+        // Straight-alpha blend — outside the blob the shader outputs alpha 0,
+        // so the page shows through (no circle) and the silhouette feathers.
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.clearColor(0, 0, 0, 0);
+
+        const uTime  = gl.getUniformLocation(prog, 'iTime');
+        const uRes   = gl.getUniformLocation(prog, 'iResolution');
+        const uMouse = gl.getUniformLocation(prog, 'uMouse');
+        const uShape = gl.getUniformLocation(prog, 'uShape');
+        const uClick = gl.getUniformLocation(prog, 'uClickTime');
+        const uBub   = gl.getUniformLocation(prog, 'uBubbles');
+        const uText   = gl.getUniformLocation(prog, 'uText');
+        const uLensC  = gl.getUniformLocation(prog, 'uLensCenter');
+        const uLensSz = gl.getUniformLocation(prog, 'uLensSize');
+        const uNameB  = gl.getUniformLocation(prog, 'uNameBox');
+        const uTextVH = gl.getUniformLocation(prog, 'uTextVH');
+        const uTextVO = gl.getUniformLocation(prog, 'uTextVOff');
+        const uHasT   = gl.getUniformLocation(prog, 'uHasText');
+
+        // "Software Engineer" glyph texture (uploaded on hover once fonts are
+        // ready) plus the geometry that locks it onto the name's footprint.
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.useProgram(prog);
+        gl.uniform1i(uText, 0);
+        gl.uniform1f(uHasT, 0);
+        let hasText = false;
+        let lensCX = 0, lensCY = 0;   // blob centre in name-local px
+
+        const N = 6, SPHERE_R = 0.30, B_MIN = 0.06, B_MAX = 0.16, B_SPEED = 0.7;
+        const bub = new Float32Array(N * 4);
+        const fr = (x) => x - Math.floor(x);
+        const rot2d = (x, y, a) => {
+          const c = Math.cos(a), s = Math.sin(a);
+          return [x * c - y * s, x * s + y * c];
+        };
+        let shape = 0;
+        let size = 0, graf = 0, gt0 = performance.now(), clickT0 = performance.now();
+        const gmouse = { x: 0, y: 0, tx: 0, ty: 0 };
+
+        // Orbiting, rising bubbles — the "liquid" inside the glass. Ported
+        // from the pen's JS tick, minus the page-mouse displacement (the
+        // orb is centred in the circle, not cursor-parented).
+        function fillBubbles(time) {
+          for (let i = 0; i < N; i++) {
+            const life = fr(time * B_SPEED + i / N);
+            const orbitR = SPHERE_R * (0.3 + life * 0.8);
+            const ang = time * (0.8 + fr(i * 0.618) * 0.7) + i * 1.256;
+            let bx = Math.cos(ang) * orbitR, by = 0, bz = Math.sin(ang) * orbitR;
+            let r1 = rot2d(bx, by, i * 2.3); bx = r1[0]; by = r1[1];
+            let r2 = rot2d(by, bz, i * 1.8); by = r2[0]; bz = r2[1];
+            by += life * 0.10;
+            bx += Math.sin(time * 2.7 + i * 4.1) * 0.01 * life;
+            bz += Math.cos(time * 3.1 + i * 3.7) * 0.01 * life;
+            const maxR = B_MIN + (B_MAX - B_MIN) * fr(i * 0.618);
+            const j = i * 4;
+            bub[j] = bx; bub[j + 1] = by; bub[j + 2] = bz;
+            bub[j + 3] = maxR * Math.sin(life * Math.PI);
+          }
+        }
+        function gdraw(now) {
+          const time = (now - gt0) / 1000;
+          gmouse.x += (gmouse.tx - gmouse.x) * 0.08;
+          gmouse.y += (gmouse.ty - gmouse.y) * 0.08;
+          fillBubbles(time);
+          gl.uniform1f(uTime, time);
+          gl.uniform2f(uMouse, gmouse.x, gmouse.y);
+          gl.uniform1f(uShape, shape);
+          gl.uniform1f(uClick, (now - clickT0) / 1000);
+          gl.uniform1fv(uBub, bub);
+          gl.uniform2f(uLensC, lensCX, lensCY);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+        function gtick(now) {
+          graf = 0;
+          // perf-lite can arrive later (adaptive FPS probe) — bail so the
+          // orb stops; the next hover falls back to the 2D starfield.
+          if (document.body.classList.contains('perf-lite')) return;
+          gdraw(now);
+          graf = requestAnimationFrame(gtick);
+        }
+        return {
+          ok() { return !document.body.classList.contains('perf-lite'); },
+          resize(px) {
+            size = Math.max(1, Math.round(px));
+            if (cv.width !== size || cv.height !== size) { cv.width = size; cv.height = size; }
+            gl.useProgram(prog);
+            gl.viewport(0, 0, size, size);
+            gl.uniform2f(uRes, size, size);
+          },
+          kick() {
+            if (graf || document.body.classList.contains('perf-lite')) return;
+            // Reset the clocks so every hover pops the orb in fresh (the
+            // squash-bounce plays from uClickTime≈0).
+            gt0 = clickT0 = performance.now();
+            graf = requestAnimationFrame(gtick);
+          },
+          stop() { if (graf) { cancelAnimationFrame(graf); graf = 0; } },
+          morph() { shape = (shape + 1) % 3; clickT0 = performance.now(); if (!graf) this.kick(); },
+          setMouse(nx, ny) { gmouse.tx = nx; gmouse.ty = ny; },
+          // Upload the wordmark canvas as the refraction source.
+          setText(canvasEl) {
+            gl.useProgram(prog);
+            gl.bindTexture(gl.TEXTURE_2D, tex);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvasEl);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.uniform1f(uHasT, 1);
+            hasText = true;
+          },
+          hasText() { return hasText; },
+          // The geometry that pins the wordmark to the name: canvas size, the
+          // name's layout box (px), and the text band's vertical placement.
+          setName(lensPx, boxW, boxH, vh, voff) {
+            gl.useProgram(prog);
+            gl.uniform1f(uLensSz, lensPx);
+            gl.uniform2f(uNameB, Math.max(1, boxW), Math.max(1, boxH));
+            gl.uniform1f(uTextVH, vh);
+            gl.uniform1f(uTextVO, voff);
+          },
+          // Blob centre, in the name's local (un-rotated) px frame.
+          setCenter(cx, cy) { lensCX = cx; lensCY = cy; },
+        };
+      }
+      const glassCanvas = document.getElementById('heroSignLensGlass');
+      const glass = (glassCanvas && !(reduceMotionMQ && reduceMotionMQ.matches))
+        ? initLensGlass(glassCanvas) : null;
+
       const TILT = -8 * Math.PI / 180;   // matches the CSS rotate(-8deg)
       const cosT = Math.cos(TILT), sinT = Math.sin(TILT);
       const target = { x: 0, y: 0 };
@@ -4289,6 +4689,39 @@
       // left→right reaches the first AND last letters. revealRatio =
       // tw/sw; the text scrolls under the lens at that ratio.
       let revealRatio = 1;
+
+      // Render "Software Engineer" (in the signature's own cursive) to an
+      // offscreen canvas, cream on transparent and TIGHTLY cropped to the
+      // glyph bounds, so the shader can stretch it cleanly onto the name's
+      // footprint. Built lazily on first hover (fonts ready) and cached.
+      let textBuilt = 0;   // the font-px the current texture was built at
+      function buildLensTextGlass() {
+        if (!glass || !lensText) return;
+        const cs = getComputedStyle(lensText);
+        const glyph = 200;                  // render size (px); scaled in-shader
+        if (Math.abs(glyph - textBuilt) < 2 && glass.hasText()) return;
+        const off = document.createElement('canvas');
+        const octx = off.getContext('2d');
+        const fontStr = (cs.fontStyle || 'normal') + ' ' + (cs.fontWeight || '400') +
+                        ' ' + glyph + 'px ' + (cs.fontFamily || 'cursive');
+        octx.font = fontStr;
+        const txt = (lensText.textContent || 'Software Engineer').trim();
+        const m = octx.measureText(txt);
+        const asc = m.actualBoundingBoxAscent  || glyph * 0.72;
+        const desc = m.actualBoundingBoxDescent || glyph * 0.28;
+        const padX = Math.round(glyph * 0.12);
+        const w = Math.max(2, Math.ceil(m.width) + padX * 2);
+        const h = Math.max(2, Math.ceil(asc + desc));
+        off.width = w; off.height = h;
+        octx.clearRect(0, 0, w, h);
+        octx.font = fontStr;                 // reset after resize
+        octx.textAlign = 'left';
+        octx.textBaseline = 'alphabetic';
+        octx.fillStyle = '#F4F0E7';
+        octx.fillText(txt, padX, asc);       // baseline at the ascent
+        glass.setText(off);
+        textBuilt = glyph;
+      }
 
       // Cursor → the signature's LOCAL (un-rotated) frame. The element
       // is rotated by TILT, so we inverse-rotate the centered vector.
@@ -4308,10 +4741,12 @@
           'translate(' + cur.x.toFixed(1) + 'px,' + cur.y.toFixed(1) + 'px) translate(-50%, -50%)';
         inner.style.transform =
           'translate(' + (-cur.x).toFixed(1) + 'px,' + (-cur.y).toFixed(1) + 'px)';
-        // Scroll the reveal text under the lens at revealRatio so the
-        // cursor's range covers its whole width (ends included). Stars
-        // stay put (they ride the inner's plain counter-translate).
-        if (lensText) {
+        // Glass mode: the wordmark is world-locked to the name, so just feed
+        // the blob's centre (name-local px) — the shader maps each fragment
+        // onto "Aditya Verma"'s footprint. Fallback: scroll the crisp DOM text.
+        if (glass && lens.classList.contains('hero-sign__lens--glass')) {
+          glass.setCenter(cur.x, cur.y);
+        } else if (lensText) {
           lensText.style.transform =
             'translate(' + (cur.x * (1 - revealRatio)).toFixed(1) + 'px, 0)';
         }
@@ -4331,25 +4766,52 @@
         // sweep maps onto the full text (first/last letters reachable).
         const sw = el.offsetWidth, tw = lensText ? lensText.offsetWidth : 0;
         revealRatio = (sw > 0 && tw > 0) ? tw / sw : 1;
-        // Lens scales with the name's font size so it reveals roughly
-        // full-height letters of the same-size "Software Engineer".
+        // Lens scales with the name's font size. The glass box is a good bit
+        // larger than the old circle (×1.7) so the blob keeps transparent
+        // margin on every side — its bubbles and the entrance pop never reach
+        // the canvas-buffer edge (which would clip the silhouette).
         const fs = parseFloat(getComputedStyle(el).fontSize) || 280;
-        const lensSize = Math.round(fs * 1.25);
-        lens.style.width = lens.style.height = lensSize + 'px';
+        // Prefer the WebGL liquid-glass orb; fall back to the 2D starfield
+        // when WebGL is unavailable or the device dropped to perf-lite.
+        if (glass && glass.ok()) {
+          const lensSize = Math.round(fs * 1.7);
+          lens.style.width = lens.style.height = lensSize + 'px';
+          lens.classList.add('hero-sign__lens--glass');
+          buildLensTextGlass();
+          // Lock the wordmark to the name's box. TEXT_VH/OFF place the band
+          // vertically over "Aditya Verma" (tuned to the cursive's body).
+          glass.setName(lensSize, el.offsetWidth, el.offsetHeight, 0.92, 0.50);
+          glass.setCenter(cur.x, cur.y);
+          glass.resize(lensSize);
+          glass.kick();
+        } else {
+          const lensSize = Math.round(fs * 1.25);
+          lens.style.width = lens.style.height = lensSize + 'px';
+          lens.classList.remove('hero-sign__lens--glass');
+          sizeStars();
+          if (sctx && !starsRaf) starsRaf = requestAnimationFrame(drawStars);
+        }
         if (!lraf) lraf = requestAnimationFrame(lensTick);
-        sizeStars();
-        if (sctx && !starsRaf) starsRaf = requestAnimationFrame(drawStars);
       });
       el.addEventListener('mousemove', (e) => {
         const p = toLocal(e.clientX, e.clientY);
         target.x = p.x;
         target.y = p.y;
+        // Gentle viewport-normalized wobble for the orb (refraction + rim
+        // shift), matching the warp portal's cursor mapping.
+        if (glass) glass.setMouse(
+          (e.clientX / window.innerWidth - 0.5) * 2,
+          -(e.clientY / window.innerHeight - 0.5) * 2);
         if (!lraf) lraf = requestAnimationFrame(lensTick);
       });
+      // Clicking the name morphs the orb: sphere → box → ring (the pen's
+      // click-cycle), each with a fresh squash-bounce.
+      el.addEventListener('pointerdown', () => { if (glass && glass.ok()) glass.morph(); });
       el.addEventListener('mouseleave', () => {
         hovering = false;
         lens.style.width = lens.style.height = '0px';
         if (starsRaf) { cancelAnimationFrame(starsRaf); starsRaf = 0; }
+        if (glass) glass.stop();
       });
     }
   }
@@ -4639,6 +5101,7 @@
       'uniform float iTime;',
       'uniform float uTravel;',
       'uniform vec2 iResolution;',
+      'uniform vec2 uMouse;',
       'varying vec2 vUv;',
       'const float PI = 3.141592;',
       // Integer sector count → the pipe wall tiles seamlessly at ±PI.
@@ -4682,10 +5145,15 @@
       'void main() {',
       '  vec2 uv = vUv * 2.0 - 1.0;',
       '  uv.x *= iResolution.x / iResolution.y;',
-      // Fixed axis — the portal leads dead-center; the breathing
-      // barrel lens (the "warp") scales radially so the vanishing
-      // point never wanders.
-      '  vec2 p = uv;',
+      // Hover response has TWO coupled parts, both off the same cursor:
+      //   1. this shader shifts the vanishing point toward the cursor
+      //      (uMouse, -1..1) so you visibly look AROUND inside the pipe —
+      //      the part you can actually see on a symmetric fullscreen radial;
+      //   2. a matching perspective + rotateX/rotateY CSS tilt on the
+      //      canvas (applyTilt) keeps it in the warp cards' 3D system.
+      // Together the portal reads as the same 3D environment reacting to
+      // the cursor. The breathing barrel lens scales around the shifted axis.
+      '  vec2 p = uv - uMouse * 0.08;',
       '  p *= 1.0 + 0.05 * sin(iTime * 0.33) * dot(p, p);',
       '  float r = length(p);',
       // Chromatic aberration — three radial samples, stronger at the
@@ -4756,6 +5224,14 @@
     const uTime = gl.getUniformLocation(prog, 'iTime');
     const uRes = gl.getUniformLocation(prog, 'iResolution');
     const uTravel = gl.getUniformLocation(prog, 'uTravel');
+    const uMouse = gl.getUniformLocation(prog, 'uMouse');
+    // Smoothed pointer driving BOTH the shader vanishing-point shift and
+    // the canvas perspective tilt on hover — the tilt uses the SAME
+    // mapping as the warp world (initSkillsWarp: tiltX = mouseY*4,
+    // tiltY = mouseX*4, perspective ~1000px), so the portal shares the
+    // cards' 3D system. mouse.x/y are the normalized cursor (-1..1);
+    // both ease back to 0 on leave.
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 
     const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
     // Travel accumulates (never jumps) so speed changes glide: a base
@@ -4776,8 +5252,30 @@
     function draw(now) {
       gl.uniform1f(uTime, (now - t0) / 1000);
       gl.uniform1f(uTravel, travel);
+      // Horizontal parallax is inverted (cursor right → pipe leans left);
+      // vertical is the opposite sign (cursor down → pipe leans down), and
+      // damped (×0.5) so up/down hover moves the portal less than left/right.
+      gl.uniform2f(uMouse, -mouse.x, -mouse.y * 0.5);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    let lastTilt = '';
+    function applyTilt() {
+      // Same perspective + axes as the warp world's tilt (initSkillsWarp),
+      // but INVERTED so the tilt leans opposite the cursor — in step with
+      // the inverted vanishing-point shift above. scale(1.06) over-covers
+      // so the tilt never exposes the dark pin behind the fullscreen
+      // canvas edges. Written only on change — compositor-only, no repaint.
+      // rotateX (vertical cursor) is damped vs rotateY (horizontal) so
+      // up/down tilts less, and its sign is opposite rotateY's — the
+      // vertical motion is inverted relative to the horizontal.
+      const tiltX = (mouse.y * 0.9).toFixed(2);
+      const tiltY = (-mouse.x * 1.8).toFixed(2);
+      const key = tiltX + '_' + tiltY;
+      if (key === lastTilt) return;
+      lastTilt = key;
+      canvas.style.transform =
+        'perspective(1000px) rotateX(' + tiltX + 'deg) rotateY(' + tiltY + 'deg) scale(1.06)';
     }
     function tick(now) {
       raf = 0;
@@ -4789,6 +5287,11 @@
       lastY = y;
       const boost = Math.max(-BOOST_CAP, Math.min(BOOST_CAP, scrollVel * SCROLL_GAIN));
       travel += dt * (BASE_SPEED + boost);
+      // Ease the tilt toward the cursor target (glide, no snap), then
+      // write the matching 3D transform.
+      mouse.x += (mouse.tx - mouse.x) * 0.06;
+      mouse.y += (mouse.ty - mouse.y) * 0.06;
+      applyTilt();
       draw(now);
       // perf-lite can arrive later (adaptive FPS probe) — freeze on
       // this frame; the tunnel stays visible at zero ongoing cost.
@@ -4829,6 +5332,16 @@
         else if (raf) { cancelAnimationFrame(raf); raf = 0; }
       }).observe(section);
     }
+
+    // Cursor-steered 3D tilt — mirrors the warp world's tilt input
+    // exactly (same section, same normalized mouse, same axes). The
+    // canvas is pointer-events:none, so these fire via the section's
+    // descendants.
+    section.addEventListener('mousemove', (e) => {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.ty = (e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+    section.addEventListener('mouseleave', () => { mouse.tx = 0; mouse.ty = 0; }, { passive: true });
 
     kick();
   }

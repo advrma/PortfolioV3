@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=250" />
+<link rel="stylesheet" href="styles.css?v=262" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark "welcome" screen greets the visitor with a couple of
@@ -289,6 +289,14 @@
       <!-- Hover spotlight: an ink circle follows the cursor and reveals
            "software engineer" inside it (morphing-cursor effect). -->
       <span class="hero-sign__lens" id="heroSignLens" aria-hidden="true">
+        <!-- Liquid-glass orb — raw-WebGL port of the "Liquid Glass Pro Max
+             Plus" VFX-JS effect: a raymarched refractive blob with floating
+             bubbles, chromatic dispersion, fresnel + specular. Fills the ink
+             circle below the counter-translated inner (so the reveal text
+             stays crisp on top). Runs only while hovering; the shader draws
+             its own starfield, so the 2D stars canvas below is kept purely
+             as the perf-lite / no-WebGL fallback. -->
+        <canvas class="hero-sign__lens-glass" id="heroSignLensGlass" aria-hidden="true"></canvas>
         <span class="hero-sign__lens-inner" id="heroSignLensInner">
           <!-- Twinkling starfield inside the dark lens — drawn on a
                single canvas, only while hovering (see initHeroSign). -->
@@ -863,7 +871,7 @@
 
 </main>
 
-<script src="script.js?v=236" defer></script>
+<script src="script.js?v=252" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>
