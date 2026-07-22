@@ -53,6 +53,34 @@
   let loadedCount = 0;
   let everythingLoaded = false;
 
+  /* -------------------------------------------------------
+     BOOT READINESS ORCHESTRATION
+     The intro curtain now lifts only when the site is actually ready:
+     reel frames + fonts + section-frame/IG images + a WARM pass over every
+     WebGL scene (shaders compiled, key textures uploaded, one frame rendered).
+     Each WebGL init pushes a warm() into bootWarmups; any init can push asset
+     URLs into extraPreload to have them fetched/decoded during the loader.
+     Progress = 80% frames + 20% everything-else, shown on the curtain bar.
+     ------------------------------------------------------- */
+  const bootWarmups = [];    // WebGL warm callbacks: () => Promise|void
+  const extraPreload = [];   // asset URLs to warm into the browser cache
+  let bootOtherDone = 0, bootOtherTotal = 0;
+  let bootBarEl = null, bootPctEl = null;   // wired by initPreloader
+  function updateBootUI() {
+    const frames = FRAME_COUNT ? (loadedCount / FRAME_COUNT) : 1;
+    const other = bootOtherTotal ? (bootOtherDone / bootOtherTotal) : 1;
+    const p = Math.round((0.8 * frames + 0.2 * other) * 100);
+    if (bootBarEl) bootBarEl.style.width = p + '%';
+    if (bootPctEl) bootPctEl.textContent = p;
+  }
+  // Register a promise as a boot task (weighted into the 20% "other" bucket).
+  // Never rejects — a failed asset must not stall the loader.
+  function trackBoot(p) {
+    bootOtherTotal++;
+    const done = () => { bootOtherDone++; updateBootUI(); };
+    return Promise.resolve(p).then((v) => { done(); return v; }, () => { done(); });
+  }
+
   // Single canvas covers the whole pinned stage now. Frame 0
    // is painted on first load; scroll drives the animation.
   const cinemaCanvas = document.getElementById('cinemaCanvas');
@@ -151,12 +179,30 @@
     if (heroLoadingPct) heroLoadingPct.textContent = pct;
     const bar = heroLoading?.querySelector('.hero__loading-bar i');
     if (bar) bar.style.width = pct + '%';
+    updateBootUI();   // drive the intro curtain's progress bar too
 
     if (loadedCount >= FRAME_COUNT && !everythingLoaded) {
       everythingLoaded = true;
       heroLoading?.classList.add('is-done');
       setTimeout(() => heroLoading?.remove(), 900);
     }
+  }
+
+  /* Boot preload helpers ------------------------------------------------ */
+  // Await the web fonts so text never reflows after the curtain lifts.
+  function fontsReady() {
+    if (!(document && document.fonts && document.fonts.ready)) return Promise.resolve();
+    return document.fonts.ready.catch(() => {});
+  }
+  // Fetch + decode a list of image URLs (section-frames, first IG image, …)
+  // so they're warm in the cache before their lazy loaders assign them.
+  function preloadUrlList(urls) {
+    return Promise.all((urls || []).map((u) => new Promise((res) => {
+      const im = new Image();
+      im.decoding = 'async';
+      im.onload = im.onerror = () => res();
+      im.src = u;
+    })));
   }
 
   async function preloadAll() {
@@ -647,6 +693,9 @@
     // NOTE: folder is 'Instagram-Images' (capital I's) — must match the on-disk /
     // git-committed case exactly, or it 404s on case-sensitive hosts (e.g. Vercel/Linux).
     for (let k = 1; k <= 14; k++) srcs.push('Instagram-Images/' + k + '.png');
+    // Warm the first couple of IG slides during the loader so the aside is
+    // never blank on first view (the rest stay lazy — 19 MB total).
+    extraPreload.push(srcs[0], srcs[1]);
     const n = srcs.length;
     let idx = 0;
     let animating = false;
@@ -1682,12 +1731,20 @@
      last of the rise and the hand-off reads as one smooth motion.
      rAF-driven; safety-timed.
      ------------------------------------------------------- */
-  function initPreloader() {
+  function initPreloader(bootReady) {
+    bootReady = Promise.resolve(bootReady || null);
     const loader = document.getElementById('preloader');
     if (!loader) { startHeroReel(); return; }
     const greetEl = document.getElementById('preloaderGreet');
     const textEl  = document.getElementById('preloaderGreetText');
     const pathEl  = document.getElementById('preloaderCurtainPath');
+    // Wire the loader's progress bar to the boot orchestrator (frames + assets
+    // + WebGL warmups). READY_CAP bounds how long the curtain holds waiting for
+    // readiness after the greeting, so it can never hang on a bad connection.
+    bootBarEl = document.getElementById('preloaderBar');
+    bootPctEl = document.getElementById('preloaderPct');
+    updateBootUI();
+    const READY_CAP = 11000;
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -1728,15 +1785,30 @@
       loader.classList.add('is--gone');
     }
 
-    // Absolute safety — never leave the user stuck on the loader.
-    timers.push(setTimeout(finish, 9000));
+    // Absolute last-resort safety — never leave the visitor stuck on the
+    // loader even if the ready-gate + its cap both somehow fail.
+    timers.push(setTimeout(finish, 18000));
 
-    // Reduced motion: hold one calm greeting, then hand off — no cycle,
-    // no arc animation.
+    // Hold the curtain until the site is READY (frames + assets + WebGL warm),
+    // then run cb — but never longer than READY_CAP so a slow/broken connection
+    // can't hang the loader.
+    let revealStarted = false;
+    function whenReady(cb) {
+      let fired = false;
+      const go = () => { if (fired) return; fired = true; cb(); };
+      bootReady.then(go, go);
+      timers.push(setTimeout(go, READY_CAP));
+    }
+    function gatedReveal() {
+      whenReady(() => { if (revealStarted) return; revealStarted = true; beginReveal(); });
+    }
+
+    // Reduced motion: one calm greeting, wake the hero, then hand off once
+    // ready — no greeting cycle, no arc animation.
     if (reduceMotionMQ && reduceMotionMQ.matches) {
       if (textEl) { textEl.textContent = 'Hii'; textEl.classList.add('is--in'); }
       wakeHero();
-      timers.push(setTimeout(finish, 900));
+      whenReady(finish);
       return;
     }
 
@@ -1779,13 +1851,13 @@
         timers.push(setTimeout(() => {
           gi += 1;
           if (gi < GREETINGS.length) showGreet();
-          else beginReveal();
+          else gatedReveal();     // greetings done → hold for readiness, then lift
         }, OUT_MS));
       }, IN_MS + HOLD_MS));
     }
 
     if (textEl) showGreet();
-    else beginReveal();
+    else gatedReveal();
   }
 
   /* -------------------------------------------------------
@@ -2118,6 +2190,7 @@
       // skills section is half a viewport away — still hundreds of vh of
       // flythrough before any frame becomes visible.
       fr.dataset.bg = 'section-frames/' + f.name + '.jpg';
+      extraPreload.push(fr.dataset.bg);   // warm into cache during the loader
       frameBgEls.push(fr);
       el.appendChild(fr);
       items.push({
@@ -3491,6 +3564,39 @@
     }
     window.addEventListener('resize', resize);
 
+    // ----- Boot warmup + graceful context-loss (gallery) -----
+    // The most valuable warm on the page: fetch each project video's FIRST
+    // decoded frame (a few hundred KB — not the full ~6 MB; the rest streams
+    // via the per-plane gating), upload it as a texture, and render one frame.
+    // So when the gallery scrolls into view its first paint is instant, with
+    // no decode/upload hitch and no blank plane. Runs during the loading screen.
+    bootWarmups.push(() => new Promise((resolve) => {
+      const renderOnce = () => { try { resize(); renderer.render(scene, camera); } catch (e) {} };
+      let pending = videoEls.length;
+      if (!pending) { renderOnce(); resolve(); return; }
+      let settled = false;
+      const finishWarm = () => { if (settled) return; settled = true; renderOnce(); resolve(); };
+      videoEls.forEach((v, i) => {
+        const onReady = () => {
+          v.removeEventListener('loadeddata', onReady);
+          if (videoTextures[i]) videoTextures[i].needsUpdate = true;
+          if (--pending <= 0) finishWarm();
+        };
+        v.addEventListener('loadeddata', onReady);
+        try { v.preload = 'auto'; v.load(); } catch (e) { onReady(); }
+      });
+      setTimeout(finishWarm, 4000);   // never let a stalled clip hold the loader
+    }));
+    // On GPU context loss: stop the loop (THREE clears the buffer, so no frozen
+    // frame). On restore: THREE re-uploads its resources; we just resume.
+    renderer.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    }, false);
+    renderer.domElement.addEventListener('webglcontextrestored', () => {
+      try { resize(); kickRender(); } catch (e) {}
+    }, false);
+
     // (The old theme-aware wall-line MutationObserver is gone: the hall
     // is permanently dark and lineMat is never drawn — see its creation.)
 
@@ -4341,6 +4447,12 @@
           });
         } catch (e) { /* fall through */ }
         if (!gl) return null;
+        // Hover-only effect: on GPU context loss just stop the loop (no frozen
+        // frame — it's transparent when idle). `graf` is closed over below.
+        cv.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          if (graf) { cancelAnimationFrame(graf); graf = 0; }
+        }, false);
 
         const VERT =
           'attribute vec2 position; varying vec2 vUv;' +
@@ -5042,6 +5154,16 @@
     window.addEventListener('resize', resize);
     resize();
 
+    // Boot warmup: guarantee a sized first paint during the loading screen
+    // (the shader already compiled above). Graceful GPU-context-loss handling:
+    // the browser clears the drawing buffer on loss (transparent, not a frozen
+    // frame), we just stop the now-dead loop so it can't spin/error forever.
+    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    }, false);
+
     if (reduce) return;        // static frame drawn; no loop, no mouse
 
     if ('IntersectionObserver' in window) {
@@ -5330,6 +5452,13 @@
     window.addEventListener('resize', resize);
     resize();
 
+    // Boot warmup (sized first paint during the loader) + graceful context-loss.
+    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    }, false);
+
     if (reduce) return;
 
     if ('IntersectionObserver' in window) {
@@ -5369,10 +5498,16 @@
   let perfProbeRan = false;
 
   function initPerfProbe() {
-    const liteParam = new URLSearchParams(location.search).get('lite');
-    if (liteParam === '1') { document.body.classList.add('perf-lite'); return; }
-    if (liteParam === '0') return;   // forced off — never arm
-    perfProbeArmed = true;
+    // Auto perf-lite detection REMOVED. The old FPS probe could add
+    // `body.perf-lite` on a transient dip, which paused ambient animations to a
+    // FROZEN frame — the "a visual gets stuck and never moves" symptom. We now
+    // keep every device at full fidelity and rely on the boot-time preload +
+    // WebGL warmups (and the GPU cost cuts already landed) to stay smooth.
+    // Only the explicit ?lite=1 dev override still applies the lite CSS path;
+    // perfProbeArmed stays false so runPerfProbe() is a no-op.
+    if (new URLSearchParams(location.search).get('lite') === '1') {
+      document.body.classList.add('perf-lite');
+    }
   }
 
   function runPerfProbe() {
@@ -5606,6 +5741,19 @@
     } else {
       setGlobe(true);
     }
+
+    // Boot warmup: pulse the globe active during the loading screen so its
+    // vendor render loop compiles shaders + draws a couple of (off-screen,
+    // opacity-0) frames — then power it back down. Moves the first-activation
+    // hitch off the scroll and into the loader. Just toggles the same
+    // data-active attribute the normal gating uses, so it's harmless if the
+    // vendor globe isn't ready yet (it'll simply warm on scroll instead).
+    bootWarmups.push(() => new Promise((resolve) => {
+      if (!globe) { resolve(); return; }
+      clearTimeout(globe.__pauseT);
+      globe.setAttribute('data-active', '1');
+      setTimeout(() => { globe.setAttribute('data-active', '0'); resolve(); }, 350);
+    }));
 
     // Per-panel reveal + active scene / dot.
     if ('IntersectionObserver' in window) {
@@ -6205,6 +6353,20 @@
     });
     if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.addEventListener('refresh', place);
 
+    // Boot warmup: compile the particle material + render one static frame
+    // during the loading screen so the contact knot never hitches on entry.
+    bootWarmups.push(() => { try { place(); renderer.render(scene, camera); } catch (e) {} });
+    // Graceful context-loss: stop the loop (THREE clears the buffer); on
+    // restore, THREE re-uploads and we resume if the section is on screen.
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      running = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    }, false);
+    canvas.addEventListener('webglcontextrestored', () => {
+      try { if (canvas.classList.contains('is-live')) start(); } catch (e) {}
+    }, false);
+
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((es) => (es[0].isIntersecting ? start() : stop()), { threshold: 0, rootMargin: '-8% 0px -8% 0px' })
         .observe(section);
@@ -6390,20 +6552,30 @@
     // Paint frame 0 right away so the hero never looks empty.
     renderFrame(0, false);
 
-    // Play the first-paint reveal. When the loader timeline
-    // finishes, it calls startHeroReel() to wake the cinema
-    // reel. If GSAP / loader element are missing, the loader
-    // skips itself and startHeroReel() runs immediately.
-    initPreloader();
-
-    // Preload frames in priority order. When the full set is in
-    // memory, force a redraw and tell ScrollTrigger to recompute
-    // start/end (in case image-driven layout shifted anything).
-    preloadAll().then(() => {
+    // ---- Boot readiness ----
+    // Preload the reel frames (priority order; drives 80% of the loader bar via
+    // updateLoadingUI), await fonts, warm every cached asset (section-frames +
+    // first IG slides) and every WebGL scene (shaders compiled, video/globe
+    // textures uploaded, one frame rendered). The intro curtain waits on the
+    // combined bootReady before it lifts — so the hero AND every downstream
+    // section is ready the instant it clears. Every task is failure-tolerant so
+    // one bad asset can never stall the loader. Contexts were created by the
+    // init* calls above, so bootWarmups / extraPreload are already populated.
+    const framesTask = preloadAll().then(() => {
       lastDrawnFrame = -1;
       renderFrame(frameState.idx, false);
       if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.refresh();
     });
+    const bootReady = Promise.all([
+      framesTask.catch(() => {}),
+      trackBoot(fontsReady()),
+      trackBoot(preloadUrlList(extraPreload)),
+    ].concat(bootWarmups.map((w) => trackBoot(Promise.resolve().then(w)))));
+
+    // Play the first-paint reveal. The loader greets, then HOLDS until bootReady
+    // resolves (or a hard cap) before lifting. If GSAP / the loader element are
+    // missing, it hands off immediately.
+    initPreloader(bootReady);
 
     window.addEventListener('resize', onResize);
 
