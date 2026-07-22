@@ -6021,7 +6021,9 @@
     const COUNT = lite ? 4400 : 9500;
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Soft, sub-pixel points → 1.5 is indistinguishable from 2 here but renders
+    // ~44% fewer fragments across the fullscreen particle field each frame.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
     camera.position.z = 5;

@@ -1557,16 +1557,24 @@ body.perf-lite .hterm {
 .tcol__track--up   { animation: tmarquee 34s linear infinite; }
 .tcol__track--down { animation: tmarquee 34s linear infinite reverse; }
 @keyframes tmarquee { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+/* Pause all four scrolling columns whenever the wall is hidden (it spends most
+   of the page off-screen / un-revealed): no compositor churn on the marquee
+   until the reviews are actually shown. */
+.cinema__aside--testi:not(.is-revealed) .tcol__track { animation-play-state: paused; }
 
 .tcard {
   margin: 0 0 clamp(12px, 1vw, 18px);
   padding: clamp(13px, 1vw, 18px);
-  background: rgba(255, 255, 255, 0.72);
+  /* Was rgba(.72) + backdrop-filter: blur(5px). Now the cream veil behind the
+     wall already mutes the grid, so the per-card backdrop blur was doing almost
+     nothing visually — while costing a full-frame backdrop convolution on each
+     of the ~70 cards, every one of them moving (marquee) and 3D-rotated. That
+     was the section's single heaviest GPU item. A hair more opacity reads the
+     same over the veil and is effectively free. */
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(12, 12, 10, 0.08);
   border-radius: 14px;
   box-shadow: 0 16px 34px -22px rgba(0, 0, 0, 0.30);
-  -webkit-backdrop-filter: blur(5px);
-  backdrop-filter: blur(5px);
 }
 .tcard__head { display: flex; align-items: center; gap: 10px; }
 .tcard__avatar {
@@ -1605,7 +1613,7 @@ body.perf-lite .hterm {
   .tcol__track { animation: none; }
 }
 body.perf-lite .tcol__track { animation: none; }
-body.perf-lite .tcard { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(255,255,255,0.85); }
+/* .tcard no longer uses backdrop-filter, so no perf-lite override needed. */
 
 
 /* ---------- LEFT element: Instagram post (image carousel) ----------
@@ -5098,6 +5106,17 @@ html.is-dark .xpcard .text-scramble__underline-base { background: rgba(236,231,2
 }
 .xpx2.is-on .xpx2__stars { opacity: 1; }
 .xpx2.is-on .xpx2__orbs { opacity: 1; }
+/* These ambient layers are position:fixed (always in the compositor viewport)
+   and only fade out via .is-on — so their infinite twinkle/drift animations
+   kept updating full-viewport layers the entire time the experience section
+   was off-screen. Pause them until the section is shown; at opacity 0 this is
+   completely invisible but stops the continuous off-screen compositor work. */
+.xpx2:not(.is-on) .xpx2__stars::before,
+.xpx2:not(.is-on) .xpx2__stars::after,
+.xpx2:not(.is-on) .xpx2__orbs::before,
+.xpx2:not(.is-on) .xpx2__orbs::after {
+  animation-play-state: paused;
+}
 
 /* Two parallax star layers (far + near). Their vertical position is driven by
    scroll via --starY (set in JS): the repeating background tiles infinitely, so
