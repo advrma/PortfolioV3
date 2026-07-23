@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=270" />
+<link rel="stylesheet" href="styles.css?v=275" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark boot screen: a raymarched liquid-glass orb (WebGL, vanilla
@@ -890,6 +890,10 @@
 
 <!-- ============= CONTACT ============= -->
 <section class="contact" id="contact">
+  <!-- Clean 3D studio room lining the contact section (initContactRoom):
+       straight panel seams + soft AO shading replicated from the reference
+       render, drawn STATICALLY (once per resize). z0 under the content. -->
+  <canvas class="contact__room" id="contactGrid" aria-hidden="true"></canvas>
   <!-- Woven-light backdrop: a slowly turning torus-knot of fine particles,
        recoloured to the page (graphite threads with chartreuse filaments) and
        woven behind the headline. Vanilla port of woven-light-hero.tsx. Kept a
@@ -943,7 +947,7 @@
 
 </main>
 
-<script src="script.js?v=263" defer></script>
+<script src="script.js?v=290" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

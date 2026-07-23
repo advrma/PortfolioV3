@@ -5237,11 +5237,12 @@
          freezes on the current frame — grid stays visible, cost
          drops to zero, mirroring the frozen CSS ambients.
      ------------------------------------------------------- */
-  function initHeroGrid() {
-    const canvas = document.getElementById('heroGrid');
-    const heroSec = document.getElementById('hero');
-    const pin = document.querySelector('.hero-stage__pin');
-    if (!canvas || !heroSec || !pin) return;
+  // Shared factory for the 3D-room wireframe layer: `canvas` is drawn at
+  // `host`'s size (host also feeds the mouse ripple), the rAF loop is
+  // IO-gated on `observeEl`. Instantiated for the hero pin AND the
+  // contact section — one shader, two rooms.
+  function initRoomGrid(canvas, host, observeEl) {
+    if (!canvas || !host || !observeEl) return;
     let gl = null;
     try {
       gl = canvas.getContext('webgl', {
@@ -5260,30 +5261,51 @@
       '}',
     ].join('\n');
 
-    // Port of the RippleGrid fragment shader with the knobs baked as
-    // constants (tuned for ink lines on cream paper): no rainbow, no
-    // rotation, no radial fade/vignette (grid covers the full pin);
-    // ripple 0.05, grid 10 / thickness 15, glow 0.1, mouse radius 1.2.
+    // The RippleGrid check lattice is REPLACED by a one-point-perspective
+    // 3D ROOM wireframe (per reference): back-wall rectangle carrying a
+    // sleek check lattice, corner seams to the viewport corners, ~2
+    // receding depth rungs per wall and ~4 converging rails per surface.
+    // The old lattice's ripple + mouse-wave "liquid" distortion warps
+    // every line identically. EVERY line is drawn by ONE shared
+    // screen-space hairline function (fwidth-based, ~1.5px, crisp AA at
+    // any DPR / any parameter space) so the whole drawing reads as the
+    // same sharp pen. Falls back to a tight exp profile on the rare GPU
+    // without OES_standard_derivatives.
+    const hasDeriv = !!gl.getExtension('OES_standard_derivatives');
     const FRAG = [
+      hasDeriv ? '#extension GL_OES_standard_derivatives : enable' : '',
       'precision highp float;',
       'uniform float iTime;',
       'uniform vec2 iResolution;',
       'uniform vec2 mousePosition;',
       'uniform float mouseInfluence;',
-      'uniform float uScroll;',
       'varying vec2 vUv;',
       'const float PI = 3.141592;',
       // Warm sepia-gray rather than pure ink — matches the faint topo
-      // contour color so the grid reads as the same paper texture.
+      // contour color so the room reads as the same paper texture.
       'const vec3  GRID_COLOR = vec3(0.20, 0.18, 0.14);',
       'const float RIPPLE = 0.05;',
-      'const float GRID_SIZE = 10.0;',
-      'const float THICK = 15.0;',
-      'const float GLOW = 0.1;',
-      // Very subtle — the grid is paper texture, not a cage. Global
-      // ceiling; the radial centerFade below shapes it.
       'const float OPACITY = 0.15;',
       'const float MOUSE_R = 1.2;',
+      // Back-wall half extents in screen-proportional space (±1 each
+      // axis) + overall line weight + wall-lattice cell frequency.
+      'const vec2  ROOM_B = vec2(0.72, 0.56);',
+      // Uniform ink: every line family draws at amplitude 1.0 (same
+      // darkness); ROOM_STR alone sets the overall presence. NOTE the
+      // hero reel frames carry a BAKED-IN soft white ambient glow (part
+      // of the character renders, drawn on the canvas ABOVE this layer)
+      // that eats roughly half the lines' contrast across most of the
+      // frame — judge this value against the WASHED on-page result, not
+      // the raw canvas. 2.4 = a quiet paper texture behind the figure.
+      'const float ROOM_STR = 2.4;',
+      'const float GRID_SIZE = 9.0;',
+      // One pen for everything: a constant-screen-width stroke around
+      // d = 0, self-normalizing via fwidth in whatever space d lives in.
+      // Thin solid core + wide feather; the supersampled backing (see
+      // resize) does the final edge smoothing.
+      hasDeriv
+        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 1.2, w * 3.2, d); }'
+        : 'float lineAA(float d) { return exp(-60.0 * d); }',
       'void main() {',
       '  vec2 uv = vUv * 2.0 - 1.0;',
       '  uv.x *= iResolution.x / iResolution.y;',
@@ -5298,28 +5320,45 @@
       '    float mouseWave = sin(PI * (iTime * 2.0 - mouseDist * 3.0)) * influence;',
       '    rippleUv += normalize(uv - mouseUv) * mouseWave * RIPPLE * 0.3;',
       '  }',
-      // Page-scroll offset: the LATTICE slides up as the user scrolls
-      // down (uv is y-up, so subtracting shifts the pattern upward),
-      // while the ripple lens + fades stay locked to the screen.
-      '  rippleUv.y -= uScroll;',
-      '  vec2 a = sin(GRID_SIZE * 0.5 * PI * rippleUv - PI / 2.0);',
-      '  vec2 b = abs(a);',
-      '  vec2 smoothB = vec2(smoothstep(0.0, 0.5, b.x), smoothstep(0.0, 0.5, b.y));',
-      '  vec3 color = vec3(0.0);',
-      '  color += exp(-THICK * smoothB.x * (0.8 + 0.5 * sin(PI * iTime)));',
-      '  color += exp(-THICK * smoothB.y);',
-      '  color += 0.5 * exp(-(THICK / 4.0) * sin(smoothB.x));',
-      '  color += 0.5 * exp(-(THICK / 3.0) * smoothB.y);',
-      '  color += GLOW * exp(-THICK * 0.5 * smoothB.x);',
-      '  color += GLOW * exp(-THICK * 0.5 * smoothB.y);',
-      // Radial fade measured in SCREEN-proportional space (not the
-      // aspect-corrected uv the ripple uses), so the grid reaches the
-      // left/right edges just like top/bottom. length(fUv) is 1.0 at
-      // each edge midpoint — the fade only begins near the edges and
-      // the grid is full strength across the rest of the frame.
-      '  vec2 fUv = (vUv - 0.5) * 2.0;',
-      '  float centerFade = 1.0 - smoothstep(0.7, 1.05, length(fUv));',
-      '  float alpha = length(color) * centerFade * OPACITY;',
+      // Screen-proportional room space (walls keep their share of the
+      // frame at any aspect), evaluated on the RIPPLED uv so every line
+      // wobbles with the same liquid. face = 1 on the back-wall
+      // rectangle; > 1 walks out along the walls/ceiling/floor toward
+      // the viewer; depth = 1/face is the 1/z coordinate.
+      '  vec2 rp = rippleUv;',
+      '  rp.x /= (iResolution.x / iResolution.y);',
+      '  rp.y -= 0.05;',                                   // vanishing point a touch high
+      '  vec2 arp = abs(rp);',
+      '  float fx = arp.x / ROOM_B.x;',
+      '  float fy = arp.y / ROOM_B.y;',
+      '  float face = max(fx, fy);',
+      // Coverage combines by MAX, not sum — where two strokes cross,
+      // the ink stays at single-line darkness (summing left a dark dot
+      // at every intersection).
+      '  float room = 0.0;',
+      // back-wall outline
+      '  room = max(room, lineAA(abs(face - 1.0)));',
+      '  if (face > 1.0) {',
+      '    float depth = 1.0 / face;',
+      // corner seams: back-wall corners -> screen corners (fx == fy)
+      '    room = max(room, lineAA(abs(fx - fy) / face));',
+      // sparse receding depth rungs — nested rectangles at 1/z steps,
+      // half-step dephased so the series has NO zero at depth = 1.0
+      // (a rung exactly on the back-wall border used to stack with the
+      // outline and read as a double-dark boundary)
+      '    room = max(room, lineAA(abs(sin(PI * (depth * 8.0 + 0.5)))));',
+      // converging rails from the vanishing point along each surface
+      // (freq 2, half-offset -> 4 rails per surface, none at centre)
+      '    float rayC = (fx > fy) ? (rp.y / arp.x) * (ROOM_B.x / ROOM_B.y)',
+      '                           : (rp.x / arp.y) * (ROOM_B.y / ROOM_B.x);',
+      '    room = max(room, lineAA(abs(sin(PI * (rayC * 2.0 + 0.5)))));',
+      '  }',
+      // Sleek check lattice ON the back wall only — same pen, square
+      // cells in the rippled aspect space, dying right at the border.
+      '  vec2 ga = abs(sin(GRID_SIZE * 0.5 * PI * rippleUv - PI / 2.0));',
+      '  float grid = max(lineAA(ga.x), lineAA(ga.y));',
+      '  float wallMask = 1.0 - smoothstep(0.99, 1.06, face);',
+      '  float alpha = max(room, grid * wallMask) * ROOM_STR * OPACITY;',
       '  gl_FragColor = vec4(GRID_COLOR, clamp(alpha, 0.0, 1.0));',
       '}',
     ].join('\n');
@@ -5356,7 +5395,6 @@
     const uRes = gl.getUniformLocation(prog, 'iResolution');
     const uMouse = gl.getUniformLocation(prog, 'mousePosition');
     const uInf = gl.getUniformLocation(prog, 'mouseInfluence');
-    const uScroll = gl.getUniformLocation(prog, 'uScroll');
 
     const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
     const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, inf: 0, tinf: 0 };
@@ -5364,16 +5402,8 @@
     // period — far too busy for this page. 0.22 stretches it to ~9s,
     // the same lazy cadence as the halo pulse.
     const TIME_SCALE = 0.22;
-    // Reel-follow: the lattice tracks the CHARACTER (motion.animFrame
-    // mapped over the hold→end reel), not raw scrollY — so the grid
-    // stays glued to the figure even when the user outruns the
-    // auto-scroll follow and page/reel briefly diverge. 2.4 is the
-    // 120vh pin runway in uv units (uv is 2 per viewport height), so
-    // the travel distance matches what a scroll across the runway
-    // would cover, at 0.9× — near screen speed, so the ride down the
-    // grid is clearly felt, with a whisper of lag left for depth.
-    const SCROLL_PARALLAX = 0.9;
-    const REEL_TRAVEL = 2.4 * SCROLL_PARALLAX;
+    // (The old lattice's reel-follow scroll offset is gone — the room
+    // wireframe is architecture, locked to the screen.)
     let raf = 0;
     let visible = true;
     const t0 = performance.now();
@@ -5385,10 +5415,6 @@
       gl.uniform1f(uTime, tSec);
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uInf, mouse.inf);
-      const reelProg = clamp01(
-        (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME)
-      );
-      gl.uniform1f(uScroll, reelProg * REEL_TRAVEL);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
@@ -5406,9 +5432,14 @@
     }
 
     function resize() {
-      // DPR capped at 1 — soft glow content, invisible at this scale.
-      const w = Math.max(1, pin.clientWidth);
-      const h = Math.max(1, pin.clientHeight);
+      // Supersampled backing: render ~1.35× above device resolution and
+      // let the browser downscale — that resample is what smooths the
+      // hairlines' edges (GPU derivative AA alone is quantized to 2×2
+      // pixel quads and read as "pixelated"). Capped at 2× CSS px; the
+      // shader is a few dozen ALU, so the extra pixels stay cheap.
+      const scale = Math.min((window.devicePixelRatio || 1) * 1.35, 2.0);
+      const w = Math.max(1, Math.round(host.clientWidth * scale));
+      const h = Math.max(1, Math.round(host.clientHeight * scale));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -5436,22 +5467,186 @@
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
         visible = entries.some((e) => e.isIntersecting);
-        if (visible) kick();
+        // Re-measure on entry: hosts under content-visibility:auto (the
+        // contact section) only get their real layout near the viewport.
+        if (visible) resize();
         else if (raf) { cancelAnimationFrame(raf); raf = 0; }
-      }).observe(heroSec);
+      }).observe(observeEl);
     }
 
-    // Mouse ripple — listeners live on the pin (the canvas itself is
-    // pointer-events: none so hero hovers keep working).
-    pin.addEventListener('mousemove', (e) => {
-      const r = pin.getBoundingClientRect();
+    // Mouse ripple — listeners live on the host (the canvas itself is
+    // pointer-events: none so the section's hovers keep working).
+    host.addEventListener('mousemove', (e) => {
+      const r = host.getBoundingClientRect();
       mouse.tx = (e.clientX - r.left) / r.width;
       mouse.ty = 1 - (e.clientY - r.top) / r.height;
     }, { passive: true });
-    pin.addEventListener('mouseenter', () => { mouse.tinf = 1; }, { passive: true });
-    pin.addEventListener('mouseleave', () => { mouse.tinf = 0; }, { passive: true });
+    host.addEventListener('mouseenter', () => { mouse.tinf = 1; }, { passive: true });
+    host.addEventListener('mouseleave', () => { mouse.tinf = 0; }, { passive: true });
 
     kick();
+  }
+
+  function initHeroGrid() {
+    initRoomGrid(
+      document.getElementById('heroGrid'),
+      document.querySelector('.hero-stage__pin'),
+      document.getElementById('hero')
+    );
+  }
+
+  // Clean 3D studio room lining the contact section, replicated from the
+  // reference render: near-full-frame back wall, straight hairline panel
+  // seams (wall verticals ±0.77 continuing onto the floor, a horizontal
+  // at +0.27 continuing onto the side walls, ceiling rails at ±0.5), one
+  // near-wall depth rung, and layered soft shading (junction AO, corner
+  // AO, toward-viewer falloff, frame vignette) as ink-alpha washes over
+  // the page cream. STATIC: no clock, no mouse — draws once per
+  // (re)size, so its steady-state cost is zero.
+  function initContactRoom() {
+    const section = document.getElementById('contact');
+    const canvas = document.getElementById('contactGrid');
+    if (!section || !canvas) return;
+    let gl = null;
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: true, depth: false, stencil: false, antialias: false,
+        premultipliedAlpha: false, powerPreference: 'low-power',
+      });
+    } catch (e) { /* fall through */ }
+    if (!gl) { canvas.remove(); return; }
+    const hasDeriv = !!gl.getExtension('OES_standard_derivatives');
+
+    const VERT = [
+      'attribute vec2 position;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vUv = position * 0.5 + 0.5;',
+      '  gl_Position = vec4(position, 0.0, 1.0);',
+      '}',
+    ].join('\n');
+
+    const FRAG = [
+      hasDeriv ? '#extension GL_OES_standard_derivatives : enable' : '',
+      'precision highp float;',
+      'varying vec2 vUv;',
+      'const float PI = 3.141592;',
+      'const vec3 INK = vec3(0.20, 0.18, 0.14);',
+      // Back-wall half extents + vanishing-point lift. Smaller wall =
+      // deeper room: wide ceiling/floor/side bands all around.
+      'const vec2 B = vec2(0.70, 0.64);',
+      'const float VSHIFT = 0.04;',
+      hasDeriv
+        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 1.2, w * 3.2, d); }'
+        : 'float lineAA(float d) { return exp(-60.0 * d); }',
+      'void main() {',
+      '  vec2 fUv = vUv * 2.0 - 1.0;',
+      '  vec2 rp = fUv;',
+      '  rp.y -= VSHIFT;',
+      '  vec2 arp = abs(rp);',
+      '  float fx = arp.x / B.x;',
+      '  float fy = arp.y / B.y;',
+      '  float face = max(fx, fy);',
+      '  float depth = 1.0 / max(face, 1.0);',
+      // ---- straight hairline seams, fully symmetric ----
+      '  float L = 0.0;',
+      '  L = max(L, lineAA(abs(face - 1.0)));',              // wall junctions
+      '  if (face > 1.0) {',
+      '    L = max(L, lineAA(abs(fx - fy) / face));',        // corner seams
+      '    float rayC = (fx > fy) ? (rp.y / arp.x) * (B.x / B.y)',
+      '                           : (rp.x / arp.y) * (B.y / B.x);',
+      // rails at -0.5 / 0 / +0.5 on ALL four surfaces — every wall seam
+      // continues radially outward so the grid fills the entire screen
+      '    L = max(L, lineAA(min(min(abs(rayC - 0.5), abs(rayC + 0.5)), abs(rayC))));',
+      // even series of depth rungs through the whole band (half-step
+      // dephased so none lands on the back-wall border)
+      '    L = max(L, lineAA(abs(sin(PI * (depth * 8.0 + 0.5)))));',
+      '  } else {',
+      // back-wall panel grid: seams at -0.5 / 0 / +0.5 on BOTH axes cut
+      // the wall into 4 equal columns x 4 equal rows
+      '    float wx = rp.x / B.x;',
+      '    float wy = rp.y / B.y;',
+      '    L = max(L, lineAA(min(min(abs(wx - 0.5), abs(wx + 0.5)), abs(wx))));',
+      '    L = max(L, lineAA(min(min(abs(wy - 0.5), abs(wy + 0.5)), abs(wy))));',
+      '  }',
+      // ---- soft room shading ----
+      '  float shade = 0.09 * exp(-abs(face - 1.0) * 3.0);',         // junction AO
+      '  if (face > 1.0) {',
+      // toward-viewer falloff, normalized over the room's on-screen
+      // depth band (depth spans ~1.0 -> ~0.64 at the frame corners)
+      '    float nd = clamp((1.0 - depth) / 0.36, 0.0, 1.0);',
+      '    shade += 0.06 * nd;',
+      '    shade += 0.08 * exp(-(abs(fx - fy) / face) * 3.0);',      // corner AO
+      '  }',
+      '  shade += 0.07 * smoothstep(0.85, 1.35, max(abs(fUv.x), abs(fUv.y)));', // frame vignette
+      '  float alpha = L * 0.16 + shade;',
+      '  gl_FragColor = vec4(INK, clamp(alpha, 0.0, 0.5));',
+      '}',
+    ].join('\n');
+
+    function compile(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
+      return sh;
+    }
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) { canvas.remove(); return; }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const locPos = gl.getAttribLocation(prog, 'position');
+    gl.enableVertexAttribArray(locPos);
+    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0, 0, 0, 0);
+
+    let lost = false;
+    function draw() {
+      if (lost) return;
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    function resize() {
+      // Same supersampled backing as the hero room for crisp seams.
+      // Sized from the CANVAS box, not the section — the canvas bleeds
+      // 28vh above the section (see .contact__room) to fill the screen.
+      const scale = Math.min((window.devicePixelRatio || 1) * 1.35, 2.0);
+      const w = Math.max(1, Math.round(canvas.clientWidth * scale));
+      const h = Math.max(1, Math.round(canvas.clientHeight * scale));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      gl.viewport(0, 0, w, h);
+      draw();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Re-measure at first approach: the section sits under
+    // content-visibility:auto, so its real layout only exists near the
+    // viewport (the initial size above is the intrinsic estimate).
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) resize();
+      }, { rootMargin: '50% 0px' }).observe(section);
+    }
+
+    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      lost = true;   // static layer degrades to transparent on GPU reset
+    }, false);
   }
 
   /* -------------------------------------------------------
@@ -6758,6 +6953,7 @@
     initGoodPart();
     initWelcomeBreath();
     initHeroGrid();
+    initContactRoom();
     initWarpTunnel();
     initBlurAside();
     heroTerminal = initHeroTerminal();

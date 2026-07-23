@@ -3999,8 +3999,9 @@ body.perf-lite .term__cursor { animation: none; }
   position: relative;
   padding: var(--section-y) var(--gutter) 0;
   z-index: 1;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 700px;
+  /* NOTE: content-visibility:auto was removed — its always-on paint
+     containment clipped the room canvas's upward bleed (below) to the
+     section box, leaving a bare band above the room. */
 }
 .contact__inner {
   max-width: 640px;
@@ -4027,6 +4028,23 @@ body.perf-lite .term__cursor { animation: none; }
 /* Woven torus-knot backdrop. Fixed + centred in the viewport so the knot is
    always fully visible and never clipped by the section edges. Fades in with
    the section; click-through; kept under the copy (z-index 0). */
+/* Hero-style 3D-room wireframe lining the contact section (second
+   initRoomGrid instance). Scrolls with the section; the fixed weave knot
+   floats above it (same z, later in DOM), content sits at z1. */
+.contact__room {
+  position: absolute;
+  left: 0;
+  /* Bleed above the section over the seam divider / xp tail so the room
+     grid fills the whole screen with no bare band at the top. The seam
+     ornament stays visible through the canvas's transparent pixels.
+     Explicit calc height — height:auto on a canvas resolves via its
+     intrinsic backing aspect, not the top/bottom stretch. */
+  top: -28vh;
+  z-index: 0;
+  width: 100%;
+  height: calc(100% + 28vh);
+  pointer-events: none;
+}
 .contact__weave {
   position: fixed;
   left: 50%;
