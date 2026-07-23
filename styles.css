@@ -1492,19 +1492,24 @@ body.perf-lite .hterm {
 /* ---------- RIGHT aside as a 3D testimonial marquee ----------
    Vanilla port of a "3D testimonials" component: columns of cards scroll
    vertically (two copies per track, translateY(-50%) loops seamlessly) in
-   alternating directions, tilted into 3D, filling the right half opposite the
-   character. Non-interactive. The blur-reveal sits on .testi3d. */
+   alternating directions, tilted into 3D, anchored over the right half
+   opposite the character. Non-interactive. The blur-reveal sits on .testi3d.
+   FULL-BLEED + BEHIND THE CHARACTER: the box used to be the right 50vw with
+   overflow:hidden, which chopped the tilted wall at a hard mid-screen line on
+   smaller displays. It now spans the whole pin and sits at z-index:1 as a
+   direct pin child — above the hero grid (z0), below the character canvas
+   (z2) — so cards clip only at real viewport edges and slide behind the
+   figure. (The scene/veil/fade geometry below is re-based to the full-width
+   box so the on-screen look at large sizes is unchanged.) */
 .cinema__aside--testi {
-  top: 0;
-  bottom: 0;
-  right: 0;
-  left: auto;
-  width: 50vw;
-  height: 100vh;
+  inset: 0;
+  width: auto;
+  height: auto;
   max-width: none;
   transform: none;
   perspective: none;
   pointer-events: none;
+  z-index: 1;
 }
 .testi3d {
   position: absolute;
@@ -1524,19 +1529,24 @@ body.perf-lite .hterm {
    doesn't compete with the cards. A cream veil sits BEHIND the cards
    (::before paints before the 3D scene, which is its own transform
    stacking context) and fades out toward the left, so it mutes the grid
-   under the dense right side without cutting a hard seam at mid-screen. */
+   under the dense right side without cutting a hard seam at mid-screen.
+   Stops re-based to the full-width box: transparent-at-50% / solid-at-65%
+   is exactly the old 0%→30% ramp of the former right-half box. */
 .testi3d::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(to right, transparent 0%, var(--cream) 30%);
+  background: linear-gradient(to right, transparent 50%, var(--cream) 65%);
   opacity: 0.72;
 }
 .testi3d__scene {
   position: absolute;
   top: 50%;
-  left: 50%;
+  /* Centre of the former right-half box (75% of full width) — keeps the
+     wall exactly where it was on screen; the wider box just stops the
+     tilted overhang from being clipped before the viewport edge. */
+  left: 75%;
   display: flex;
   flex-direction: row;
   gap: clamp(12px, 1vw, 20px);
@@ -1606,9 +1616,20 @@ body.perf-lite .hterm {
   color: var(--ink-2);
 }
 .testi3d__fade { position: absolute; pointer-events: none; z-index: 4; }
+/* Top/bottom cream fades now span the full-width box, but a horizontal mask
+   ramps them out toward the left (full strength right of the old 50% box
+   edge, gone by 34%) so the grid/character side keeps today's untouched
+   look and newly-visible cards past mid-screen still get a soft ramp
+   instead of a hard fade edge. */
 .testi3d__fade--t { top: 0;    left: 0; right: 0; height: 24%; background: linear-gradient(to bottom, var(--cream), transparent); }
 .testi3d__fade--b { bottom: 0; left: 0; right: 0; height: 24%; background: linear-gradient(to top,    var(--cream), transparent); }
-.testi3d__fade--r { top: 0; bottom: 0; right: 0; width: 16%;  background: linear-gradient(to left,    var(--cream), transparent); }
+.testi3d__fade--t,
+.testi3d__fade--b {
+  -webkit-mask-image: linear-gradient(to right, transparent 34%, #000 50%);
+          mask-image: linear-gradient(to right, transparent 34%, #000 50%);
+}
+/* 8% of the full box = the former 16% of the right-half box. */
+.testi3d__fade--r { top: 0; bottom: 0; right: 0; width: 8%;   background: linear-gradient(to left,    var(--cream), transparent); }
 @media (prefers-reduced-motion: reduce) {
   .tcol__track { animation: none; }
 }
@@ -1807,19 +1828,29 @@ body.perf-lite .igbio {
 .igpost__dots { display: flex; justify-content: center; gap: 9px; padding: 16px 0 14px; }
 .igpost__dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(12, 12, 10, 0.22); cursor: pointer; transition: background .25s, transform .25s; }
 .igpost__dot.is-active { background: var(--ink); transform: scale(1.25); }
-.igpost__actions { display: flex; align-items: center; gap: 18px; padding: 0; }
+/* Tight IG-style cluster: like/comment/share sit close together (count snug
+   to its icon, ~16px before the next icon) with only the save button pushed
+   to the far edge — matches the real Instagram action row, especially on
+   smaller displays where the old 18px gap + 14px count margins read as the
+   icons drifting apart across the narrow panel. */
+.igpost__actions { display: flex; align-items: center; gap: 10px; padding: 0; }
 .igpost__act { display: flex; align-items: center; justify-content: center; background: none; border: 0; padding: 3px; cursor: pointer; color: var(--ink); transition: transform .15s ease, color .2s ease; }
 .igpost__act:hover { transform: scale(1.12); }
 .igpost__act:active { transform: scale(0.9); }
 .igpost__act--save { margin-left: auto; }
 .igpost__icon { width: 34px; height: 34px; fill: currentColor; color: var(--ink); }
-.igpost__count { font-weight: 600; font-size: clamp(15px, 0.75vw, 19px); color: var(--ink); margin-right: 14px; margin-left: 2px; }
+.igpost__count { font-weight: 600; font-size: clamp(15px, 0.75vw, 19px); color: var(--ink); margin-right: 6px; margin-left: -2px; }
 .igpost__like { color: var(--ink); }
 .igpost__heart { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 2; transition: fill .2s ease, stroke .2s ease; }
 .igpost__like.is-liked { color: #ed4956; }
 .igpost__like.is-liked .igpost__heart { fill: #ed4956; stroke: #ed4956; }
 .igpost__like.is-pop .igpost__heart { animation: heartPop 0.32s ease-in-out; }
 @keyframes heartPop { 0% { transform: scale(1); } 45% { transform: scale(1.32); } 100% { transform: scale(1); } }
+/* Save toggle — the bookmark fills in like the heart does, but in the row's
+   own currentColor (the off-white #f3f1ea over the dark IG panel) instead of
+   the like-red. The CSS `fill` beats the path's fill="none" attribute. */
+.igpost__act--save.is-saved .igpost__icon path { fill: currentColor; }
+.igpost__act--save.is-pop .igpost__icon { animation: heartPop 0.32s ease-in-out; }
 
 /* ---------- Instagram "stories" row (vanilla port of the typewriter-testimonial) ----------
    A row of gradient-ringed circular avatars sitting above the post; hovering one scales
@@ -2152,6 +2183,35 @@ body.perf-lite .callcard__def {
     0 0 0 var(--frame-ring, 2px) rgba(255, 255, 255, 0.92),
     0 0 calc(var(--frame-ring, 2px) * 14) rgba(255, 255, 255, 0.14);
   border-radius: 6px;
+}
+
+/* Subtle backlight behind the floating gallery card during the warp
+   emerge: a small fixed-size faint-white radial bloom, viewport-centred like
+   the card, sitting between the warp underlay and the fixed pin (z1 < z2).
+   paintGallery drives ONLY transform (scale with the card, ~1.55× its
+   on-screen width) and opacity (emerge alpha, dying off as the card expands
+   to full screen) — a static 720×460 raster animated compositor-only, and
+   completely invisible (opacity 0, no layer) outside the emerge phase. */
+.hall__halo {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 720px;
+  height: 460px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.4);
+  /* The card covers the halo's centre out to ~57% of its extent (halo =
+     1.75× the card's on-screen width), so the stops must still carry alpha
+     THERE — the visible bloom is the ring just outside the card's edges,
+     melting to nothing by the halo's rim. WHITE + very low alpha: a faint
+     backlight that extends the pin's own white ring glow, not a colour pool. */
+  background: radial-gradient(50% 50% at 50% 50%,
+      rgba(255, 255, 255, 0.20),
+      rgba(255, 255, 255, 0.12) 55%,
+      rgba(255, 255, 255, 0.04) 78%,
+      transparent 95%);
 }
 
 /* Top/bottom HUD lines for the 3D fly-in — mirrors .warp__hud (gray mono labels

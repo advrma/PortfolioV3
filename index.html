@@ -24,13 +24,15 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=264" />
+<link rel="stylesheet" href="styles.css?v=270" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
-     A dark "welcome" screen greets the visitor with a couple of
-     cycled lines over a soft glow, then the dark sheet lifts on a
-     curved edge (an SVG <path> whose `d` is morphed) to reveal the
-     hero beneath. JS (initPreloader) drives the cycle + the lift. -->
+     A dark boot screen: a raymarched liquid-glass orb (WebGL, vanilla
+     port of "liquid gooey orb shader", rethemed ink/chartreuse/cream)
+     sits inside an instrument ring whose chartreuse arc fills with REAL
+     boot progress, with a mono BOOT SEQUENCE readout beneath — then the
+     dark sheet lifts on a curved edge (an SVG <path> whose `d` is
+     morphed) to reveal the hero. JS (initPreloader + initGooeyOrb). -->
 <style>
   .preloader {
     position: fixed; inset: 0;
@@ -51,88 +53,95 @@
   }
   .preloader__curtain path { fill: #0B0B0A; }
 
-  /* Cycled greeting, stacked over the sheet with a small pulsing
-     accent dot beneath it (a quiet heartbeat / full-stop). */
-  .preloader__greet {
+  /* Boot stage: orb + ring gauge centred, telemetry line beneath.
+     Fades out as one unit when the reveal begins. */
+  .preloader__stage {
     position: absolute; inset: 0; z-index: 2;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    gap: 2.1rem; padding: 8vw;
-    text-align: center;
+    gap: clamp(18px, 3.4vh, 34px);
     transition: opacity 0.4s ease;
     pointer-events: none;
   }
-  .preloader__greet.is--out { opacity: 0; }
-  /* soft warm glow behind the words for depth */
-  .preloader__greet::before {
-    content: ""; position: absolute;
-    left: 50%; top: 50%; transform: translate(-50%, -50%);
-    width: min(78vw, 760px); height: min(52vh, 460px);
-    background: radial-gradient(closest-side,
-        rgba(216, 255, 56, 0.09), rgba(216, 255, 56, 0) 72%);
-    pointer-events: none;
+  .preloader__stage.is--out { opacity: 0; }
+
+  /* Entrance: the instrument chrome rises in at first paint (the orb
+     itself materializes separately, inside its shader via u_intro).
+     Animated on the CHILDREN so the stage's .is--out fade still wins. */
+  .preloader__core,
+  .preloader__pct {
+    animation: preloadIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  .preloader__greet-text {
-    position: relative; margin: 0;
-    font-family: "Instrument Serif", Georgia, serif;
-    font-style: italic; font-weight: 400;
-    font-size: clamp(2.4rem, 7.4vw, 5.2rem);
-    line-height: 1.03; letter-spacing: 0.005em;
-    color: #F3EFE6;
-    opacity: 0; transform: translateY(0.5em);
-    transition: opacity 0.44s ease,
-                transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: opacity, transform;
-  }
-  .preloader__greet-text.is--in { opacity: 1; transform: translateY(0); }
-  .preloader__greet-text.is--leaving { opacity: 0; transform: translateY(-0.5em); }
-  .preloader__greet-dot {
-    position: relative;
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #D8FF38;
-    box-shadow: 0 0 14px rgba(216, 255, 56, 0.55);
-    animation: preload-beat 1.5s ease-in-out infinite;
-  }
-  @keyframes preload-beat {
-    0%, 100% { opacity: 0.28; transform: scale(0.9); }
-    50%      { opacity: 1;    transform: scale(1); }
+  .preloader__pct { animation-delay: 0.18s; }
+  @keyframes preloadIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* Real boot progress — fills as reel frames + assets + WebGL warmups load.
-     The curtain now waits for this to complete (or a hard cap) before lifting,
-     so a longer wait on a slow device reads as intentional, not broken. It
-     fades out with the greeting as the reveal begins. */
-  .preloader__load {
-    position: absolute; left: 50%; bottom: clamp(38px, 9vh, 92px);
-    transform: translateX(-50%); z-index: 2;
-    width: min(74vw, 320px);
-    display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
-    transition: opacity 0.4s ease;
-    pointer-events: none;
+  /* Square instrument core: the orb canvas fills it; the ring gauge +
+     viewfinder corner marks sit on top of it. */
+  .preloader__core {
+    position: relative;
+    width: min(52vh, 66vw, 440px);
+    aspect-ratio: 1;
   }
-  .preloader__greet.is--out ~ .preloader__load { opacity: 0; }
-  .preloader__bar {
-    width: 100%; height: 2px; border-radius: 2px;
-    background: rgba(243, 239, 230, 0.14);
-    overflow: hidden;
+  .preloader__orb {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
   }
-  .preloader__bar i {
-    display: block; height: 100%; width: 0%;
-    background: linear-gradient(90deg, rgba(216, 255, 56, 0.6), #D8FF38);
-    box-shadow: 0 0 12px rgba(216, 255, 56, 0.5);
-    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  .preloader__ring {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    fill: none;
   }
+  /* fine focus-ring ticks + quiet track + chartreuse progress arc */
+  .preloader__ring-ticks {
+    stroke: rgba(243, 239, 230, 0.16);
+    stroke-width: 0.9;
+    stroke-dasharray: 0.28 4.80;    /* 60 fine ticks around C≈304.7 */
+  }
+  .preloader__ring-track {
+    stroke: rgba(243, 239, 230, 0.10);
+    stroke-width: 0.4;
+  }
+  .preloader__ring-fill {
+    stroke: #D8FF38;
+    stroke-width: 1.1;
+    stroke-dasharray: 289.03;       /* C = 2π·46 */
+    stroke-dashoffset: 289.03;      /* 0% — JS (updateBootUI) drives this */
+    transform: rotate(-90deg);      /* arc starts at 12 o'clock */
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  /* viewfinder corner marks — same language as the hero frame corners */
+  .preloader__corner {
+    position: absolute;
+    width: 13px; height: 13px;
+    border: 1px solid rgba(243, 239, 230, 0.30);
+  }
+  .preloader__corner--tl { top: -7px;    left: -7px;  border-right: none; border-bottom: none; }
+  .preloader__corner--tr { top: -7px;    right: -7px; border-left: none;  border-bottom: none; }
+  .preloader__corner--bl { bottom: -7px; left: -7px;  border-right: none; border-top: none; }
+  .preloader__corner--br { bottom: -7px; right: -7px; border-left: none;  border-top: none; }
+
+  /* Telemetry readout — the site's HUD chip voice (tiny mono, wide tracking). */
   .preloader__pct {
-    font-family: "Space Mono", ui-monospace, "SFMono-Regular", monospace;
-    font-size: 0.72rem; letter-spacing: 0.2em;
-    color: rgba(243, 239, 230, 0.6);
+    display: flex; align-items: baseline; gap: 1.1em;
+    font-family: "Geist Mono", "Space Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 0.24em;
+    color: rgba(243, 239, 230, 0.45);
+    text-transform: uppercase;
   }
+  .preloader__pct-num { color: #F3EFE6; }
+  .preloader__pct-num i { font-style: normal; color: #D8FF38; }
 
   @media (prefers-reduced-motion: reduce) {
-    .preloader__greet,
-    .preloader__greet-text { transition-duration: 0.001s; }
-    .preloader__greet-dot { animation: none; opacity: 0.9; }
-    .preloader__bar i { transition: none; }
+    .preloader__orb { display: none; }   /* JS also skips the orb loop */
+    .preloader__ring-fill { transition: none; }
+    .preloader__stage { transition-duration: 0.001s; }
+    .preloader__core, .preloader__pct { animation: none; }
   }
 </style>
 
@@ -142,25 +151,36 @@
 </head>
 <body class="is-pre-load">
 
-<!-- ============= PRELOADER (arc welcome / reveal) =============
-     A dark welcome screen: a couple of cycled greetings over a soft
-     glow, then the dark sheet lifts on a curved edge to reveal the
-     hero beneath. JS: initPreloader. -->
+<!-- ============= PRELOADER (boot instrument / reveal) =============
+     A dark boot screen: a raymarched liquid-glass orb inside a ring
+     gauge whose chartreuse arc fills with REAL boot progress (frames +
+     assets + WebGL warmups), then the dark sheet lifts on a curved
+     edge to reveal the hero. JS: initPreloader + initGooeyOrb. -->
 <section class="preloader" id="preloader" aria-hidden="true">
   <!-- Dark curtain — its curved lower edge is morphed upward in JS. -->
   <svg class="preloader__curtain" id="preloaderCurtain" viewBox="0 0 100 100"
        preserveAspectRatio="none" aria-hidden="true">
     <path id="preloaderCurtainPath" d="M -20 -120 H 120 V 112 Q 50 138 -20 112 Z" />
   </svg>
-  <!-- Cycled greeting + pulsing accent dot. -->
-  <div class="preloader__greet" id="preloaderGreet" aria-hidden="true">
-    <p class="preloader__greet-text" id="preloaderGreetText">Hii</p>
-    <span class="preloader__greet-dot" aria-hidden="true"></span>
-  </div>
-  <!-- Boot progress bar (frames + assets + WebGL warmups); driven by JS. -->
-  <div class="preloader__load" id="preloaderLoad" aria-hidden="true">
-    <div class="preloader__bar"><i id="preloaderBar"></i></div>
-    <div class="preloader__pct"><i id="preloaderPct">0</i>%</div>
+  <!-- Orb + ring gauge + telemetry; the ring's arc (#preloaderBar) and the
+       % (#preloaderPct) are driven by updateBootUI. -->
+  <div class="preloader__stage" id="preloaderStage" aria-hidden="true">
+    <div class="preloader__core">
+      <canvas class="preloader__orb" id="preloaderOrb"></canvas>
+      <svg class="preloader__ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="preloader__ring-ticks" cx="50" cy="50" r="48.5"></circle>
+        <circle class="preloader__ring-track" cx="50" cy="50" r="46"></circle>
+        <circle class="preloader__ring-fill" id="preloaderBar" cx="50" cy="50" r="46"></circle>
+      </svg>
+      <i class="preloader__corner preloader__corner--tl" aria-hidden="true"></i>
+      <i class="preloader__corner preloader__corner--tr" aria-hidden="true"></i>
+      <i class="preloader__corner preloader__corner--bl" aria-hidden="true"></i>
+      <i class="preloader__corner preloader__corner--br" aria-hidden="true"></i>
+    </div>
+    <div class="preloader__pct">
+      <span class="preloader__pct-label">Boot Sequence</span>
+      <span class="preloader__pct-num"><i id="preloaderPct">0</i>%</span>
+    </div>
   </div>
 </section>
 
@@ -342,6 +362,24 @@
       </span>
     </h1>
 
+    <!-- RIGHT reviews wall: a 3D-perspective vertical testimonial marquee
+         (vanilla port of a shadcn/ui "3D testimonials" component). Columns +
+         cards are built by initTestimonials; columns scroll in alternating
+         directions; blur-reveals via .is-revealed from motionTick like the
+         other asides. Lives HERE (not in the cinema overlay) as a direct pin
+         child at z-index:1 — BELOW the character canvas (z2) — and full-bleed,
+         so the tilted wall is never chopped by a mid-screen box edge on
+         smaller displays: cards simply run behind the figure and clip only at
+         the real viewport edges. data-no-blur keeps initBlurAside off it. -->
+    <div class="cinema__aside cinema__aside--testi" id="cinemaAsideRight" data-no-blur aria-hidden="true">
+      <div class="testi3d">
+        <div class="testi3d__scene" id="testiScene"></div>
+        <div class="testi3d__fade testi3d__fade--t"></div>
+        <div class="testi3d__fade testi3d__fade--b"></div>
+        <div class="testi3d__fade testi3d__fade--r"></div>
+      </div>
+    </div>
+
     <!-- Sole canvas — full viewport, cover-fit on source.
          Sized + cropped in JS so character feels naturally
          framed at frame 0. The .hero-stage__breathe wrapper
@@ -438,19 +476,11 @@
            spans + per-word blur values are built in initBlurAside; the
            reveal is toggled from motionTick by the sign of the
            character's scroll-X. -->
-      <!-- RIGHT statement fills the right half: a 3D-perspective vertical
-           testimonial marquee (vanilla port of a shadcn/ui "3D testimonials"
-           component). Columns + cards are built by initTestimonials; columns
-           scroll in alternating directions. Blur-reveals like the other aside.
-           data-no-blur keeps initBlurAside off it. -->
-      <div class="cinema__aside cinema__aside--testi" id="cinemaAsideRight" data-no-blur aria-hidden="true">
-        <div class="testi3d">
-          <div class="testi3d__scene" id="testiScene"></div>
-          <div class="testi3d__fade testi3d__fade--t"></div>
-          <div class="testi3d__fade testi3d__fade--b"></div>
-          <div class="testi3d__fade testi3d__fade--r"></div>
-        </div>
-      </div>
+      <!-- RIGHT reviews wall moved OUT of this overlay: it now sits as a
+           direct pin child BEHIND the character canvas (see above the
+           .hero-stage__breathe block) so the cards read as a layer the
+           figure stands in front of. Reveal wiring is unchanged
+           (motionTick toggles .is-revealed on #cinemaAsideRight). -->
       <!-- LEFT element: Instagram post (carousel of /Instagram-Images) styled
            like the IG layout, but the black header/footer are transparent so the
            UI elements sit directly on the cream landing page. Click the image (or
@@ -498,7 +528,7 @@
             <button class="igpost__act" type="button" aria-label="Share">
               <svg class="igpost__icon" viewBox="0 0 24 24"><path d="M22 2L11 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             </button>
-            <button class="igpost__act igpost__act--save" type="button" aria-label="Save">
+            <button class="igpost__act igpost__act--save" type="button" aria-label="Save" aria-pressed="false">
               <svg class="igpost__icon" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -590,6 +620,12 @@
      seam divider between them.
 ====================================================== -->
 <section class="hall" id="projects">
+  <!-- Backlight for the emerging gallery card: a faint white radial bloom
+       that sits BEHIND the floating pin while it flies in through the warp
+       (fixed, z1 — above the warp underlay, below the fixed pin at z2).
+       paintGallery scales/fades it with the same camera math as the card;
+       it is fully transparent at rest and while the gallery is expanded. -->
+  <div class="hall__halo" id="hallHalo" aria-hidden="true"></div>
   <div class="hall__pin">
     <!-- No cloned topo here — the gallery pin is transparent, so the body's
          fixed .topo-bg shows through directly (same paper as every section). -->
@@ -907,7 +943,7 @@
 
 </main>
 
-<script src="script.js?v=256" defer></script>
+<script src="script.js?v=263" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

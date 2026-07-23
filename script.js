@@ -66,11 +66,14 @@
   const extraPreload = [];   // asset URLs to warm into the browser cache
   let bootOtherDone = 0, bootOtherTotal = 0;
   let bootBarEl = null, bootPctEl = null;   // wired by initPreloader
+  // The loader's gauge is an SVG ring: #preloaderBar is a <circle> (r=46 in a
+  // 100-unit viewBox) whose dashoffset runs C→0 as boot progress reaches 100%.
+  const BOOT_RING_C = 289.03;               // 2π · 46
   function updateBootUI() {
     const frames = FRAME_COUNT ? (loadedCount / FRAME_COUNT) : 1;
     const other = bootOtherTotal ? (bootOtherDone / bootOtherTotal) : 1;
     const p = Math.round((0.8 * frames + 0.2 * other) * 100);
-    if (bootBarEl) bootBarEl.style.width = p + '%';
+    if (bootBarEl) bootBarEl.style.strokeDashoffset = (BOOT_RING_C * (1 - p / 100)).toFixed(2);
     if (bootPctEl) bootPctEl.textContent = p;
   }
   // Register a promise as a boot task (weighted into the 20% "other" bucket).
@@ -789,6 +792,20 @@
         if (liked) { likeBtn.classList.remove('is-pop'); void likeBtn.offsetWidth; likeBtn.classList.add('is-pop'); }
       });
       syncLike();
+    }
+
+    /* Animated save toggle — same interaction as the like, but the bookmark
+       fills in currentColor (white over the dark IG panel) via .is-saved. */
+    const saveBtn = document.querySelector('.igpost__act--save');
+    if (saveBtn) {
+      let saved = false;
+      saveBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        saved = !saved;
+        saveBtn.classList.toggle('is-saved', saved);
+        saveBtn.setAttribute('aria-pressed', String(saved));
+        if (saved) { saveBtn.classList.remove('is-pop'); void saveBtn.offsetWidth; saveBtn.classList.add('is-pop'); }
+      });
     }
   }
 
@@ -1721,26 +1738,270 @@
   }
 
   /* -------------------------------------------------------
-     initPreloader — arc welcome / reveal.
-     A dark sheet greets the visitor with a couple of cycled
-     lines, then lifts on a curved edge (an SVG <path> whose `d`
-     is morphed) to uncover the hero. The hero's entrance
-     animations (canvas fade-in, UI stagger, name draw-on, reel)
-     are held until the sheet is ~70% lifted — a touch before it
-     fully clears (see wakeHero) — so the construct-in overlaps the
-     last of the rise and the hand-off reads as one smooth motion.
+     initGooeyOrb — the loading screen's centrepiece. Vanilla
+     WebGL1 port of the "liquid gooey orb" shader (raymarched
+     glassy blob, swirling liquid filaments inside, glow only
+     OUTSIDE the silhouette), rethemed to the site: chartreuse +
+     cream liquid in ink glass over the loader's #0B0B0A, so the
+     opaque canvas melts seamlessly into the boot screen. Brand
+     palette + shape params are baked into the shader (only
+     u_time/u_res uniforms). Runs ONLY while the loader is up —
+     initPreloader stops it as the curtain lifts. Same raw-WebGL
+     conventions as initHeroGrid/initWarpTunnel (WebGL1, capped
+     DPR, context-loss guard, stop()).
+     ------------------------------------------------------- */
+  function initGooeyOrb(cv) {
+    if (!cv) return null;
+    let gl = null;
+    try {
+      gl = cv.getContext('webgl', { alpha: false, antialias: false }) ||
+           cv.getContext('experimental-webgl', { alpha: false, antialias: false });
+    } catch (e) { /* fall through */ }
+    if (!gl) { cv.style.display = 'none'; return null; }
+
+    const VERT =
+      'attribute vec2 a_pos;\n' +
+      'varying vec2 v_uv;\n' +
+      'void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }';
+
+    // Site palette: COL_A chartreuse rim/liquid, COL_B cream, olive outer
+    // glow, ink background. Motion = the source's "Aurora" preset.
+    const FRAG =
+      'precision highp float;\n' +
+      'varying vec2 v_uv;\n' +
+      'uniform float u_time;\n' +
+      'uniform vec2  u_res;\n' +
+      'uniform float u_intro;\n' +   // 0→1 materialize (slight >1 overshoot)
+
+      '#define COL_A vec3(0.847, 1.000, 0.220)\n' +   // #D8FF38
+      '#define COL_B vec3(0.949, 0.933, 0.898)\n' +   // #F2EEE5
+      '#define GLOW_A vec3(0.847, 1.000, 0.220)\n' +
+      '#define GLOW_B vec3(0.478, 0.580, 0.125)\n' +  // #7A9420 olive
+      '#define BG vec3(0.043, 0.043, 0.039)\n' +      // #0B0B0A loader ink
+      '#define RADIUS 0.30\n' +
+      '#define DEFORM 0.36\n' +
+      '#define FREQ 2.0\n' +
+      '#define MORPH 1.30\n' +
+      '#define ROTSP 0.12\n' +
+      '#define SHINE 150.0\n' +
+      '#define GLOWSTR 0.55\n' +
+      '#define LSPEED 0.50\n' +
+      '#define LSCALE 2.20\n' +
+      '#define FILAMENT 1.40\n' +
+      '#define CORE 0.30\n' +
+      'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n' +
+      // organic blob: sphere radius modulated by slow drifting sine lobes
+      'float blobField(vec3 p){\n' +
+      '  float t = u_time * MORPH;\n' +
+      '  float d = 0.0;\n' +
+      '  d += sin(p.x * 2.6 * FREQ + t * 1.00);\n' +
+      '  d += sin(p.y * 2.9 * FREQ - t * 0.80 + 1.3);\n' +
+      '  d += sin(p.z * 3.2 * FREQ + t * 1.20 + 2.7);\n' +
+      '  d += sin((p.x + p.z) * 2.2 * FREQ - t * 0.90 + 4.1);\n' +
+      '  d += sin((p.y - p.x) * 2.4 * FREQ + t * 0.70 + 0.6);\n' +
+      '  return d * 0.2;\n' +
+      '}\n' +
+      'float mapBlob(vec3 p){\n' +
+      '  float t = u_time * ROTSP;\n' +
+      '  p.xy *= rot(t * 0.7);\n' +
+      '  p.yz *= rot(t * 0.5);\n' +
+      // whole field scales with u_intro: the blob inflates from a point,
+      // wobble and all, instead of popping in fully formed
+      '  float r = (RADIUS + DEFORM * blobField(p)) * u_intro;\n' +
+      '  return length(p) - r;\n' +
+      '}\n' +
+      'vec3 calcNormal(vec3 p){\n' +
+      '  vec2 e = vec2(0.0015, 0.0);\n' +
+      '  return normalize(vec3(\n' +
+      '    mapBlob(p + e.xyy) - mapBlob(p - e.xyy),\n' +
+      '    mapBlob(p + e.yxy) - mapBlob(p - e.yxy),\n' +
+      '    mapBlob(p + e.yyx) - mapBlob(p - e.yyx)));\n' +
+      '}\n' +
+      // 3D noise for the swirling liquid inside the glass
+      'float hash13(vec3 p3){ p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }\n' +
+      'float vnoise3(vec3 p){\n' +
+      '  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);\n' +
+      '  return mix(mix(mix(hash13(i + vec3(0.0,0.0,0.0)), hash13(i + vec3(1.0,0.0,0.0)), f.x),\n' +
+      '                 mix(hash13(i + vec3(0.0,1.0,0.0)), hash13(i + vec3(1.0,1.0,0.0)), f.x), f.y),\n' +
+      '             mix(mix(hash13(i + vec3(0.0,0.0,1.0)), hash13(i + vec3(1.0,0.0,1.0)), f.x),\n' +
+      '                 mix(hash13(i + vec3(0.0,1.0,1.0)), hash13(i + vec3(1.0,1.0,1.0)), f.x), f.y), f.z);\n' +
+      '}\n' +
+      'float fbm3(vec3 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 3; i++){ v += a * vnoise3(p); p *= 2.03; a *= 0.5; } return v; }\n' +
+      // domain-warped 3D field -> flowing liquid filaments
+      'float liquid(vec3 p){\n' +
+      '  float t = u_time * LSPEED;\n' +
+      '  p *= LSCALE;\n' +
+      '  p.xy *= rot(t * 0.15);\n' +
+      '  p.yz *= rot(t * 0.10);\n' +
+      '  vec3 w = vec3(fbm3(p + t * 0.2), fbm3(p + vec3(4.3, 1.2, -t * 0.15)), fbm3(p.zxy + vec3(7.7, 2.3, t * 0.10)));\n' +
+      '  return fbm3(p + 1.8 * w);\n' +
+      '}\n' +
+      'void main(){\n' +
+      '  vec2 p = v_uv * 2.0 - 1.0;\n' +
+      '  p.x *= u_res.x / u_res.y;\n' +
+      '  vec3 ro = vec3(0.0, 0.0, 3.0);\n' +
+      '  vec3 rd = normalize(vec3(p, -1.8));\n' +
+      // raymarch; track closest approach so the glow stays OUTSIDE the orb
+      '  float t = 0.0;\n' +
+      '  bool hit = false;\n' +
+      '  vec3 pos = ro;\n' +
+      '  float minD = 1e3;\n' +
+      '  for (int i = 0; i < 160; i++) {\n' +
+      '    pos = ro + rd * t;\n' +
+      '    float d = mapBlob(pos);\n' +
+      '    minD = min(minD, d);\n' +
+      '    if (d < 0.001) { hit = true; break; }\n' +
+      '    t += d * 0.40;\n' +
+      '    if (t > 6.0) break;\n' +
+      '  }\n' +
+      '  vec3 E = vec3(0.0);\n' +
+      '  if (hit) {\n' +
+      '    vec3 n = calcNormal(pos);\n' +
+      '    vec3 v = -rd;\n' +
+      '    float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);\n' +
+      // liquid interior: short volumetric march of swirling noise through the glass
+      '    vec3 rp = pos + rd * 0.04;\n' +
+      '    float trans = 1.0;\n' +
+      '    vec3 inner = vec3(0.0);\n' +
+      '    for (int k = 0; k < 10; k++) {\n' +
+      '      float raw = liquid(rp);\n' +
+      '      float dens = smoothstep(0.30, 0.70, raw);\n' +
+      '      float fil = pow(1.0 - abs(2.0 * raw - 1.0), 5.0);\n' +
+      '      vec3 c = mix(COL_B, COL_A, 0.5 + 0.5 * sin(raw * 6.0 + u_time * 0.3 + rp.y * 2.5));\n' +
+      '      vec3 emit = c * dens * 0.55 + c * fil * FILAMENT + vec3(1.0) * pow(fil, 3.0) * FILAMENT * 0.4;\n' +
+      '      emit += COL_A * smoothstep(0.5, 0.0, length(rp)) * CORE;\n' +
+      '      inner += trans * emit * 0.17;\n' +
+      '      trans *= 0.84;\n' +
+      '      rp += rd * 0.11;\n' +
+      '      if (length(rp) > 1.0) break;\n' +
+      '    }\n' +
+      '    E += inner * (1.0 - fres * 0.6);\n' +
+      // glassy rim + specular glints (front surface)
+      '    vec3 rim = mix(COL_B, COL_A, 0.5 + 0.5 * (n.x * 0.7 + n.y * 0.45));\n' +
+      '    E += rim * fres * 1.3;\n' +
+      '    vec3 l1 = normalize(vec3(0.6, 0.85, 0.6));\n' +
+      '    vec3 l2 = normalize(vec3(-0.7, 0.25, 0.55));\n' +
+      '    vec3 h1 = normalize(l1 + v);\n' +
+      '    vec3 h2 = normalize(l2 + v);\n' +
+      '    E += vec3(1.0) * pow(max(dot(n, h1), 0.0), SHINE) * 1.3;\n' +
+      '    E += vec3(0.98, 0.95, 0.86) * pow(max(dot(n, h2), 0.0), SHINE * 0.45) * 0.6;\n' +
+      '  } else {\n' +
+      // glow ONLY outside: brightest at the silhouette, radiating outward
+      '    float g = exp(-minD * 5.5);\n' +
+      '    float ang = atan(rd.y, rd.x);\n' +
+      '    vec3 gc = mix(GLOW_A, GLOW_B, 0.5 + 0.5 * sin(ang * 3.0 + u_time * 0.5));\n' +
+      '    E += (gc * g * 1.4 + vec3(1.0, 0.98, 0.90) * pow(g, 3.0) * 0.7) * GLOWSTR;\n' +
+      '  }\n' +
+      // brightness fades up with the materialize (clamped: the size
+      // overshoot may push u_intro slightly past 1)
+      '  E *= clamp(u_intro, 0.0, 1.0);\n' +
+      // additive over the loader's ink — seamless on the dark boot screen
+      '  gl_FragColor = vec4(clamp(BG + E, 0.0, 1.0), 1.0);\n' +
+      '}';
+
+    function compile(type, src) {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(sh) || 'orb shader compile failed');
+      }
+      return sh;
+    }
+    let program;
+    try {
+      program = gl.createProgram();
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT));
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG));
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program) || 'orb link failed');
+      }
+    } catch (e) {
+      cv.style.display = 'none';
+      return null;
+    }
+    gl.useProgram(program);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(program, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    const uTime  = gl.getUniformLocation(program, 'u_time');
+    const uRes   = gl.getUniformLocation(program, 'u_res');
+    const uIntro = gl.getUniformLocation(program, 'u_intro');
+
+    // Square canvas from the CSS box; modest caps — the raymarch is the only
+    // thing on screen, but there's no need to burn GPU the hero will want.
+    function resize() {
+      const side = Math.min(
+        Math.round((cv.clientWidth || 300) * Math.min(window.devicePixelRatio || 1, 1.25)),
+        640
+      );
+      if (cv.width !== side || cv.height !== side) {
+        cv.width = side; cv.height = side;
+      }
+      gl.viewport(0, 0, side, side);
+    }
+
+    let raf = 0;
+    let alive = true;
+    const t0 = performance.now();
+    // Materialize: the blob inflates from a point over INTRO_MS with an
+    // easeOutBack (~10% liquid overshoot), brightness fading up alongside
+    // (the shader clamps u_intro for the emission fade).
+    const INTRO_MS = 1400;
+    const BACK_C1 = 1.70158, BACK_C3 = BACK_C1 + 1.0;
+    function frame(now) {
+      if (!alive) return;
+      resize();
+      const it = Math.min((now - t0) / INTRO_MS, 1);
+      const intro = 1 + BACK_C3 * Math.pow(it - 1, 3) + BACK_C1 * Math.pow(it - 1, 2);
+      gl.uniform1f(uTime, (now - t0) * 0.001);
+      gl.uniform2f(uRes, cv.width, cv.height);
+      gl.uniform1f(uIntro, intro);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+
+    // Context loss during boot → stop cleanly (browser clears to transparent;
+    // the ring gauge + telemetry still carry the loader).
+    cv.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      alive = false;
+      cancelAnimationFrame(raf);
+    });
+
+    return {
+      stop() {
+        alive = false;
+        cancelAnimationFrame(raf);
+      }
+    };
+  }
+
+  /* -------------------------------------------------------
+     initPreloader — boot instrument / reveal.
+     A dark sheet with the gooey-orb boot gauge, which lifts on
+     a curved edge (an SVG <path> whose `d` is morphed) to
+     uncover the hero. The hero's entrance animations (canvas
+     fade-in, UI stagger, name draw-on, reel) are held until the
+     sheet is ~70% lifted — a touch before it fully clears (see
+     wakeHero) — so the construct-in overlaps the last of the
+     rise and the hand-off reads as one smooth motion.
      rAF-driven; safety-timed.
      ------------------------------------------------------- */
   function initPreloader(bootReady) {
     bootReady = Promise.resolve(bootReady || null);
     const loader = document.getElementById('preloader');
     if (!loader) { startHeroReel(); return; }
-    const greetEl = document.getElementById('preloaderGreet');
-    const textEl  = document.getElementById('preloaderGreetText');
+    const stageEl = document.getElementById('preloaderStage');
     const pathEl  = document.getElementById('preloaderCurtainPath');
-    // Wire the loader's progress bar to the boot orchestrator (frames + assets
-    // + WebGL warmups). READY_CAP bounds how long the curtain holds waiting for
-    // readiness after the greeting, so it can never hang on a bad connection.
+    // Wire the loader's ring gauge to the boot orchestrator (frames + assets
+    // + WebGL warmups). READY_CAP bounds how long the curtain holds waiting
+    // for readiness, so it can never hang on a bad connection.
     bootBarEl = document.getElementById('preloaderBar');
     bootPctEl = document.getElementById('preloaderPct');
     updateBootUI();
@@ -1776,10 +2037,18 @@
              ' Q 50 ' + ctrl.toFixed(2) + ' -20 ' + edge.toFixed(2) + ' Z';
     }
 
+    // The boot orb runs only while the loader is up; reduced-motion visitors
+    // get the still gauge (the canvas is display:none there and never started).
+    const orb = (reduceMotionMQ && reduceMotionMQ.matches)
+      ? null
+      : initGooeyOrb(document.getElementById('preloaderOrb'));
+    function stopOrb() { if (orb) orb.stop(); }
+
     function finish() {
       if (done) return;
       done = true;
       timers.forEach(clearTimeout);
+      stopOrb();
       wakeHero();                                    // ensure the hero is awake (idempotent)
       document.body.style.overflow = prevOverflow;   // unlock scroll
       loader.classList.add('is--gone');
@@ -1803,18 +2072,17 @@
       whenReady(() => { if (revealStarted) return; revealStarted = true; beginReveal(); });
     }
 
-    // Reduced motion: one calm greeting, wake the hero, then hand off once
-    // ready — no greeting cycle, no arc animation.
+    // Reduced motion: still gauge, wake the hero, then hand off once
+    // ready — no orb, no arc animation.
     if (reduceMotionMQ && reduceMotionMQ.matches) {
-      if (textEl) { textEl.textContent = 'Hii'; textEl.classList.add('is--in'); }
       wakeHero();
       whenReady(finish);
       return;
     }
 
-    const GREETINGS = ['Hii', 'It’s nice to see you'];
-    const IN_MS = 440, HOLD_MS = 780, OUT_MS = 400, REVEAL_MS = 1500;
-    let gi = 0;
+    // Minimum time the boot instrument is on screen — fast loads shouldn't
+    // blink the orb away before it has read as an intentional moment.
+    const MIN_HOLD = 1600, REVEAL_MS = 1500;
 
     // Lift the sheet off the hero. It stays dormant for most of the rise
     // (clean cream stage + halo), then wakes once the sheet is ~70% lifted —
@@ -1822,7 +2090,8 @@
     // overlap the last of the rise and the hand-off reads as one smooth motion.
     function beginReveal() {
       loader.style.background = 'transparent';          // only the curtain covers now
-      if (greetEl) greetEl.classList.add('is--out');    // dismiss the greeting
+      if (stageEl) stageEl.classList.add('is--out');    // fade the orb + gauge as one
+      timers.push(setTimeout(stopOrb, 500));            // then park its render loop
 
       // Strong ease-in-out (slow ends, quick middle) ~ cubic-bezier(0.85,0,0.15,1).
       const ease = (t) => (t < 0.5 ? 16 * t * t * t * t * t
@@ -1839,25 +2108,9 @@
       })(performance.now());
     }
 
-    // Cycle the greetings one after another, then reveal.
-    function showGreet() {
-      textEl.textContent = GREETINGS[gi];
-      textEl.classList.remove('is--leaving');
-      void textEl.offsetWidth;                          // restart the enter transition
-      textEl.classList.add('is--in');
-      timers.push(setTimeout(() => {
-        textEl.classList.remove('is--in');
-        textEl.classList.add('is--leaving');
-        timers.push(setTimeout(() => {
-          gi += 1;
-          if (gi < GREETINGS.length) showGreet();
-          else gatedReveal();     // greetings done → hold for readiness, then lift
-        }, OUT_MS));
-      }, IN_MS + HOLD_MS));
-    }
-
-    if (textEl) showGreet();
-    else gatedReveal();
+    // Give the instrument its minimum on-screen moment, then hold for
+    // readiness (bar reaching 100% / READY_CAP) and lift.
+    timers.push(setTimeout(gatedReveal, MIN_HOLD));
   }
 
   /* -------------------------------------------------------
@@ -3025,6 +3278,9 @@
     // the whole time) becomes the full-screen page — only its transform/opacity/size
     // change. Called every warp render frame via warpBridge.paintGallery.
     const G_PERSP = 1000;                  // == .warp__viewport perspective
+    // Neon backlight behind the emerging card (.hall__halo, fixed z1 under the
+    // fixed pin's z2): driven here with the same camera math as the card.
+    const hallHalo = document.getElementById('hallHalo');
     let galleryShown = false;              // pin currently revealed (vs hidden far away)
     function paintGallery(cameraZ) {
       if (reduceMotion || !hallPin) return;
@@ -3037,6 +3293,7 @@
       if (alpha <= 0.001) {                // far away / not yet emerged → hidden + not rendering
         if (galleryShown) {
           hallPin.style.opacity = '0';
+          if (hallHalo) hallHalo.style.opacity = '0';
           hallPin.classList.remove('hall__pin--fixed', 'hall__pin--frame');
           galleryShown = false;
         }
@@ -3075,6 +3332,16 @@
         hallPin.style.transform = `rotateZ(${rot.toFixed(2)}deg) scale(${s.toFixed(4)})`;
       }
       hallPin.style.opacity = expandP > 0 ? '1' : alpha.toFixed(3);
+      // Neon backlight: track the card (~1.75× its on-screen width; the halo
+      // raster is 720px wide) and fade with the emerge alpha, dying off
+      // cubically as the card expands into the full-screen page (quadratic
+      // left a visible green wash over the mid-expand backdrop).
+      if (hallHalo) {
+        const hp = 1 - expandP;
+        hallHalo.style.transform =
+          'translate(-50%, -50%) scale(' + ((s * vw * 1.75) / 720).toFixed(4) + ')';
+        hallHalo.style.opacity = (alpha * 0.75 * hp * hp * hp).toFixed(3);
+      }
       // Warp backdrop (stars/HUD/dark) fades only as the gallery expands.
       if (warpSecEl) warpSecEl.style.opacity = (1 - expandP * expandP * (3 - 2 * expandP)).toFixed(3);
       if (hallGlowEl) hallGlowEl.style.opacity = expandP.toFixed(3);
