@@ -24,7 +24,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=275" />
+<link rel="stylesheet" href="styles.css?v=281" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark boot screen: a raymarched liquid-glass orb (WebGL, vanilla
@@ -620,12 +620,6 @@
      seam divider between them.
 ====================================================== -->
 <section class="hall" id="projects">
-  <!-- Backlight for the emerging gallery card: a faint white radial bloom
-       that sits BEHIND the floating pin while it flies in through the warp
-       (fixed, z1 — above the warp underlay, below the fixed pin at z2).
-       paintGallery scales/fades it with the same camera math as the card;
-       it is fully transparent at rest and while the gallery is expanded. -->
-  <div class="hall__halo" id="hallHalo" aria-hidden="true"></div>
   <div class="hall__pin">
     <!-- No cloned topo here — the gallery pin is transparent, so the body's
          fixed .topo-bg shows through directly (same paper as every section). -->
@@ -947,7 +941,7 @@
 
 </main>
 
-<script src="script.js?v=290" defer></script>
+<script src="script.js?v=293" defer></script>
 <script src="vendor/globe.js?v=6" defer></script>
 </body>
 </html>

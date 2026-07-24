@@ -3278,9 +3278,6 @@
     // the whole time) becomes the full-screen page — only its transform/opacity/size
     // change. Called every warp render frame via warpBridge.paintGallery.
     const G_PERSP = 1000;                  // == .warp__viewport perspective
-    // Neon backlight behind the emerging card (.hall__halo, fixed z1 under the
-    // fixed pin's z2): driven here with the same camera math as the card.
-    const hallHalo = document.getElementById('hallHalo');
     let galleryShown = false;              // pin currently revealed (vs hidden far away)
     function paintGallery(cameraZ) {
       if (reduceMotion || !hallPin) return;
@@ -3293,7 +3290,6 @@
       if (alpha <= 0.001) {                // far away / not yet emerged → hidden + not rendering
         if (galleryShown) {
           hallPin.style.opacity = '0';
-          if (hallHalo) hallHalo.style.opacity = '0';
           hallPin.classList.remove('hall__pin--fixed', 'hall__pin--frame');
           galleryShown = false;
         }
@@ -3332,16 +3328,6 @@
         hallPin.style.transform = `rotateZ(${rot.toFixed(2)}deg) scale(${s.toFixed(4)})`;
       }
       hallPin.style.opacity = expandP > 0 ? '1' : alpha.toFixed(3);
-      // Neon backlight: track the card (~1.75× its on-screen width; the halo
-      // raster is 720px wide) and fade with the emerge alpha, dying off
-      // cubically as the card expands into the full-screen page (quadratic
-      // left a visible green wash over the mid-expand backdrop).
-      if (hallHalo) {
-        const hp = 1 - expandP;
-        hallHalo.style.transform =
-          'translate(-50%, -50%) scale(' + ((s * vw * 1.75) / 720).toFixed(4) + ')';
-        hallHalo.style.opacity = (alpha * 0.75 * hp * hp * hp).toFixed(3);
-      }
       // Warp backdrop (stars/HUD/dark) fades only as the gallery expands.
       if (warpSecEl) warpSecEl.style.opacity = (1 - expandP * expandP * (3 - 2 * expandP)).toFixed(3);
       if (hallGlowEl) hallGlowEl.style.opacity = expandP.toFixed(3);
@@ -4319,6 +4305,10 @@
       host.appendChild(glow);
 
       let timer = null;
+      // When the cursor leaves mid-scramble we let the animation run to
+      // completion (owner request); this flag remembers to retract the
+      // hover chrome once it finishes rather than cutting it off instantly.
+      let pendingUnhover = false;
       function scramble() {
         if (timer) clearInterval(timer);
         let frame = 0;
@@ -4349,6 +4339,12 @@
               charEls[i].textContent = text[i];
               charEls[i].classList.remove('is-scrambling');
             }
+            // Cursor already left while it was running → now that it's
+            // finished, retract the underline/glow.
+            if (pendingUnhover) {
+              host.classList.remove('is-hovered');
+              pendingUnhover = false;
+            }
           }
         }, INTERVAL_MS);
       }
@@ -4360,6 +4356,7 @@
       let hoverLockUntil = 0;
       host.resetScramble = function (lock) {
         host.classList.remove('is-hovered');
+        pendingUnhover = false;
         if (timer) { clearInterval(timer); timer = null; }
         for (let i = 0; i < text.length; i++) {
           charEls[i].textContent = text[i];
@@ -4380,10 +4377,17 @@
 
       host.addEventListener('mouseenter', function () {
         if (performance.now() < hoverLockUntil) return;
+        pendingUnhover = false;          // re-entered → keep the chrome lit
         host.classList.add('is-hovered');
         scramble();
       });
-      host.addEventListener('mouseleave', function () { host.resetScramble(); });
+      // Leaving mid-animation must NOT interrupt it: if a scramble is in
+      // flight, let it run to the end (the completion handler retracts the
+      // chrome). Only when nothing is running do we retract immediately.
+      host.addEventListener('mouseleave', function () {
+        if (timer) pendingUnhover = true;
+        else host.classList.remove('is-hovered');
+      });
       host.addEventListener('focus',      scramble);
       host.addEventListener('blur',       function () { host.classList.remove('is-hovered'); });
     });
@@ -6715,13 +6719,20 @@
     shadow.renderOrder = -1;                          // behind the knot
     scene.add(shadow);
 
-    // The canvas is fixed + centred in the viewport (see CSS), so it just needs
-    // to match the viewport size. The knot renders in the canvas centre → dead
-    // centre of the screen, fully visible, never clipped by the section.
+    // The canvas is viewport-SIZED (so the knot's framing/perspective is
+    // unchanged) but ABSOLUTELY positioned within the section: its vertical
+    // centre is pinned to the copy's visual centre, so the knot rests beside
+    // the text and scrolls WITH the section instead of staying fixed to the
+    // viewport. left:50%/translateX(-50%) keeps it horizontally centred.
     const place = () => {
       const w = window.innerWidth, h = window.innerHeight;
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
+      // Anchor the canvas centre (= knot centre) to the copy's visual centre,
+      // excluding the inner's bottom padding so it tracks the text, not the box.
+      const padB = parseFloat(getComputedStyle(inner).paddingBottom) || 0;
+      const contentCenter = inner.offsetTop + (inner.offsetHeight - padB) / 2;
+      canvas.style.top = Math.round(contentCenter - h / 2) + 'px';
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
@@ -6803,8 +6814,8 @@
       running = false;
       if (rafId) cancelAnimationFrame(rafId);
       rafId = null;
-      // The canvas is fixed/full-viewport, so fade it out when the section
-      // leaves — it must not linger over the neighbouring sections.
+      // Fade out + stop the rAF when the section leaves the viewport (pure
+      // perf — the canvas now scrolls off with the section on its own).
       canvas.classList.remove('is-live');
     };
 

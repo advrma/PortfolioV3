@@ -2185,35 +2185,6 @@ body.perf-lite .callcard__def {
   border-radius: 6px;
 }
 
-/* Subtle backlight behind the floating gallery card during the warp
-   emerge: a small fixed-size faint-white radial bloom, viewport-centred like
-   the card, sitting between the warp underlay and the fixed pin (z1 < z2).
-   paintGallery drives ONLY transform (scale with the card, ~1.55× its
-   on-screen width) and opacity (emerge alpha, dying off as the card expands
-   to full screen) — a static 720×460 raster animated compositor-only, and
-   completely invisible (opacity 0, no layer) outside the emerge phase. */
-.hall__halo {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  width: 720px;
-  height: 460px;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0.4);
-  /* The card covers the halo's centre out to ~57% of its extent (halo =
-     1.75× the card's on-screen width), so the stops must still carry alpha
-     THERE — the visible bloom is the ring just outside the card's edges,
-     melting to nothing by the halo's rim. WHITE + very low alpha: a faint
-     backlight that extends the pin's own white ring glow, not a colour pool. */
-  background: radial-gradient(50% 50% at 50% 50%,
-      rgba(255, 255, 255, 0.20),
-      rgba(255, 255, 255, 0.12) 55%,
-      rgba(255, 255, 255, 0.04) 78%,
-      transparent 95%);
-}
-
 /* Top/bottom HUD lines for the 3D fly-in — mirrors .warp__hud (gray mono labels
    + thin gray lines) so the intro matches the skills section's chrome with no
    green. JS fades opacity with the fly-in. */
@@ -2484,11 +2455,11 @@ body.perf-lite .callcard__def {
      Centering keeps it balanced and fitting at any viewport height; the reveal
      rise (18px) is folded into the same transform. */
   top: 50%;
-  /* Pushed further right so the panel clears the previous painting's
-     outline / shadow that bleeds in from the left of the 3D wall
-     view. ~15vw lands the text past where the off-camera painting
-     edge sits on typical viewports. Mobile (below) overrides this. */
-  left: clamp(40px, 15vw, 380px);
+  /* Pushed right enough to clear the previous painting's outline / shadow
+     bleeding in from the left of the 3D wall view, but nudged back left
+     (was 15vw / 380px) so the copy isn't crowding the painting on the
+     right. Mobile (below) overrides this. */
+  left: clamp(36px, 12vw, 320px);
   /* Wide, low column (owner request): the description spreads out
      instead of stacking tall — fewer, longer lines. Stays clear of
      the painting, whose left edge sits past ~44vw on the wall. */
@@ -2876,6 +2847,10 @@ body.perf-lite .callcard__def {
   font-style: italic;
   font-size: clamp(14px, 0.67vw, 17px);
   color: var(--ink);
+  /* Center like the label: when the STACK value wraps to two lines the row
+     grows tall, and a default-stretch value pins to the top while the
+     centered label sits mid-row — reads as YEAR/2026 being misaligned. */
+  align-self: center;
   /* Two-layer lift to match the copy above. */
   text-shadow:
     0 0.025em 0.03em rgba(28, 21, 11, 0.32),
@@ -4025,12 +4000,13 @@ body.perf-lite .term__cursor { animation: none; }
     margin-left: max(0px, calc(10vw - var(--gutter)));
   }
 }
-/* Woven torus-knot backdrop. Fixed + centred in the viewport so the knot is
-   always fully visible and never clipped by the section edges. Fades in with
-   the section; click-through; kept under the copy (z-index 0). */
+/* Woven torus-knot backdrop. Absolute + anchored to the section (JS sets the
+   vertical top to the copy's visual centre) so the knot is stuck to its place
+   and scrolls WITH the section like the text — not pinned to the viewport.
+   Fades in with the section; click-through; kept under the copy (z-index 0). */
 /* Hero-style 3D-room wireframe lining the contact section (second
-   initRoomGrid instance). Scrolls with the section; the fixed weave knot
-   floats above it (same z, later in DOM), content sits at z1. */
+   initRoomGrid instance). Scrolls with the section; the weave knot floats
+   above it (same z, later in DOM), content sits at z1. */
 .contact__room {
   position: absolute;
   left: 0;
@@ -4046,10 +4022,10 @@ body.perf-lite .term__cursor { animation: none; }
   pointer-events: none;
 }
 .contact__weave {
-  position: fixed;
+  position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  top: 0;                     /* JS place() sets the exact top (section-relative) */
+  transform: translateX(-50%);
   z-index: 0;
   pointer-events: none;
   opacity: 0;
