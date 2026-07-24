@@ -4573,8 +4573,10 @@
     const wrEl = document.querySelector('.hero__welcome--right');
     const ease = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
     // Right-edge clip wipe at reveal fraction `f` (0 = hidden, 1 = open).
-    // Top/bottom/left pushed out negative so it never cuts descenders.
-    const clipAt = (f) => 'inset(-30% ' + (100 - f * 105).toFixed(2) + '% -45% -3%)';
+    // Top/bottom/left pushed WAY out negative (-90% / -90% / -8%) so the wipe
+    // can never trim a tall ascender, a long signature descender, or a leading
+    // flourish — only the animated RIGHT edge does any hiding.
+    const clipAt = (f) => 'inset(-90% ' + (100 - f * 105).toFixed(2) + '% -90% -8%)';
     const CLIP_OPEN = clipAt(1);
 
     if (reduceMotionMQ && reduceMotionMQ.matches) {
@@ -4610,6 +4612,14 @@
         if (p < 1) requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
+      // Safety net: rAF is throttled while the tab is backgrounded / not
+      // focused, which can freeze the wipe partway and leave the line visibly
+      // "cut off". Force the fully-open clip once the animation's nominal time
+      // has elapsed, so both lines always end up completely revealed.
+      setTimeout(() => {
+        wlEl.style.clipPath = CLIP_OPEN;
+        wrEl.style.clipPath = CLIP_OPEN;
+      }, DUR + 500);
     }
 
     // ----- Name handwriting draw-on. Each Dancing Script glyph is a

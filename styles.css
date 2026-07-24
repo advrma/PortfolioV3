@@ -3,6 +3,18 @@
    Aesthetic: warm cream paper · industrial display · cyber accents
    ========================================================= */
 
+/* Brittany Signature — commercial font (Set Sail Studios), NOT on Google
+   Fonts, so it is self-hosted from fonts/. The URL case MUST match the on-disk
+   file exactly (fonts/BrittanySignature.ttf) — Vercel/Linux is case-sensitive
+   and would 404 a mismatched case. */
+@font-face {
+  font-family: "Brittany Signature";
+  src: url("fonts/BrittanySignature.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Palette */
   --cream: #F2EEE5;
@@ -28,6 +40,7 @@
   --f-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --f-mono: "Geist Mono", ui-monospace, monospace;
   --f-sign: "Dancing Script", "Brush Script MT", cursive;
+  --f-hand: "Brittany Signature", "Snell Roundhand", "Brush Script MT", cursive;
 
   /* Spacing scale */
   --gutter: clamp(20px, 4vw, 64px);
@@ -918,22 +931,31 @@ body.perf-lite .hero-sign__draw {
   background: var(--ink-mute); opacity: .55;
 }
 
-/* Welcome line, split across the bottom corners of the frame. Same
-   cursive as the name (--f-sign) but smaller and a lighter weight. */
+/* Welcome line, split across the bottom corners of the frame. Handwritten
+   signature (Brittany Signature, self-hosted — see --f-hand). Single 400
+   weight, and signature glyphs run small, so it renders larger than the old
+   Dancing Script to keep the same optical presence. */
 .hero__welcome {
   position: absolute;
   bottom: clamp(30px, 4.5vh, 52px);
   z-index: 5;
-  font-family: var(--f-sign);
-  font-weight: 500;
-  font-size: clamp(26px, 2.15vw, 54px);
+  font-family: var(--f-hand);
+  font-weight: 400;
+  font-size: clamp(28px, 2.35vw, 58px);
   line-height: 1;
   letter-spacing: 0.01em;
+  /* Squash the glyph height without touching the line's length: scaleY
+     compresses vertically only (x is untouched, so the width/reach stays put),
+     anchored to the baseline so the text doesn't drift down. */
+  transform: scaleY(0.6);
+  transform-origin: center bottom;
   color: rgba(86, 60, 40, 0.82);   /* warm brownish tone (vs the name's ink) */
   white-space: nowrap;
   /* Hidden until the write-on sweeps it (same clip as the name); the
-     sweep is JS-driven (initHeroSign) and starts after the name. */
-  clip-path: inset(-30% 100% -45% -3%);
+     sweep is JS-driven (initHeroSign) and starts after the name. Generous
+     top/bottom/left insets so the wipe never trims a tall ascender or a long
+     signature descender — only the right edge hides (matches clipAt in JS). */
+  clip-path: inset(-90% 100% -90% -8%);
 }
 .hero__welcome--left  { left: calc(var(--gutter) + 18px); }
 .hero__welcome--right { right: calc(var(--gutter) + 18px); }
