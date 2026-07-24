@@ -64,6 +64,10 @@
      ------------------------------------------------------- */
   const bootWarmups = [];    // WebGL warm callbacks: () => Promise|void
   const extraPreload = [];   // asset URLs to warm into the browser cache
+  // Hero room-grid rotation target, in radians, written by the cinema tick
+  // (one 90° step per checkpoint scene) and read by initRoomGrid's draw loop.
+  // See [[hero-room-grid-cube]] + [[hero-motion-model]].
+  let heroSceneRot = 0;
   let bootOtherDone = 0, bootOtherTotal = 0;
   let bootBarEl = null, bootPctEl = null;   // wired by initPreloader
   // The loader's gauge is an SVG ring: #preloaderBar is a <circle> (r=46 in a
@@ -1385,6 +1389,37 @@
       // NB: gateIndex is deliberately NOT reset here — reverse gestures made in
       // the tail must still step it back, so the reel is already aimed at the
       // right checkpoint the moment the runway is re-entered and the crawl runs.
+    }
+
+    // --- Room-grid rotation target (one 90° cube turn per checkpoint scene) ---
+    // Map the (now-final) reel frame onto a continuous "scene" coordinate: 0 at
+    // the first checkpoint, +1 at each subsequent one. Each whole step is a
+    // quarter-turn, so the room settles exactly square-on whenever the reel is
+    // parked on a scene and turns as it crawls to the next — the current floor
+    // becomes the next scene's back wall. Read by initRoomGrid.
+    // ROT_LEAD (<1) compresses each turn so the cube completes it at ROT_LEAD of
+    // the crawl and PLATEAUS for the remainder — the background finishes its
+    // rotation slightly before the character arrives at the page (owner request).
+    {
+      const ROT_LEAD = 0.85;
+      const f = motion.animFrame;
+      const last = CHECKPOINTS.length - 1;
+      let s;
+      if (f <= CHECKPOINTS[0]) {
+        s = 0;
+      } else if (f >= CHECKPOINTS[last]) {
+        s = last;
+      } else {
+        s = last;
+        for (let i = 1; i <= last; i++) {
+          if (f < CHECKPOINTS[i]) {
+            const frac = (f - CHECKPOINTS[i - 1]) / (CHECKPOINTS[i] - CHECKPOINTS[i - 1]);
+            s = (i - 1) + Math.min(frac / ROT_LEAD, 1);
+            break;
+          }
+        }
+      }
+      heroSceneRot = s * (Math.PI / 2);
     }
 
     // --- Auto-scroll follow (2026-07, owner request) ---
@@ -5330,6 +5365,7 @@
       'uniform vec2 iResolution;',
       'uniform vec2 mousePosition;',
       'uniform float mouseInfluence;',
+      'uniform float uRot;',
       'varying vec2 vUv;',
       'const float PI = 3.141592;',
       // Warm sepia-gray rather than pure ink — matches the faint topo
@@ -5338,9 +5374,28 @@
       'const float RIPPLE = 0.05;',
       'const float OPACITY = 0.15;',
       'const float MOUSE_R = 1.2;',
-      // Back-wall half extents in screen-proportional space (±1 each
-      // axis) + overall line weight + wall-lattice cell frequency.
-      'const vec2  ROOM_B = vec2(0.72, 0.56);',
+      // The room is now the INTERIOR of a box, drawn by ray-casting from
+      // the camera at its centre. BOX = half extents (world units). Y and
+      // Z are EQUAL so a 90° pitch maps the floor exactly onto the back
+      // wall (seamless loop); X (room width) is wider to keep the familiar
+      // wide-room proportion. FOCAL = image-plane distance = how much of
+      // the side walls is seen (smaller -> deeper room).
+      'const vec3  BOX = vec3(1.2857, 1.0, 1.0);',
+      'const float FOCAL = 0.56;',
+      // Grid divisions per HALF-face: X splits into 2*NX cells, Y & Z into
+      // 2*NY. Every face carries this same lattice, and because BOX.y==BOX.z
+      // with a shared NY the columns/rows run unbroken across the rotation.
+      // NX 5 / NY 3 = one extra evenly-spaced line per side vs the old 4 / 2
+      // (10 columns, 6 rows), still integer-divided so lines land on the
+      // borders and mirror perfectly about both centre axes.
+      'const float NX = 5.0;',
+      'const float NY = 3.0;',
+      // Extra perspective ring hugging the back wall: one line at this
+      // normalized depth (1.0 = right on the wall) drawn on the Y and Z
+      // borders both, so it reads as a rectangle just inside the back wall
+      // on the floor, ceiling and both side walls — and, being Y/Z-symmetric,
+      // it stays put through the 90° floor->back-wall rotation.
+      'const float RING_T = 0.86;',
       // Uniform ink: every line family draws at amplitude 1.0 (same
       // darkness); ROOM_STR alone sets the overall presence. NOTE the
       // hero reel frames carry a BAKED-IN soft white ambient glow (part
@@ -5349,7 +5404,6 @@
       // frame — judge this value against the WASHED on-page result, not
       // the raw canvas. 2.4 = a quiet paper texture behind the figure.
       'const float ROOM_STR = 2.4;',
-      'const float GRID_SIZE = 9.0;',
       // One pen for everything: a constant-screen-width stroke around
       // d = 0, self-normalizing via fwidth in whatever space d lives in.
       // Thin solid core + wide feather; the supersampled backing (see
@@ -5371,45 +5425,57 @@
       '    float mouseWave = sin(PI * (iTime * 2.0 - mouseDist * 3.0)) * influence;',
       '    rippleUv += normalize(uv - mouseUv) * mouseWave * RIPPLE * 0.3;',
       '  }',
-      // Screen-proportional room space (walls keep their share of the
-      // frame at any aspect), evaluated on the RIPPLED uv so every line
-      // wobbles with the same liquid. face = 1 on the back-wall
-      // rectangle; > 1 walks out along the walls/ceiling/floor toward
-      // the viewer; depth = 1/face is the 1/z coordinate.
+      // Screen-proportional image plane (aspect divided back out so the
+      // room keeps its on-screen proportions at any width), carrying the
+      // ripple so the whole room still wobbles with the same liquid.
       '  vec2 rp = rippleUv;',
       '  rp.x /= (iResolution.x / iResolution.y);',
-      '  rp.y -= 0.05;',                                   // vanishing point a touch high
-      '  vec2 arp = abs(rp);',
-      '  float fx = arp.x / ROOM_B.x;',
-      '  float fy = arp.y / ROOM_B.y;',
-      '  float face = max(fx, fy);',
-      // Coverage combines by MAX, not sum — where two strokes cross,
-      // the ink stays at single-line darkness (summing left a dark dot
-      // at every intersection).
+      // Camera sits at the box centre looking down +Z; every pixel is a
+      // ray through the image plane at distance FOCAL.
+      '  vec3 dir = vec3(rp.x, rp.y, FOCAL);',
+      // Pitch the ray about X by uRot. As uRot grows the forward ray tilts
+      // from +Z toward -Y, so the floor swings UP into the centre and
+      // becomes the next back wall — one clean 90° step per section.
+      '  float ca = cos(uRot);',
+      '  float sa = sin(uRot);',
+      '  vec3 rd = vec3(dir.x, dir.y * ca - dir.z * sa, dir.y * sa + dir.z * ca);',
+      // First interior face the ray exits (camera at origin): smallest t
+      // to the ±BOX planes. p is the hit point, one |coord| == its extent.
+      '  vec3 ad = abs(rd) + 1e-6;',
+      '  vec3 tF = BOX / ad;',
+      '  float t = min(tF.x, min(tF.y, tF.z));',
+      '  vec3 p = rd * t;',
+      // Per-face cell coordinates: X at NX per half, Y & Z at NY per half.
+      '  vec3 cell = vec3(p.x / BOX.x * NX, p.y / BOX.y * NY, p.z / BOX.z * NY);',
+      // Which face? largest normalized coord == 1. (ties = cube edges,
+      // measure-zero and covered by the edge line below.)
+      '  vec3 e = abs(p) / BOX;',
+      '  float onX = step(e.y, e.x) * step(e.z, e.x);',
+      '  float onY = step(e.x, e.y) * step(e.z, e.y);',
+      '  float onZ = 1.0 - onX - onY;',
+      // the two in-plane cell coords for the hit face (order is irrelevant
+      // — both line families are drawn):
+      '  float g1 = onX * cell.y + onY * cell.x + onZ * cell.x;',
+      '  float g2 = onX * cell.z + onY * cell.z + onZ * cell.y;',
       '  float room = 0.0;',
-      // back-wall outline
-      '  room = max(room, lineAA(abs(face - 1.0)));',
-      '  if (face > 1.0) {',
-      '    float depth = 1.0 / face;',
-      // corner seams: back-wall corners -> screen corners (fx == fy)
-      '    room = max(room, lineAA(abs(fx - fy) / face));',
-      // sparse receding depth rungs — nested rectangles at 1/z steps,
-      // half-step dephased so the series has NO zero at depth = 1.0
-      // (a rung exactly on the back-wall border used to stack with the
-      // outline and read as a double-dark boundary)
-      '    room = max(room, lineAA(abs(sin(PI * (depth * 8.0 + 0.5)))));',
-      // converging rails from the vanishing point along each surface
-      // (freq 2, half-offset -> 4 rails per surface, none at centre)
-      '    float rayC = (fx > fy) ? (rp.y / arp.x) * (ROOM_B.x / ROOM_B.y)',
-      '                           : (rp.x / arp.y) * (ROOM_B.y / ROOM_B.x);',
-      '    room = max(room, lineAA(abs(sin(PI * (rayC * 2.0 + 0.5)))));',
-      '  }',
-      // Sleek check lattice ON the back wall only — same pen, square
-      // cells in the rippled aspect space, dying right at the border.
-      '  vec2 ga = abs(sin(GRID_SIZE * 0.5 * PI * rippleUv - PI / 2.0));',
-      '  float grid = max(lineAA(ga.x), lineAA(ga.y));',
-      '  float wallMask = 1.0 - smoothstep(0.99, 1.06, face);',
-      '  float alpha = max(room, grid * wallMask) * ROOM_STR * OPACITY;',
+      '  room = max(room, lineAA(abs(sin(PI * g1))));',
+      '  room = max(room, lineAA(abs(sin(PI * g2))));',
+      // Cube silhouette edges = back-wall outline + corner seams: where the
+      // SECOND-largest normalized coord also reaches 1 (two faces meet).
+      '  float m1 = max(e.x, max(e.y, e.z));',
+      '  float m3 = min(e.x, min(e.y, e.z));',
+      '  float m2 = e.x + e.y + e.z - m1 - m3;',
+      '  room = max(room, lineAA(abs(m2 - 1.0)));',
+      // Back-wall-hugging ring: a line at depth RING_T on the Y and Z
+      // borders. On a side face (floor/ceiling/left/right) the coordinate
+      // running toward the back wall reaches RING_T just inside the wall, so
+      // the four segments join into one rectangle close to the back wall.
+      '  room = max(room, lineAA(abs(e.y - RING_T)));',
+      '  room = max(room, lineAA(abs(e.z - RING_T)));',
+      // Faint AO hugging the cube edges/corners so the room reads as depth,
+      // not a flat net — same warm ink, kept well under the line weight.
+      '  float shade = 0.05 * exp(-abs(m2 - 1.0) * 4.0);',
+      '  float alpha = room * ROOM_STR * OPACITY + shade;',
       '  gl_FragColor = vec4(GRID_COLOR, clamp(alpha, 0.0, 1.0));',
       '}',
     ].join('\n');
@@ -5446,6 +5512,14 @@
     const uRes = gl.getUniformLocation(prog, 'iResolution');
     const uMouse = gl.getUniformLocation(prog, 'mousePosition');
     const uInf = gl.getUniformLocation(prog, 'mouseInfluence');
+    const uRot = gl.getUniformLocation(prog, 'uRot');
+
+    // Scene-driven room rotation: exactly one face (90°) per hero checkpoint
+    // scene (target = heroSceneRot, written by the cinema tick). rot eases
+    // toward it so the turn is smooth and settles square-on when the reel is
+    // parked. The box is seamless (floor -> back wall) so the value climbs
+    // past 90°/180°/270° with no visible jump.
+    const rot = { cur: 0, target: 0 };
 
     const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
     const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, inf: 0, tinf: 0 };
@@ -5463,9 +5537,16 @@
       mouse.x += (mouse.tx - mouse.x) * 0.1;
       mouse.y += (mouse.ty - mouse.y) * 0.1;
       mouse.inf += (mouse.tinf - mouse.inf) * 0.05;
+      // 90° per hero scene, eased so the turn is smooth and lands flat when
+      // the reel parks on a checkpoint. Ease is tight enough (0.25) that the
+      // cube settles within the ROT_LEAD window — i.e. slightly BEFORE the reel
+      // reaches the stop — rather than trailing it.
+      rot.target = heroSceneRot;
+      rot.cur += (rot.target - rot.cur) * 0.25;
       gl.uniform1f(uTime, tSec);
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uInf, mouse.inf);
+      gl.uniform1f(uRot, rot.cur);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
