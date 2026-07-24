@@ -1287,6 +1287,18 @@
     if (!motion.heroVisible || !motion.pageVisible) {
       motion.running = false;
       motion.lastTickTime = 0;   // force a fresh dt baseline on resume
+      // Exit-snap: park the reel on the boundary matching the side we left
+      // from, so re-entry is already in sync (no desync teleport). This runs
+      // while the hero is OFF-SCREEN, so the correction is never visible — it
+      // only matters if the user outran the crawl on the way out. Below the pin
+      // runway (into the warp) → assembled (MAX); above the hero → the hold pose.
+      if (motion.hasScrolled && motion.pinRunway > 0) {
+        if (window.scrollY >= motion.heroSectionTop + motion.pinRunway) {
+          motion.animFrame = TIMELINE_MAX; motion.gateIndex = CHECKPOINTS.length - 1;
+        } else if (window.scrollY <= motion.heroSectionTop) {
+          motion.animFrame = HOLD_FRAME; motion.gateIndex = 0;
+        }
+      }
       if (callcard) callcard.setVisible(false);   // reset typing so it replays on re-entry
       return;
     }
@@ -1354,6 +1366,25 @@
       else if (advanceStep < 0 && motion.animFrame < target) motion.animFrame = target;
       if (motion.animFrame > TIMELINE_MAX) motion.animFrame = TIMELINE_MAX;
       else if (motion.animFrame < 0) motion.animFrame = 0;
+    }
+
+    // --- Post-pin tail: keep the reel parked at MAX while reversing ---
+    // Below the pin runway (the last-100vh tail where the pin has released and
+    // the assembled character scrolls natively) the reel must stay at
+    // TIMELINE_MAX on the way back up — exactly as the forward pass leaves it
+    // scrolling through that tail. Reverse-crawl only begins once the runway is
+    // re-entered. Without this the reverse-follow computed a followY a full
+    // viewport away and teleported the page from the tail straight to the
+    // pinned character view — the "snap to the character page". The reel is
+    // already parked at MAX here (see the off-screen exit-snap), so in the
+    // normal case this is a no-op; it just holds through the tail.
+    if (motion.playDirection === -1 && motion.hasScrolled && motion.pinRunway > 0 &&
+        window.scrollY > motion.heroSectionTop + motion.pinRunway + 4) {
+      motion.animFrame = TIMELINE_MAX;       // hold assembled through the tail
+      shouldAdvance = false;                 // no crawl + no follow through the tail
+      // NB: gateIndex is deliberately NOT reset here — reverse gestures made in
+      // the tail must still step it back, so the reel is already aimed at the
+      // right checkpoint the moment the runway is re-entered and the crawl runs.
     }
 
     // --- Auto-scroll follow (2026-07, owner request) ---
@@ -1578,7 +1609,13 @@
     } else {
       motion.hasScrolled = true;
       motion.playDirection = -1;
-      if (isNewGesture && motion.gateIndex > 0) {
+      // Mirror the forward arrival guard: step back only on a FRESH gesture AND
+      // once the reel has actually arrived at the current stop. Without this a
+      // burst of reverse flicks (e.g. crossing the post-pin tail) decremented
+      // gateIndex several times at once, so the reel crawled straight past the
+      // intermediate screens instead of parking at each one.
+      const arrivedRev = motion.animFrame <= CHECKPOINTS[motion.gateIndex] + 0.5;
+      if (isNewGesture && arrivedRev && motion.gateIndex > 0) {
         motion.gateIndex--;                     // step back one stop
       }
     }
