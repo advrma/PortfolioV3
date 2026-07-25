@@ -5332,8 +5332,16 @@
     let gl = null;
     try {
       gl = canvas.getContext('webgl', {
+        // PREMULTIPLIED alpha (the spec-defined compositing path). The old
+        // premultipliedAlpha:false + straight-colour + SRC_ALPHA blend wrote a
+        // buffer whose colour was already premultiplied AND whose alpha channel
+        // got squared, which the browser then re-composited as non-premultiplied
+        // — a triple-ambiguity Chrome/Firefox/Safari each resolved differently,
+        // so the grid looked darker on some browsers/GPUs. Premultiplied alpha +
+        // ONE,ONE_MINUS_SRC_ALPHA + a premultiplied fragment is well-defined and
+        // renders identically everywhere.
         alpha: true, depth: false, stencil: false, antialias: false,
-        premultipliedAlpha: false, powerPreference: 'low-power',
+        premultipliedAlpha: true, powerPreference: 'low-power',
       });
     } catch (e) { /* fall through */ }
     if (!gl) { canvas.remove(); return; }
@@ -5402,15 +5410,32 @@
       // of the character renders, drawn on the canvas ABOVE this layer)
       // that eats roughly half the lines' contrast across most of the
       // frame — judge this value against the WASHED on-page result, not
-      // the raw canvas. 2.4 = a quiet paper texture behind the figure.
-      'const float ROOM_STR = 2.4;',
+      // the raw canvas. Retuned to 1.2 when the compositing moved to the
+      // correct premultiplied path (which no longer attenuates the ink), so
+      // the on-page result matches the original light look — now identically
+      // across browsers.
+      'const float ROOM_STR = 0.6;',
+      // ---- Room shading (soft shadows so the wireframe reads as a lit box) ----
+      // All shading below is a pure function of the box-space hit and is
+      // SYMMETRIC under the 90 deg X-rotation (BOX.y==BOX.z), so it rotates
+      // WITH the geometry and never breaks the seamless floor->back-wall loop.
+      // "depth" = distance from the room centre (== the camera/viewer): it is
+      // smallest at the near face-centres (~1.0) and largest out in the far
+      // corners (~1.91), so the corners pool into shade while the back-wall
+      // centre stays open and bright — exactly how a real room reads.
+      'const float DEPTH_A = 1.02;',   // length(p) that still reads as "near"
+      'const float DEPTH_B = 1.86;',   // length(p) of a deep far corner
+      'const float AO_WIDTH = 2.3;',   // how far the contact shadow reaches in from an edge
+      'const float AO_NEAR = 0.15;',   // edge/contact shadow on the near walls (ink units)
+      'const float AO_FAR  = 0.55;',   // extra edge shadow deep in the room (far corners)
+      'const float FILL    = 0.16;',   // faint deep-volume wash away from the edges
       // One pen for everything: a constant-screen-width stroke around
       // d = 0, self-normalizing via fwidth in whatever space d lives in.
-      // Thin solid core + wide feather; the supersampled backing (see
-      // resize) does the final edge smoothing.
+      // Very thin, near-hairline core + short feather for a sleek, subtle
+      // stroke; the supersampled backing (see resize) keeps it smooth.
       hasDeriv
-        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 1.2, w * 3.2, d); }'
-        : 'float lineAA(float d) { return exp(-60.0 * d); }',
+        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 0.85, w * 2.1, d); }'
+        : 'float lineAA(float d) { return exp(-85.0 * d); }',
       'void main() {',
       '  vec2 uv = vUv * 2.0 - 1.0;',
       '  uv.x *= iResolution.x / iResolution.y;',
@@ -5472,11 +5497,23 @@
       // the four segments join into one rectangle close to the back wall.
       '  room = max(room, lineAA(abs(e.y - RING_T)));',
       '  room = max(room, lineAA(abs(e.z - RING_T)));',
-      // Faint AO hugging the cube edges/corners so the room reads as depth,
-      // not a flat net — same warm ink, kept well under the line weight.
-      '  float shade = 0.05 * exp(-abs(m2 - 1.0) * 4.0);',
-      '  float alpha = room * ROOM_STR * OPACITY + shade;',
-      '  gl_FragColor = vec4(GRID_COLOR, clamp(alpha, 0.0, 1.0));',
+      // ---- Soft shading: corner/edge ambient occlusion + depth volume ----
+      // depth (0 near face-centres -> 1 in the far corners) via distance from
+      // the room centre; loop-safe because length(p) is unchanged by the pitch.
+      '  float depth = smoothstep(DEPTH_A, DEPTH_B, length(p));',
+      // Contact band hugging every cube edge (the 2nd-largest normalized coord
+      // approaches 1 where two faces meet); squared for a soft falloff onto the
+      // open middle of each face.
+      '  float edge = 1.0 - clamp(abs(m2 - 1.0) * AO_WIDTH, 0.0, 1.0);',
+      '  edge *= edge;',
+      // Every edge is shadowed a little; edges deep in the room (far corners)
+      // much more, plus a faint volume wash that grows with depth so the box
+      // keeps its solidity even away from the edges. Same warm sepia ink.
+      '  float shade = edge * (AO_NEAR + AO_FAR * depth) + FILL * depth * depth;',
+      '  float alpha = clamp((room * ROOM_STR + shade) * OPACITY, 0.0, 1.0);',
+      // Premultiplied output: colour carries * alpha, matched by the
+      // ONE, ONE_MINUS_SRC_ALPHA blend and premultipliedAlpha:true context.
+      '  gl_FragColor = vec4(GRID_COLOR * alpha, alpha);',
       '}',
     ].join('\n');
 
@@ -5505,7 +5542,8 @@
     gl.enableVertexAttribArray(locPos);
     gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Premultiplied-over: fragment already carries colour*alpha (see FRAG).
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
     const uTime = gl.getUniformLocation(prog, 'iTime');
