@@ -2491,17 +2491,37 @@
     // so the timeline is unchanged) and a scattered x/y/rotation filling the whole
     // constellation (incl. the left/lower that used to read empty). `gallery` is NOT
     // here — it's the live pin that emerges + expands at the end.
+    // x/y are viewport fractions (0 = centre; ±0.5 ≈ screen edge) applied before
+    // the perspective projection, so a frame reads at fraction ~x of the width when
+    // it crosses the front plane. To fill the WHOLE screen (not a centre-left band),
+    // successive depths are scattered across all four quadrants + edge-centres, with
+    // magnitudes pushed near the edges (a little corner bleed is intentional). `dz`
+    // (depth / appearance order) is UNCHANGED so the flythrough timing is identical.
+    // Every frame lives on the PERIMETER — the four corners, the four edge-centres,
+    // and two held out near the upper-right / lower-left — so the constellation fills
+    // the screen edge-to-edge AND the centre stays clear: the live gallery pin emerges
+    // dead-centre (roughly one frame wide/tall) and no frame's box may intersect it.
+    // Each position clears that centre box on at least one axis (corners on both;
+    // edge-centres on their long axis). Consecutive `dz` values sit in opposite regions
+    // so successive frames pop apart, never stacking. `dz` (timing) is UNCHANGED.
     const FRAME_FIELD = [
-      { name: 'hero',       x:  0.04, y:  0.25, rot:  -8, dz:  150 },
-      { name: 'skills',     x: -0.30, y:  0.06, rot:   9, dz:  560 },
-      { name: 'experience', x:  0.17, y: -0.20, rot:  -5, dz:  980 },
-      { name: 'skills3',    x: -0.33, y: -0.25, rot:   7, dz: 1280 },   // top-left filler (CAT-01 Languages)
-      { name: 'contact',    x: -0.23, y:  0.22, rot:  -8, dz: 1400 },
-      { name: 'skills4',    x: -0.12, y: -0.30, rot: -10, dz: 1640 },   // top filler (CAT-04 CI/CD)
-      { name: 'xp2',        x: -0.35, y: -0.13, rot:  12, dz: 1820 },
-      { name: 'skills2',    x:  0.30, y:  0.03, rot:  10, dz: 2240 },
-      { name: 'splitz',     x:  0.06, y:  0.27, rot: -11, dz: 2620 },
-      { name: 'careerlens', x:  0.25, y:  0.17, rot:   6, dz: 2980 }
+      // Every frame flies through one of the FOUR CORNERS, cycling TL → TR → BL → BR
+      // as depth (dz) increases with even spacing. Because consecutive frames land in
+      // different corners they never clip each other, and the LAST FOUR (one per corner)
+      // frame the central gallery pin symmetrically as it emerges. Same-corner frames
+      // are 4 steps (~1160 dz) apart, so the earlier one has faded/receded behind the
+      // later one — a clean depth stack in that corner, not an overlap. Corners clear
+      // the centre box on both axes. `dz` only sets timing; the field span is unchanged.
+      { name: 'contact',    x: -0.34, y: -0.23, rot:  -8, dz:  400 },   // TL
+      { name: 'xp2',        x:  0.34, y: -0.23, rot:  12, dz:  690 },   // TR
+      { name: 'skills4',    x: -0.34, y:  0.23, rot: -10, dz:  980 },   // BL (CAT-04 CI/CD)
+      { name: 'skills2',    x:  0.34, y:  0.23, rot:  10, dz: 1270 },   // BR
+      { name: 'hero',       x: -0.34, y: -0.23, rot:  -8, dz: 1560 },   // TL
+      { name: 'skills',     x:  0.34, y: -0.23, rot:   9, dz: 1850 },   // TR
+      { name: 'experience', x: -0.34, y:  0.23, rot:  -5, dz: 2140 },   // BL
+      { name: 'careerlens', x:  0.34, y:  0.23, rot:   6, dz: 2430 },   // BR
+      { name: 'splitz',     x: -0.34, y: -0.23, rot: -11, dz: 2720 },   // TL
+      { name: 'skills3',    x:  0.34, y: -0.23, rot:   7, dz: 3010 }    // TR (CAT-01 Languages)
     ];
     const frameBgEls = [];   // bg images assigned on approach (IO below)
     FRAME_FIELD.forEach((f) => {
@@ -2514,7 +2534,7 @@
       // time. The observer below assigns the real backgrounds once the
       // skills section is half a viewport away — still hundreds of vh of
       // flythrough before any frame becomes visible.
-      fr.dataset.bg = 'section-frames/' + f.name + '.jpg';
+      fr.dataset.bg = 'section-frames/' + f.name + '.jpg?v=3';
       extraPreload.push(fr.dataset.bg);   // warm into cache during the loader
       frameBgEls.push(fr);
       el.appendChild(fr);
