@@ -5681,7 +5681,11 @@
     try {
       gl = canvas.getContext('webgl', {
         alpha: true, depth: false, stencil: false, antialias: false,
-        premultipliedAlpha: false, powerPreference: 'low-power',
+        // PREMULTIPLIED alpha — same cross-browser fix as initRoomGrid: the
+        // old premultipliedAlpha:false + straight-colour + SRC_ALPHA blend is
+        // undefined-ish compositing that renders darker on some browsers/GPUs
+        // (and washed-out here). See [[hero-grid-premultiplied-alpha]].
+        premultipliedAlpha: true, powerPreference: 'low-power',
       });
     } catch (e) { /* fall through */ }
     if (!gl) { canvas.remove(); return; }
@@ -5707,8 +5711,8 @@
       'const vec2 B = vec2(0.70, 0.64);',
       'const float VSHIFT = 0.04;',
       hasDeriv
-        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 1.2, w * 3.2, d); }'
-        : 'float lineAA(float d) { return exp(-60.0 * d); }',
+        ? 'float lineAA(float d) { float w = fwidth(d) + 1e-6; return 1.0 - smoothstep(w * 0.85, w * 2.1, d); }'
+        : 'float lineAA(float d) { return exp(-85.0 * d); }',
       'void main() {',
       '  vec2 fUv = vUv * 2.0 - 1.0;',
       '  vec2 rp = fUv;',
@@ -5727,10 +5731,13 @@
       '                           : (rp.x / arp.y) * (B.y / B.x);',
       // rails at -0.5 / 0 / +0.5 on ALL four surfaces — every wall seam
       // continues radially outward so the grid fills the entire screen
-      '    L = max(L, lineAA(min(min(abs(rayC - 0.5), abs(rayC + 0.5)), abs(rayC))));',
-      // even series of depth rungs through the whole band (half-step
-      // dephased so none lands on the back-wall border)
-      '    L = max(L, lineAA(abs(sin(PI * (depth * 8.0 + 0.5)))));',
+      // converging rails every 0.25 (was 3 hard rails at -0.5/0/+0.5) so the
+      // floor/ceiling/side bands stay covered right up to the near frame edge
+      '    L = max(L, lineAA(abs(sin(PI * rayC * 4.0))));',
+      // depth rungs — the viewport-centred canvas (see .contact__room CSS)
+      // keeps the near floor from stretching, so a moderate frequency covers
+      // down to the bottom without a busy grid
+      '    L = max(L, lineAA(abs(sin(PI * (depth * 10.0 + 0.5)))));',
       '  } else {',
       // back-wall panel grid: seams at -0.5 / 0 / +0.5 on BOTH axes cut
       // the wall into 4 equal columns x 4 equal rows
@@ -5739,18 +5746,23 @@
       '    L = max(L, lineAA(min(min(abs(wx - 0.5), abs(wx + 0.5)), abs(wx))));',
       '    L = max(L, lineAA(min(min(abs(wy - 0.5), abs(wy + 0.5)), abs(wy))));',
       '  }',
-      // ---- soft room shading ----
-      '  float shade = 0.09 * exp(-abs(face - 1.0) * 3.0);',         // junction AO
+      // ---- soft room shading (matched to initRoomGrid's shaded-box look) ----
+      // Broad, soft contact shadows that pool in the back-wall corners and
+      // deepen toward the near frame, so the wireframe reads as a lit room.
+      '  float shade = 0.058 * exp(-abs(face - 1.0) * 2.3);',        // junction AO (back-wall perimeter)
       '  if (face > 1.0) {',
       // toward-viewer falloff, normalized over the room's on-screen
       // depth band (depth spans ~1.0 -> ~0.64 at the frame corners)
       '    float nd = clamp((1.0 - depth) / 0.36, 0.0, 1.0);',
-      '    shade += 0.06 * nd;',
-      '    shade += 0.08 * exp(-(abs(fx - fy) / face) * 3.0);',      // corner AO
+      '    shade += 0.035 * nd * nd;',
+      '    shade += 0.058 * exp(-(abs(fx - fy) / face) * 2.3);',     // corner AO (side-wall seams)
       '  }',
-      '  shade += 0.07 * smoothstep(0.85, 1.35, max(abs(fUv.x), abs(fUv.y)));', // frame vignette
-      '  float alpha = L * 0.16 + shade;',
-      '  gl_FragColor = vec4(INK, clamp(alpha, 0.0, 0.5));',
+      '  shade += 0.03 * smoothstep(0.82, 1.42, max(abs(fUv.x), abs(fUv.y)));', // frame vignette
+      '  float alpha = L * 0.1 + shade;',
+      // Premultiplied output: colour carries * alpha, matched by the
+      // ONE, ONE_MINUS_SRC_ALPHA blend and premultipliedAlpha:true context.
+      '  float a = clamp(alpha, 0.0, 0.55);',
+      '  gl_FragColor = vec4(INK * a, a);',
       '}',
     ].join('\n');
 
@@ -5777,7 +5789,8 @@
     gl.enableVertexAttribArray(locPos);
     gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Premultiplied-over: fragment carries colour*alpha (see FRAG output).
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.clearColor(0, 0, 0, 0);
 
     let lost = false;

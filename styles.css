@@ -4032,15 +4032,19 @@ body.perf-lite .term__cursor { animation: none; }
 .contact__room {
   position: absolute;
   left: 0;
-  /* Bleed above the section over the seam divider / xp tail so the room
-     grid fills the whole screen with no bare band at the top. The seam
-     ornament stays visible through the canvas's transparent pixels.
-     Explicit calc height — height:auto on a canvas resolves via its
-     intrinsic backing aspect, not the top/bottom stretch. */
-  top: -28vh;
+  /* VIEWPORT-sized, anchored to the section bottom (== page bottom). Sizing
+     the canvas to the section (height:100%+bleed) made it TALLER than the
+     viewport — since the section is taller than 100vh — which pushed the
+     room's vanishing point high in the viewport and left the near floor
+     stretched into a bare strip at the bottom of the screen. Anchoring to the
+     bottom at ~viewport height keeps the room viewport-centred so the floor
+     reaches the very bottom edge; the small top overhang still covers the
+     seam/xp tail above. Explicit height — height:auto on a canvas resolves via
+     its intrinsic backing aspect, not the top/bottom stretch. */
+  bottom: 0;
   z-index: 0;
   width: 100%;
-  height: calc(100% + 28vh);
+  height: calc(100vh + 8vh);
   pointer-events: none;
 }
 .contact__weave {
