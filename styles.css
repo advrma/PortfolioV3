@@ -4030,23 +4030,26 @@ body.perf-lite .term__cursor { animation: none; }
    initRoomGrid instance). Scrolls with the section; the weave knot floats
    above it (same z, later in DOM), content sits at z1. */
 .contact__room {
-  position: absolute;
+  /* VIEWPORT-LOCKED. Any section-tied sizing (height:100% / +bleed, anchored
+     to the section top or bottom) leaves a gap: the contact section's height
+     vs the viewport changes with the display, so at rest the room lands too
+     high (bare strip at the TOP on short viewports) or too low (bare strip at
+     the BOTTOM on tall ones). Fixing the canvas to the viewport keeps the room
+     always full-screen and centred at every size. Gated with .is-visible (see
+     initContactRoom's IntersectionObserver) so this fixed layer only paints
+     while the contact section is on screen — otherwise it would sit over the
+     other sections. No transformed ancestors, so fixed is viewport-relative. */
+  position: fixed;
   left: 0;
-  /* VIEWPORT-sized, anchored to the section bottom (== page bottom). Sizing
-     the canvas to the section (height:100%+bleed) made it TALLER than the
-     viewport — since the section is taller than 100vh — which pushed the
-     room's vanishing point high in the viewport and left the near floor
-     stretched into a bare strip at the bottom of the screen. Anchoring to the
-     bottom at ~viewport height keeps the room viewport-centred so the floor
-     reaches the very bottom edge; the small top overhang still covers the
-     seam/xp tail above. Explicit height — height:auto on a canvas resolves via
-     its intrinsic backing aspect, not the top/bottom stretch. */
-  bottom: 0;
+  top: 0;
   z-index: 0;
   width: 100%;
-  height: calc(100vh + 8vh);
+  height: 100vh;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease;
 }
+.contact__room.is-visible { opacity: 1; }
 .contact__weave {
   position: absolute;
   left: 50%;

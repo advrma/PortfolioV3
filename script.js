@@ -5816,13 +5816,20 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Re-measure at first approach: the section sits under
-    // content-visibility:auto, so its real layout only exists near the
-    // viewport (the initial size above is the intrinsic estimate).
+    // The room canvas is position:fixed (viewport-locked so it always fills
+    // the screen — see .contact__room CSS), so it must only PAINT while the
+    // contact section is on screen; otherwise it would sit over the other
+    // sections. Toggle .is-visible (opacity) as the section enters/leaves, and
+    // re-measure to the viewport on each approach.
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
-        if (entries.some((e) => e.isIntersecting)) resize();
-      }, { rootMargin: '50% 0px' }).observe(section);
+        entries.forEach((e) => {
+          canvas.classList.toggle('is-visible', e.isIntersecting);
+          if (e.isIntersecting) resize();
+        });
+      }, { rootMargin: '0px' }).observe(section);
+    } else {
+      canvas.classList.add('is-visible');
     }
 
     bootWarmups.push(() => { try { resize(); } catch (e) {} });
