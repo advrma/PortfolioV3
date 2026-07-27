@@ -5909,7 +5909,11 @@
       // Integer sector count → the pipe wall tiles seamlessly at ±PI.
       'const float SECTORS = 36.0;',
       'const float RINGS = 9.0;',
-      'const float OPACITY = 1.0;',
+      // Global dimmer for the whole portal (radial rays + rings + crosses).
+      // Kept below 1 so the tunnel reads as a faint background texture, never
+      // competing with the flying skill cards / HUD in the foreground — but
+      // high enough that the rays stay just perceptible (0.55 read as invisible).
+      'const float OPACITY = 0.75;',
       'vec2 polar(vec2 p) {',
       '  float r = max(length(p), 1e-4);',
       '  float a = atan(p.y, p.x);',
