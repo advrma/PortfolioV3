@@ -2596,23 +2596,24 @@
 
       // Bias toward small (power curve) so most stars read as fine points,
       // with occasional larger ones for variation. Brightness floor is high
-      // (~0.70 alpha, most stars near-full) so the field reads bright and
-      // luminous — brightness comes from ALPHA + a near-white tint, NOT a
-      // box-shadow glow. Dropping the glow is the main GPU win: a blurred
+      // (~0.88 alpha, nearly all stars at/near full) so the field reads bright
+      // and luminous — brightness comes from ALPHA + SIZE + a near-white tint,
+      // NOT a box-shadow glow. Dropping the glow is the main GPU win: a blurred
       // shadow inflates each star's composited layer to many times its pixel
-      // area (VRAM + overdraw); flat round dots are cheap.
-      const size      = 1.0 + Math.pow(rnd(), 1.5) * 2.1;   // ~1.0 – 3.1 px (mostly small)
-      const baseAlpha = 0.70 + Math.pow(rnd(), 0.9) * 0.30; // ~0.70 – 1.0 (biased bright, median ~0.86)
-      const isAccent  = rnd() < 0.06;                       // ~6% extra-bright + a touch larger
+      // area (VRAM + overdraw); flat round dots are cheap. Alpha/size are baked
+      // in per-star (no extra layers, no per-frame cost) — safe to push bright.
+      const size      = 1.6 + Math.pow(rnd(), 1.5) * 2.9;   // ~1.6 – 4.5 px (bigger → reads brighter)
+      const baseAlpha = 0.88 + Math.pow(rnd(), 0.9) * 0.12; // ~0.88 – 1.0 (near-full, median ~0.95)
+      const isAccent  = rnd() < 0.12;                       // ~12% extra-bright + a touch larger
 
-      const px = (isAccent ? size + 0.6 : size).toFixed(2) + 'px';
+      const px = (isAccent ? size + 0.9 : size).toFixed(2) + 'px';
       el.style.width  = px;
       el.style.height = px;
       if (isAccent) {
-        // Extra-bright near-white accents (no green; no glow — see above).
-        el.style.background = 'rgba(253, 252, 248, ' + Math.min(1, baseAlpha + 0.12).toFixed(2) + ')';
+        // Extra-bright pure-white accents (no green; no glow — see above).
+        el.style.background = 'rgba(255, 255, 254, ' + Math.min(1, baseAlpha + 0.1).toFixed(2) + ')';
       } else {
-        el.style.background = 'rgba(250, 247, 240, ' + baseAlpha.toFixed(2) + ')';
+        el.style.background = 'rgba(252, 250, 244, ' + baseAlpha.toFixed(2) + ')';
       }
 
       world.appendChild(el);
