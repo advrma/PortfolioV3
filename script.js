@@ -6439,12 +6439,23 @@
       }, { threshold: 0.28 });
       panels.forEach((p) => ioReveal.observe(p));
 
+      let lastSceneIdx = -1;
       const ioScene = new IntersectionObserver((es) => {
         es.forEach((e) => {
           if (!e.isIntersecting) return;
           const i = panels.indexOf(e.target);
           if (sceneEl) sceneEl.textContent = e.target.getAttribute('data-scene') || '';
           dots.forEach((d, k) => d.classList.toggle('is-on', k === i));
+          // Auto-run the title scramble each time a new experience becomes
+          // the centered/active one, so its heading animates in on appear —
+          // mirrors the gallery's per-project title animation (see updateUI).
+          // Guarded on index change so scroll jitter across the center band
+          // can't re-trigger the same title mid-animation.
+          if (i !== lastSceneIdx) {
+            lastSceneIdx = i;
+            const host = e.target.querySelector('.xpcard__title .text-scramble');
+            if (host && host.runScramble) host.runScramble();
+          }
         });
       }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
       panels.forEach((p) => ioScene.observe(p));
