@@ -3100,19 +3100,20 @@ body.perf-lite .callcard__def {
 /* =========================================================
    SKILLS — HYPER-SCROLL 3D WARP
    Pinned full-viewport "deep dive" between the cream hero and
-   the rest of the page. Camera flies through 5 category
-   headings + 15 skill cards in 3D space, with dark cyber
+   the rest of the page. Camera flies through 9 category
+   headings + their skill cards in 3D space, with dark cyber
    chrome (HUD, scanlines, vignette) over the portfolio's
    chartreuse accent.
    ========================================================= */
 .warp {
   position: relative;
-  /* Layout: 100vh hero-reveal zone + 600vh camera scrub (skill cards + a SHORT
+  /* Layout: 100vh hero-reveal zone + 900vh camera scrub (skill cards + a SHORT
      frame field + the live gallery pin emerging and EXPANDING to full screen — all
      on the camera scrub, so the pin stays STUCK throughout) + 100vh tail. Height
-     800vh = 100 + 600 + 100. margin-top: -100vh overlaps the last 100vh of the hero
+     1100vh = 100 + 900 + 100 (keep in sync with the scrub `end` in initSkillsWarp).
+     margin-top: -100vh overlaps the last 100vh of the hero
      so the warp pin engages before the hero pin unsticks. */
-  height: 800vh;
+  height: 1100vh;
   margin-top: -100vh;
   color: var(--cream);
   z-index: 1;          /* back layer — hero (z-3) and gallery (z-2) overlay us */
@@ -3261,6 +3262,14 @@ body.perf-lite .callcard__def {
   line-height: 1.0;          /* more air between PROJECT and GALLERY (base is 0.82) */
   letter-spacing: -0.01em;   /* a touch more character spacing than the base -0.03em */
   -webkit-text-stroke: 0.022em currentColor;  /* thicken the glyphs (no heavier Anton weight) */
+}
+
+/* Two-line category headings (MACHINE / LEARNING, CLOUD / DEVOPS) — base
+   heading weight, just stacked + centred so they fit mobile widths. Keeps the
+   base nowrap: the <br> still breaks, but "CLOUD /" can't split further. */
+.warp-heading--stack {
+  text-align: center;
+  line-height: 0.92;   /* a touch of air between the lines (base 0.82 nearly touches) */
 }
 
 /* Project-gallery first-frame "cards" that fly in behind the last skill card
@@ -4301,7 +4310,7 @@ body.perf-lite .term__cursor { animation: none; }
 
   .highlights__grid { grid-template-columns: 1fr 1fr; gap: 12px; }
 
-  .warp { height: 800vh; }   /* match desktop flythrough length (incl. expand tail) */
+  .warp { height: 1100vh; }   /* match desktop flythrough length (incl. expand tail) */
   .warp-heading { font-size: clamp(76px, 28vw, 220px); }
   .warp-heading--pg { font-size: clamp(80px, 22vw, 170px); }
   .warp-card { width: min(280px, 86vw); height: clamp(340px, 70vh, 460px); }

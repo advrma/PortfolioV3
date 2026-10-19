@@ -2321,8 +2321,8 @@
 
   /* -------------------------------------------------------
      SKILLS HYPER-SCROLL — pinned 3D camera flythrough.
-     - 5 category headings (big stroke text) interleaved with
-       3 skill cards each, plus drifting starfield particles.
+     - 9 category headings (big stroke text) interleaved with
+       their skill cards, plus drifting starfield particles.
      - cameraZ is driven by the section's scroll progress
        (ScrollTrigger.scrub: 0.6) so the world flies past the
        viewer as they scroll through the pinned runway.
@@ -2352,47 +2352,93 @@
     const SKILLS = [
       { type: 'heading', text: 'LANGUAGES', cat: '01' },
       { type: 'card',  cat: '01', name: 'TypeScript',  sub: 'Daily driver across the stack.',          meta: 'TYPED · NEXT.JS' },
+      { type: 'card',  cat: '01', name: 'JavaScript',   sub: 'Modern ES, async, DOM craft.',           meta: 'WEB · NODE' },
       { type: 'card',  cat: '01', name: 'Python',       sub: 'ML pipelines, scrapers, scripts.',       meta: 'ML · DATA' },
       { type: 'card',  cat: '01', name: 'Java',         sub: 'Production backend services.',           meta: 'REST · JVM' },
-      { type: 'card',  cat: '01', name: 'C / C++',      sub: 'SimX VR physics, low-level work.',       meta: 'NATIVE' },
-      { type: 'card',  cat: '01', name: 'SQL',          sub: 'Postgres, joins, query tuning.',         meta: 'QUERY' },
-      { type: 'card',  cat: '01', name: 'JavaScript',   sub: 'Modern ES, async, DOM craft.',           meta: 'WEB · NODE' },
+      { type: 'card',  cat: '01', name: 'C',            sub: 'Pointers, memory, systems basics.',      meta: 'NATIVE' },
+      { type: 'card',  cat: '01', name: 'C++',          sub: 'SimX VR physics, low-level work.',       meta: 'NATIVE · OOP' },
+      { type: 'card',  cat: '01', name: 'C#',           sub: '.NET services + Unity scripting.',       meta: '.NET · UNITY' },
+      { type: 'card',  cat: '01', name: 'HTML',         sub: 'Semantic, accessible markup.',           meta: 'WEB' },
 
       { type: 'heading', text: 'FRAMEWORKS', cat: '02' },
-      { type: 'card',  cat: '02', name: 'Next.js 15',   sub: 'App router, RSC, edge runtimes.',        meta: 'REACT · RSC' },
       { type: 'card',  cat: '02', name: 'React',        sub: 'Components, hooks, suspense.',           meta: '5 YRS' },
-      { type: 'card',  cat: '02', name: 'Convex',       sub: 'Real-time backend + sync.',              meta: 'LIVE · SYNC' },
+      { type: 'card',  cat: '02', name: 'Next.js 15',   sub: 'App router, RSC, edge runtimes.',        meta: 'REACT · RSC' },
+      { type: 'card',  cat: '02', name: 'Node.js',      sub: 'APIs, workers, tooling.',                meta: 'RUNTIME' },
       { type: 'card',  cat: '02', name: 'Tailwind CSS', sub: 'Design tokens at the source.',           meta: 'UTILITY' },
+      { type: 'card',  cat: '02', name: 'CSS',          sub: 'Layout, motion, 3D transforms.',         meta: 'STYLE' },
+      { type: 'card',  cat: '02', name: 'FastAPI',      sub: 'Typed Python services, fast.',           meta: 'PYTHON · API' },
+      { type: 'card',  cat: '02', name: 'REST APIs',    sub: 'Clean contracts, versioned.',            meta: 'HTTP' },
+      { type: 'card',  cat: '02', name: '.NET',         sub: 'C# backends + tooling.',                 meta: 'C# · CLR' },
+      { type: 'card',  cat: '02', name: 'Git / GitHub', sub: 'Branches, reviews, Actions.',            meta: 'VCS' },
+      { type: 'card',  cat: '02', name: 'Hugging Face', sub: 'Models, datasets, pipelines.',           meta: 'HUB' },
+      { type: 'card',  cat: '02', name: 'Tailscale',    sub: 'Private mesh networking.',               meta: 'VPN · MESH' },
+      { type: 'card',  cat: '02', name: 'DSA',          sub: 'Structures + algorithms, solid.',        meta: 'BIG-O' },
+      { type: 'card',  cat: '02', name: 'Convex',       sub: 'Real-time backend + sync.',              meta: 'LIVE · SYNC' },
       { type: 'card',  cat: '02', name: 'Framer Motion',sub: 'Spring physics for UI.',                 meta: 'ANIM' },
-      { type: 'card',  cat: '02', name: 'Supabase',     sub: 'Auth + Postgres at the edge.',           meta: 'BAAS' },
       { type: 'card',  cat: '02', name: 'Playwright',   sub: 'Scrape, test, automate.',                meta: 'E2E' },
 
-      { type: 'heading', text: 'AI / ML', cat: '03' },
-      { type: 'card',  cat: '03', name: 'LLMs / RAG',   sub: 'Semantic search, scoring, tools.',       meta: 'EMBEDDING' },
-      { type: 'card',  cat: '03', name: 'OpenAI API',   sub: 'Streaming, tool use, citations.',        meta: 'STREAM' },
+      { type: 'heading', text: 'MACHINE LEARNING', lines: ['MACHINE', 'LEARNING'], cat: '03' },
       { type: 'card',  cat: '03', name: 'PyTorch',      sub: 'Custom training + inference.',           meta: 'TORCH' },
       { type: 'card',  cat: '03', name: 'TensorFlow',   sub: 'Production model pipelines.',            meta: 'KERAS' },
+      { type: 'card',  cat: '03', name: 'Scikit-Learn', sub: 'Classic models, fast baselines.',        meta: 'SKLEARN' },
       { type: 'card',  cat: '03', name: 'ML Pipelines', sub: 'Ingest → score → ship.',                 meta: 'ETL' },
       { type: 'card',  cat: '03', name: 'Model Infer',  sub: 'Low-latency serving.',                   meta: 'INFER' },
+      { type: 'card',  cat: '03', name: 'LLMs',         sub: 'Scoring, extraction, generation.',       meta: 'GEN AI' },
+      { type: 'card',  cat: '03', name: 'RAG',          sub: 'Semantic search, grounded answers.',     meta: 'EMBEDDING' },
+      { type: 'card',  cat: '03', name: 'Vector DBs',   sub: 'Embeddings indexed for recall.',         meta: 'ANN' },
 
-      { type: 'heading', text: 'CLOUD', cat: '04' },
-      { type: 'card',  cat: '04', name: 'AWS',          sub: 'EC2 · S3 · Lambda · IAM.',               meta: 'PROD' },
-      { type: 'card',  cat: '04', name: 'Docker',       sub: 'Container ship to anywhere.',            meta: 'OCI' },
-      { type: 'card',  cat: '04', name: 'CI / CD',      sub: 'GitHub Actions pipelines.',              meta: 'GREEN' },
-      { type: 'card',  cat: '04', name: 'Lambda',       sub: 'Serverless event workers.',              meta: 'FAAS' },
-      { type: 'card',  cat: '04', name: 'S3',           sub: 'Object storage at scale.',               meta: 'BUCKET' },
-      { type: 'card',  cat: '04', name: 'IAM',          sub: 'Least-privilege roles, scoped.',         meta: 'POLICY' },
+      { type: 'heading', text: 'AGENTIC AI', cat: '04' },
+      { type: 'card',  cat: '04', name: 'Claude Code',  sub: 'Agentic coding in the terminal.',        meta: 'AGENT' },
+      { type: 'card',  cat: '04', name: 'Codex',        sub: 'Delegated coding tasks.',                meta: 'AGENT' },
+      { type: 'card',  cat: '04', name: 'Cursor',       sub: 'AI-native editor workflow.',             meta: 'IDE' },
+      { type: 'card',  cat: '04', name: 'MCP',          sub: 'Tools + context for models.',            meta: 'PROTOCOL' },
+      { type: 'card',  cat: '04', name: 'AI Agents',    sub: 'Plan, call tools, loop.',                meta: 'AGENTIC' },
+      { type: 'card',  cat: '04', name: 'Prompt Eng.',  sub: 'Structured, testable prompts.',          meta: 'PROMPTS' },
+      { type: 'card',  cat: '04', name: 'OpenAI API',   sub: 'Streaming, tool use, citations.',        meta: 'STREAM' },
 
-      { type: 'heading', text: 'CRAFT', cat: '05' },
-      { type: 'card',  cat: '05', name: 'UI / UX',      sub: 'Pixel-precise interfaces.',              meta: 'FIGMA' },
-      { type: 'card',  cat: '05', name: 'Blender',      sub: '15K+ subs on 3D animation.',             meta: '3D' },
-      { type: 'card',  cat: '05', name: 'Adobe CC',     sub: '50+ motion graphics shipped.',           meta: 'MOTION' },
-      { type: 'card',  cat: '05', name: 'Unreal Engine',sub: 'Cinematic real-time scenes.',            meta: 'UE5' },
-      { type: 'card',  cat: '05', name: 'Unity',        sub: 'VR training environments.',              meta: 'XR' },
-      { type: 'card',  cat: '05', name: 'Motion',       sub: 'Springs, eases, scroll.',                meta: 'GSAP' }
+      { type: 'heading', text: 'BACKEND', cat: '05' },
+      { type: 'card',  cat: '05', name: 'SQL',          sub: 'Joins, indexes, query tuning.',          meta: 'QUERY' },
+      { type: 'card',  cat: '05', name: 'PostgreSQL',   sub: 'Relational core of the stack.',          meta: 'POSTGRES' },
+      { type: 'card',  cat: '05', name: 'Supabase',     sub: 'Auth + Postgres at the edge.',           meta: 'BAAS' },
+      { type: 'card',  cat: '05', name: 'MongoDB',      sub: 'Document stores, flexible schemas.',     meta: 'NOSQL' },
+      { type: 'card',  cat: '05', name: 'DB Design',    sub: 'Schemas, normalisation, keys.',          meta: 'MODEL' },
+      { type: 'card',  cat: '05', name: 'Distributed Sys', sub: 'Queues, replicas, consistency.',      meta: 'SCALE' },
+      { type: 'card',  cat: '05', name: 'SSR',          sub: 'Server-rendered, fast first paint.',     meta: 'RENDER' },
+      { type: 'card',  cat: '05', name: 'ASP.NET Core', sub: 'C# web APIs + services.',                meta: '.NET · WEB' },
+
+      { type: 'heading', text: 'CLOUD / DEVOPS', lines: ['CLOUD /', 'DEVOPS'], cat: '06' },
+      { type: 'card',  cat: '06', name: 'AWS',          sub: 'EC2 · S3 · Lambda · IAM.',               meta: 'PROD' },
+      { type: 'card',  cat: '06', name: 'EC2',          sub: 'Compute, sized to the load.',            meta: 'VM' },
+      { type: 'card',  cat: '06', name: 'S3',           sub: 'Object storage at scale.',               meta: 'BUCKET' },
+      { type: 'card',  cat: '06', name: 'Lambda',       sub: 'Serverless event workers.',              meta: 'FAAS' },
+      { type: 'card',  cat: '06', name: 'IAM',          sub: 'Least-privilege roles, scoped.',         meta: 'POLICY' },
+      { type: 'card',  cat: '06', name: 'Docker',       sub: 'Container ship to anywhere.',            meta: 'OCI' },
+      { type: 'card',  cat: '06', name: 'CI / CD',      sub: 'GitHub Actions pipelines.',              meta: 'GREEN' },
+      { type: 'card',  cat: '06', name: 'Azure',        sub: 'Cloud services, .NET-native.',           meta: 'CLOUD' },
+
+      { type: 'heading', text: 'MOBILE', cat: '07' },
+      { type: 'card',  cat: '07', name: 'Swift',        sub: 'Native iOS, SwiftUI.',                   meta: 'APPLE' },
+      { type: 'card',  cat: '07', name: 'Kotlin',       sub: 'Native Android, Compose.',               meta: 'JVM' },
+      { type: 'card',  cat: '07', name: 'React Native', sub: 'One codebase, two platforms.',           meta: 'CROSS' },
+      { type: 'card',  cat: '07', name: 'Flutter',      sub: 'Dart UI, pixel-consistent.',             meta: 'CROSS' },
+      { type: 'card',  cat: '07', name: 'iOS',          sub: 'Xcode, App Store builds.',               meta: 'APPLE' },
+      { type: 'card',  cat: '07', name: 'Android',      sub: 'Gradle, Play Store builds.',             meta: 'GOOGLE' },
+
+      { type: 'heading', text: 'PLATFORMS', cat: '08' },
+      { type: 'card',  cat: '08', name: 'Linux',        sub: 'Shell, servers, daily ops.',             meta: 'UNIX' },
+      { type: 'card',  cat: '08', name: 'Windows',      sub: 'Dev + .NET tooling.',                    meta: 'WIN' },
+      { type: 'card',  cat: '08', name: 'macOS',        sub: 'Xcode + iOS builds.',                    meta: 'UNIX' },
+
+      { type: 'heading', text: 'CRAFT', cat: '09' },
+      { type: 'card',  cat: '09', name: 'UI / UX',      sub: 'Pixel-precise interfaces.',              meta: 'FIGMA' },
+      { type: 'card',  cat: '09', name: 'Blender',      sub: '15K+ subs on 3D animation.',             meta: '3D' },
+      { type: 'card',  cat: '09', name: 'Adobe CC',     sub: '50+ motion graphics shipped.',           meta: 'MOTION' },
+      { type: 'card',  cat: '09', name: 'Unreal Engine',sub: 'Cinematic real-time scenes.',            meta: 'UE5' },
+      { type: 'card',  cat: '09', name: 'Unity',        sub: 'VR training environments.',              meta: 'XR' },
+      { type: 'card',  cat: '09', name: 'Motion',       sub: 'Springs, eases, scroll.',                meta: 'GSAP' }
     ];
 
-    const Z_GAP       = 800;
+    const Z_GAP       = 620;   // tighter than the old 800 so ~78 items fit a 900vh scrub
     // Large field, but cheap: paintItems skips faded-out stars, so per-frame
     // cost scales with VISIBLE stars only (a small fraction at any moment),
     // and stars carry no box-shadow — lighter than the old smaller field.
@@ -2428,8 +2474,15 @@
       if (data.type === 'heading') {
         headingIndices.push(i);
         const h = document.createElement('div');
-        h.className = 'warp-heading';
-        h.textContent = data.text;
+        if (data.lines) {
+          // Long titles stack to two centred lines (one nowrap line would
+          // overflow mobile). Space before <br> keeps textContent readable.
+          h.className = 'warp-heading warp-heading--stack';
+          h.innerHTML = data.lines.join(' <br>');
+        } else {
+          h.className = 'warp-heading';
+          h.textContent = data.text;
+        }
         el.appendChild(h);
         item = { el, type: 'heading', x: 0, y: 0, rot: 0, baseZ: -i * Z_GAP };
       } else {
@@ -2452,7 +2505,9 @@
         el.appendChild(card);
 
         // Spiral the cards through 3D space so they orbit the headings.
-        const angle = (i / SKILLS.length) * Math.PI * 6;
+        // Fixed per-item step (the original 35-item spacing) so neighbours
+        // keep their separation no matter how long the list grows.
+        const angle = i * (Math.PI * 6 / 35);
         const x = Math.cos(angle) * (window.innerWidth  * 0.28);
         const y = Math.sin(angle) * (window.innerHeight * 0.28);
         const rot = (i * 47 % 30) - 15;   // deterministic small rotation
@@ -2726,7 +2781,7 @@
         scrollTrigger: {
           trigger: section,
           start: () => 'top+=' + window.innerHeight + ' top',
-          end:   () => '+=' + (window.innerHeight * 6.0),   // tighter ending (fewer frames + shorter expand); same per-vh camera speed
+          end:   () => '+=' + (window.innerHeight * 9.0),   // 900vh scrub — keep in sync with .warp height (100 + 900 + 100)
           scrub: 1.6,
           invalidateOnRefresh: true,
           onUpdate: (self) => {
