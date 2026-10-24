@@ -2409,6 +2409,34 @@ body.perf-lite .callcard__def {
   100% { background-position: 220% 0; }
 }
 
+/* Badge view (app projects): Apple's official App Store badge, unaltered,
+   on the same white card — swaps in for the screenshot frame. */
+.lp-card__badge { display: none; }
+.lp-card--badge .lp-card__frame { display: none; }
+.lp-card--badge .lp-card__badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 174px;              /* fixed like .lp-card__frame — the card shrink-wraps a 0-width follow anchor */
+  padding: 9px 12px 7px;
+}
+.lp-card__badge img {
+  display: block;
+  width: 150px;
+  max-width: none;
+  height: auto;
+}
+.lp-card__note {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: rgba(12, 12, 10, 0.55);
+}
+.lp-card__note:empty { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .lp-card { transition: opacity 0.2s ease; transform: translate(-50%, 0) scale(1); }
   .lp-card__img { transition: opacity 0.3s ease; transform: none; }

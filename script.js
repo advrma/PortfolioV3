@@ -3089,8 +3089,18 @@
     };
     // Hovering a video plane shows a live link-preview card (vanilla port of
     // the Aceternity LinkPreview) and clicking it opens the URL.
-    const VIDEO_LINK = { 3: 'https://www.trystealth.org/' };
-    const hoverTargets = [];    // { mesh, url } for raycast hover/click
+    const VIDEO_LINK = {
+      2: 'https://smallsql.vercel.app/',
+      3: 'https://www.trystealth.org/',
+      5: 'https://nocturne-board.vercel.app/'
+    };
+    // App projects show Apple's official "Download on the App Store" badge in
+    // the same hover card instead of a site screenshot. url: null = not on the
+    // store yet — the badge shows with `note`, and the plane isn't clickable.
+    const VIDEO_BADGE = {
+      0: { url: null, note: 'Coming soon' }
+    };
+    const hoverTargets = [];    // { mesh, url, badge?, note? } for raycast hover/click
     const VIDEO_SCALE = 1.6;    // video plane width vs a normal painting (P_WIDTH)
     const VIDEO_DX    = -1.6;   // shift left (world units) so the bigger plane grows into
                                 // the centre gap — clear of the text panel and the right edge
@@ -3336,6 +3346,7 @@
         outline.position.x = VIDEO_DX;
         shadow.position.set(0.8 + VIDEO_DX, -0.8, -0.5);
         if (VIDEO_LINK[i]) hoverTargets.push({ mesh, url: VIDEO_LINK[i] });
+        else if (VIDEO_BADGE[i]) hoverTargets.push({ mesh, url: VIDEO_BADGE[i].url, badge: true, note: VIDEO_BADGE[i].note });
         const fitVideoAspect = () => {
           if (!vidEl.videoWidth || !vidEl.videoHeight) return;
           const w = P_WIDTH * VIDEO_SCALE;
@@ -3627,6 +3638,18 @@
       frame.appendChild(skel);
       frame.appendChild(cardImg);
       card.appendChild(frame);
+      // Badge view (lp-card--badge): replaces the screenshot frame for app targets.
+      const badgeBox = document.createElement('div');
+      badgeBox.className = 'lp-card__badge';
+      const badgeImg = document.createElement('img');
+      badgeImg.src = 'assets/badges/app-store-badge.svg';
+      badgeImg.alt = 'Download on the App Store';
+      badgeImg.width = 120; badgeImg.height = 40;
+      const badgeNote = document.createElement('span');
+      badgeNote.className = 'lp-card__note';
+      badgeBox.appendChild(badgeImg);
+      badgeBox.appendChild(badgeNote);
+      card.appendChild(badgeBox);
       // The card lives inside a "follow" wrapper: the wrapper is what trails
       // the cursor (damped-spring, so it lags slightly with a soft ease),
       // while the card itself runs the slow incoming animation. Keeping the
@@ -3657,6 +3680,7 @@
       // Build + warm the microlink screenshot for each target.
       const previewSrc = {};
       hoverTargets.forEach((t) => {
+        if (t.badge) return;
         const params = [
           'url=' + encodeURIComponent(t.url),
           'screenshot=true', 'meta=false', 'embed=screenshot.url', 'colorScheme=light',
@@ -3671,7 +3695,7 @@
       const ray = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
       const cvs = renderer.domElement;
-      let hoverUrl = null;
+      let hoverT = null;   // the hovered target (badge targets may have no url)
 
       function pickTarget(e) {
         const r = cvs.getBoundingClientRect();
@@ -3711,29 +3735,31 @@
         const t = pickTarget(e);
         if (t) {
           const wasOff = !card.classList.contains('is-on');
-          if (hoverUrl !== t.url) {
-            hoverUrl = t.url;
-            card.href = t.url;
-            loadPreview(t.url);
+          if (hoverT !== t) {
+            hoverT = t;
+            card.classList.toggle('lp-card--badge', !!t.badge);
+            if (t.url) card.href = t.url; else card.removeAttribute('href');
+            if (t.badge) badgeNote.textContent = t.note || '';
+            else loadPreview(t.url);
           }
           setTarget(e);
           if (wasOff || reduceM) { fx = tx; fy = ty; fvx = fvy = 0; applyFollow(); } // appear at cursor / snap
           card.classList.add('is-on');
-          cvs.style.cursor = 'pointer';
+          cvs.style.cursor = t.url ? 'pointer' : '';
           if (!reduceM) kickFollow();
-        } else if (hoverUrl) {
-          hoverUrl = null;
+        } else if (hoverT) {
+          hoverT = null;
           card.classList.remove('is-on');
           cvs.style.cursor = '';
         }
       }, { passive: true });
 
-      const clearHover = () => { hoverUrl = null; card.classList.remove('is-on'); cvs.style.cursor = ''; };
+      const clearHover = () => { hoverT = null; card.classList.remove('is-on'); cvs.style.cursor = ''; };
       cvs.addEventListener('pointerleave', clearHover);
 
       cvs.addEventListener('click', (e) => {
         const t = pickTarget(e);
-        if (t) window.open(t.url, '_blank', 'noopener,noreferrer');
+        if (t && t.url) window.open(t.url, '_blank', 'noopener,noreferrer');
       });
     }
 
