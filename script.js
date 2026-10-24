@@ -35,9 +35,14 @@
   const PAD = 4;                   // filename zero-padding
   const PREFIX = (isLowPower ? 'CYBERFICTION-WEBP-LOW/' : 'CYBERFICTION-WEBP/') + 'male';
   const EXT = '.webp';
-  // Decode each weak-tier frame once into an ImageBitmap and hold it,
-  // so scrubbing never triggers a re-decode (the source of the stutter).
-  const USE_BITMAP = isLowPower && typeof createImageBitmap === 'function';
+  // Drawing an <img> frame makes Chrome decode it ON THE MAIN THREAD at draw
+  // time (~15ms per 1152×1080 WebP — measured as THE reel stutter: every new
+  // frame cost a decode inside the rAF). Instead, both tiers hold each frame as
+  // its compressed Blob and decode a small window AHEAD of the playhead off
+  // the main thread (createImageBitmap) — drawImage then only blits a ready
+  // bitmap. See the FRAME DECODE WINDOW below. Browsers without
+  // createImageBitmap keep the plain <img> path.
+  const USE_BITMAP = typeof createImageBitmap === 'function';
 
   // Build list of frame URLs we'll actually load
   const frameUrls = [];
@@ -49,7 +54,8 @@
   /* -------------------------------------------------------
      SHARED STATE
      ------------------------------------------------------- */
-  const images = new Array(FRAME_COUNT);
+  const images = new Array(FRAME_COUNT);   // <img> fallback path only
+  const blobs = new Array(FRAME_COUNT);    // compressed frame bytes (bitmap path)
   let loadedCount = 0;
   let everythingLoaded = false;
 
@@ -145,17 +151,16 @@
      - Then everything else in parallel batches
      ------------------------------------------------------- */
   function loadImage(index) {
-    // Weak tier: fetch → decode once into an ImageBitmap we keep for
-    // the session. Capable tier: plain HTMLImageElement (small WebP).
+    // Bitmap path: keep the compressed Blob; the decode window turns it into
+    // a drawable ImageBitmap shortly before the reel needs it.
     if (USE_BITMAP) {
       return fetch(frameUrls[index])
-        .then((r) => r.blob())
-        .then((blob) => createImageBitmap(blob))
-        .then((bmp) => {
-          images[index] = bmp;
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+        .then((blob) => {
+          blobs[index] = blob;
           loadedCount++;
           updateLoadingUI();
-          return bmp;
+          return blob;
         })
         .catch(() => {
           loadedCount++;
@@ -212,9 +217,89 @@
     })));
   }
 
+  /* -------------------------------------------------------
+     FRAME DECODE WINDOW (bitmap path)
+     Holding all 300 frames decoded would be ~1.5GB, so only a bounded
+     window is: the frames the reel is about to show. The planner
+     (planFrameDecode, driven by motionTick) lists them nearest-first —
+     while playing: the next DECODE_LEAD frames toward the current stop;
+     while parked: the openings of BOTH neighbouring segments, so a fresh
+     forward or reverse gesture starts on decoded frames. Decodes run off
+     the main thread (createImageBitmap), DECODE_PARALLEL at a time
+     (measured ~200 frames/s vs a ~46 fps reel). Frames farthest from the
+     playhead are evicted (bitmap.close()) past DECODE_BUDGET, and the
+     whole window is released while the hero is off-screen.
+     ------------------------------------------------------- */
+  const bitmaps = new Map();     // idx → ImageBitmap (decoded, drawable)
+  const decoding = new Set();    // idx currently being decoded
+  const DECODE_LEAD = 20;        // frames kept decoded ahead (≈0.4s of reel)
+  const DECODE_BUDGET = 48;      // max resident decoded frames (~240MB full tier)
+  const DECODE_PARALLEL = 4;
+  const BOOT_PREDECODE = 48;     // intro frames decoded while the loader is up
+  let decodeQueue = [];          // wanted, not-yet-decoded frames, nearest first
+  let decodeWanted = new Set();  // current plan (protected from eviction)
+  let decodeFocus = 0;           // playhead source frame (eviction distance)
+  let pendingDraw = -1;          // frame renderFrame wanted but couldn't draw yet
+
+  function decodeFrame(i) {
+    if (bitmaps.has(i) || decoding.has(i) || !blobs[i]) return null;
+    decoding.add(i);
+    return createImageBitmap(blobs[i]).then((bmp) => {
+      bitmaps.set(i, bmp);
+      evictDecoded();
+      // The reel asked for this frame before it was ready — show it now
+      // (the loop may already be parked and not redraw on its own).
+      if (i === pendingDraw) { pendingDraw = -1; lastDrawnFrame = -1; renderFrame(i, false); }
+    }, () => {}).then(() => { decoding.delete(i); pumpDecode(); });
+  }
+  function pumpDecode() {
+    while (decoding.size < DECODE_PARALLEL && decodeQueue.length) decodeFrame(decodeQueue.shift());
+  }
+  function evictDecoded() {
+    if (bitmaps.size <= DECODE_BUDGET) return;
+    const victims = [];
+    bitmaps.forEach((b, k) => { if (!decodeWanted.has(k)) victims.push(k); });
+    victims.sort((a, b) => Math.abs(b - decodeFocus) - Math.abs(a - decodeFocus));
+    for (let n = 0; bitmaps.size > DECODE_BUDGET && n < victims.length; n++) {
+      bitmaps.get(victims[n]).close();
+      bitmaps.delete(victims[n]);
+    }
+  }
+  function setDecodePlan(list) {
+    decodeFocus = list[0];
+    decodeWanted = new Set(list);
+    decodeQueue = list.filter((i) => i >= 0 && i < FRAME_COUNT && !bitmaps.has(i) && !decoding.has(i));
+    pumpDecode();
+  }
+  // Drop every decoded frame (hero off-screen). The canvas keeps its pixels.
+  function releaseDecoded() {
+    bitmaps.forEach((b) => b.close());
+    bitmaps.clear();
+    decodeQueue = [];
+    decodeWanted = new Set();
+  }
+  function nearestDecoded(idx) {
+    let best = null, bd = Infinity;
+    bitmaps.forEach((b, k) => { const d = Math.abs(k - idx); if (d < bd) { bd = d; best = b; } });
+    return best;
+  }
+  // Decode a list now (boot use). Resolves once each frame is drawable — or
+  // no longer needed because the playback planner has moved past it — and
+  // never later than 4s, so it can't hold up the boot sequence.
+  function predecode(list) {
+    setDecodePlan(list);
+    const t0 = performance.now();
+    return new Promise((resolve) => {
+      const settled = (i) => bitmaps.has(i) || !blobs[i] || (!decodeWanted.has(i) && !decoding.has(i));
+      const check = () => (list.every(settled) || performance.now() - t0 > 4000 ? resolve() : setTimeout(check, 30));
+      check();
+    });
+  }
+
   async function preloadAll() {
     // Critical first — paint hero immediately when frame 0 is in.
     await loadImage(0);
+    if (USE_BITMAP) await predecode([0]);
     renderFrame(0, false);
 
     await loadImage(FRAME_COUNT - 1);
@@ -232,6 +317,15 @@
       }
     });
     await Promise.all(workers);
+
+    // Have the intro's opening frames decoded before the curtain lifts, so
+    // the very first playback never waits on a decode. The playback window
+    // (planFrameDecode) streams the rest ahead of the reel.
+    if (USE_BITMAP) {
+      const first = [];
+      for (let i = 0; i < Math.min(BOOT_PREDECODE, FRAME_COUNT); i++) first.push(i);
+      await predecode(first);
+    }
   }
 
   /* -------------------------------------------------------
@@ -332,8 +426,27 @@
     if (i < 0) i = 0;
     else if (i > max) i = max;
     if (i === lastDrawnFrame) return;
-    lastDrawnFrame = i;
-    drawImageContain(cinemaCtx, cinemaCanvas, images[i] || nearestLoaded(i), 1);
+    if (!USE_BITMAP) {
+      lastDrawnFrame = i;
+      drawImageContain(cinemaCtx, cinemaCanvas, images[i] || nearestLoaded(i), 1);
+      return;
+    }
+    // Bitmap path — NEVER decode on the main thread. If the exact frame isn't
+    // decoded yet, show the nearest decoded one this tick (or keep the current
+    // pixels if none), move this frame to the front of the queue, and let its
+    // decode completion redraw it.
+    const bmp = bitmaps.get(i);
+    if (bmp) {
+      if (pendingDraw === i) pendingDraw = -1;
+      lastDrawnFrame = i;
+      drawImageContain(cinemaCtx, cinemaCanvas, bmp, 1);
+      return;
+    }
+    pendingDraw = i;
+    if (!decoding.has(i)) { decodeQueue.unshift(i); pumpDecode(); }
+    const near = nearestDecoded(i);
+    if (near) drawImageContain(cinemaCtx, cinemaCanvas, near, 1);
+    lastDrawnFrame = -1;   // not the exact frame — redraw as soon as it lands
   }
 
   /* HUD/captions read from the character-animation progress
@@ -699,9 +812,11 @@
     const srcs = [];
     // NOTE: folder is 'Instagram-Images' (capital I's) — must match the on-disk /
     // git-committed case exactly, or it 404s on case-sensitive hosts (e.g. Vercel/Linux).
-    for (let k = 1; k <= 14; k++) srcs.push('Instagram-Images/' + k + '.png');
+    // WebP q90 re-encodes of the source PNGs (same pixels, ≥40dB PSNR — 2.4MB vs
+    // 18.5MB). The 1–2MB PNGs cost a ~30–50ms decode on every 2s auto-slide.
+    for (let k = 1; k <= 14; k++) srcs.push('Instagram-Images/' + k + '.webp');
     // Warm the first couple of IG slides during the loader so the aside is
-    // never blank on first view (the rest stay lazy — 19 MB total).
+    // never blank on first view (the rest stay lazy).
     extraPreload.push(srcs[0], srcs[1]);
     const n = srcs.length;
     let idx = 0;
@@ -717,7 +832,14 @@
     });
     function syncDots() { dots.forEach(function (d, i) { d.classList.toggle('is-active', i === idx); }); }
 
-    function preload(src, cb) { const im = new Image(); im.onload = function () { cb(im); }; im.onerror = function () { cb(null); }; im.src = src; }
+    // Fetch AND decode (off the main thread) before handing the image over, so
+    // the slide-in transition never waits on a decode mid-animation.
+    function preload(src, cb) {
+      const im = new Image();
+      im.src = src;
+      const ready = im.decode ? im.decode() : new Promise(function (res, rej) { im.onload = res; im.onerror = rej; });
+      ready.then(function () { cb(im); }, function () { cb(null); });
+    }
 
     // First image: skeleton until it loads.
     media.classList.add('is-loading');
@@ -1078,6 +1200,11 @@
      ends a bit earlier — leading the character into/out of the left
      pose. The LEFT text stays in step. Only touches the DOM on change. */
   const ASIDE_RIGHT_LEAD = 0.045;   // ~12 virtual frames earlier
+  // Free the hero asides' settled reveal filters (see settleRevealFilter).
+  const unsettleLeft  = settleRevealFilter(cinemaAsideLeft,
+    () => cinemaAsideLeft.classList.contains('is-revealed'));
+  const unsettleRight = settleRevealFilter(cinemaAsideRight && cinemaAsideRight.querySelector('.testi3d'),
+    () => cinemaAsideRight.classList.contains('is-revealed'));
   function updateAside(timelineProgress) {
     if (!cinemaAsideLeft || !cinemaAsideRight) return;
     const thresh = (motion.scrollShift || 220) * 0.45;
@@ -1088,6 +1215,7 @@
     else if (xLeftText >= thresh) side = 1;     // character RIGHT → left text
     if (side === asideSide) return;
     asideSide = side;
+    unsettleLeft(); unsettleRight();   // let the blur-out transitions run
     cinemaAsideRight.classList.toggle('is-revealed', side === -1);
     // Tie the upper-left intro card to the right testimonials element: it
     // appears and disappears exactly when they do (char on the left = side -1).
@@ -1284,6 +1412,90 @@
     motion.pinRunway = Math.max(0, heroSection.offsetHeight - window.innerHeight);
   }
 
+  /* Compile + link a WebGL program WITHOUT blocking the main thread. With
+     KHR_parallel_shader_compile the driver compiles on its own thread; we poll
+     COMPLETION_STATUS once per frame and only then read LINK_STATUS (reading
+     it straight after linkProgram is what stalled boot: ~635ms for the lens
+     raymarch, ~380ms for the loader orb). Without the extension this falls
+     back to the old synchronous path. Resolves to the program, or null. */
+  function linkProgramAsync(gl, vsSrc, fsSrc) {
+    const mk = (type, src) => {
+      const sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      return sh;
+    };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, mk(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(prog);
+    const finish = () => (gl.getProgramParameter(prog, gl.LINK_STATUS) ? prog : null);
+    const ext = gl.getExtension('KHR_parallel_shader_compile');
+    if (!ext) return Promise.resolve(finish());
+    return new Promise((resolve) => {
+      const poll = () => {
+        if (gl.isContextLost()) { resolve(null); return; }
+        if (gl.getProgramParameter(prog, ext.COMPLETION_STATUS_KHR)) resolve(finish());
+        else setTimeout(poll, 16);   // setTimeout, not rAF: keeps polling in a hidden tab
+      };
+      // First query on a later task: any status query is a synchronous GPU
+      // round-trip, and right after linkProgram it would queue behind every
+      // other shader still compiling at boot.
+      setTimeout(poll, 16);
+    });
+  }
+
+  // A finished blur-in reveal leaves `filter: blur(0) brightness(1)…` — the
+  // same pixels as no filter, but any non-`none` filter keeps the layer in its
+  // own offscreen render pass EVERY frame (measured: the IG aside's settled
+  // filter alone was a large share of the hero's dropped frames). Once the
+  // reveal transition lands, swap in `none`. The returned function drops the
+  // override; call it right before hiding so the blur-out still transitions
+  // (`none` interpolates as the identity filter).
+  function settleRevealFilter(el, isOn) {
+    if (!el) return () => {};
+    el.addEventListener('transitionend', (e) => {
+      if (e.target === el && e.propertyName === 'filter' && isOn()) el.style.filter = 'none';
+    });
+    return () => { el.style.filter = ''; };
+  }
+
+  // Source frame renderFrame draws for a reel position (virtual frame).
+  function srcIndexOf(virt) {
+    return Math.round(clamp01(virt / TIMELINE_MAX) * (FRAME_COUNT - 1));
+  }
+  // Feed the decode window the frames the reel is about to show (see FRAME
+  // DECODE WINDOW). dir: +1/-1 while travelling toward `target`, 0 parked.
+  let decodePlanKey = '';
+  function planFrameDecode(target, dir) {
+    if (!USE_BITMAP) return;
+    const cur = srcIndexOf(motion.animFrame);
+    const gate = motion.hasScrolled ? motion.gateIndex : 0;
+    const key = cur + '|' + target + '|' + dir + '|' + gate;
+    if (key === decodePlanKey) return;
+    decodePlanKey = key;
+    const run = (to) => {                 // up to DECODE_LEAD frames from cur toward `to`
+      const out = [];
+      const step = to > cur ? 1 : -1;
+      for (let i = cur + step, n = 0; n < DECODE_LEAD && (step > 0 ? i <= to : i >= to); i += step, n++) out.push(i);
+      return out;
+    };
+    const list = [cur];
+    if (dir !== 0) {
+      list.push.apply(list, run(srcIndexOf(target)));
+    } else {
+      // Parked on a stop: the next gesture plays on to the next stop or back
+      // to the previous one — warm both openings, interleaved nearest-first.
+      const fwd = gate + 1 < CHECKPOINTS.length ? run(srcIndexOf(CHECKPOINTS[gate + 1])) : [];
+      const back = motion.hasScrolled && gate > 0 ? run(srcIndexOf(CHECKPOINTS[gate - 1])) : [];
+      for (let k = 0; k < Math.max(fwd.length, back.length); k++) {
+        if (k < fwd.length) list.push(fwd[k]);
+        if (k < back.length) list.push(back[k]);
+      }
+    }
+    setDecodePlan(list);
+  }
+
   function motionTick() {
     // Suspend the whole reel while the hero is off-screen or the tab is
     // hidden — nothing to draw, and the warp/gallery sections below are
@@ -1304,6 +1516,9 @@
         }
       }
       if (callcard) callcard.setVisible(false);   // reset typing so it replays on re-entry
+      // Free the decoded frame window while the rest of the site is in use
+      // (the canvas keeps its pixels; re-entry re-plans + decodes in ~0.1s).
+      if (USE_BITMAP && motion.hasScrolled) { releaseDecoded(); decodePlanKey = ''; }
       return;
     }
 
@@ -1390,6 +1605,8 @@
       // the tail must still step it back, so the reel is already aimed at the
       // right checkpoint the moment the runway is re-entered and the crawl runs.
     }
+
+    planFrameDecode(target, shouldAdvance ? Math.sign(advanceStep) : 0);
 
     // --- Room-grid rotation target (one 90° cube turn per checkpoint scene) ---
     // Map the (now-final) reel frame onto a continuous "scene" coordinate: 0 at
@@ -1830,6 +2047,10 @@
            cv.getContext('experimental-webgl', { alpha: false, antialias: false });
     } catch (e) { /* fall through */ }
     if (!gl) { cv.style.display = 'none'; return null; }
+    // Paint the loader ink (#0B0B0A) at once so the opaque canvas never shows
+    // as a black square while the shader compiles.
+    gl.clearColor(0.043, 0.043, 0.039, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
     const VERT =
       'attribute vec2 a_pos;\n' +
@@ -1971,38 +2192,30 @@
       '  gl_FragColor = vec4(clamp(BG + E, 0.0, 1.0), 1.0);\n' +
       '}';
 
-    function compile(type, src) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-        throw new Error(gl.getShaderInfoLog(sh) || 'orb shader compile failed');
-      }
-      return sh;
-    }
-    let program;
-    try {
-      program = gl.createProgram();
-      gl.attachShader(program, compile(gl.VERTEX_SHADER, VERT));
-      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAG));
-      gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        throw new Error(gl.getProgramInfoLog(program) || 'orb link failed');
-      }
-    } catch (e) {
-      cv.style.display = 'none';
-      return null;
-    }
-    gl.useProgram(program);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const aPos = gl.getAttribLocation(program, 'a_pos');
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-    const uTime  = gl.getUniformLocation(program, 'u_time');
-    const uRes   = gl.getUniformLocation(program, 'u_res');
-    const uIntro = gl.getUniformLocation(program, 'u_intro');
+    // Compiled off the main thread (linkProgramAsync) — this raymarch used to
+    // freeze the whole boot ~400ms before the loader could animate at all.
+    // The ring gauge carries the loader until the orb is ready; the orb's
+    // materialize then plays from its first drawn frame.
+    let raf = 0;
+    let alive = true;
+    let uTime = null, uRes = null, uIntro = null;
+    let t0 = 0;
+    linkProgramAsync(gl, VERT, FRAG).then((program) => {
+      if (!alive) return;
+      if (!program) { cv.style.display = 'none'; return; }
+      gl.useProgram(program);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const aPos = gl.getAttribLocation(program, 'a_pos');
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      uTime  = gl.getUniformLocation(program, 'u_time');
+      uRes   = gl.getUniformLocation(program, 'u_res');
+      uIntro = gl.getUniformLocation(program, 'u_intro');
+      t0 = performance.now();
+      raf = requestAnimationFrame(frame);
+    });
 
     // Square canvas from the CSS box; modest caps — the raymarch is the only
     // thing on screen, but there's no need to burn GPU the hero will want.
@@ -2017,9 +2230,6 @@
       gl.viewport(0, 0, side, side);
     }
 
-    let raf = 0;
-    let alive = true;
-    const t0 = performance.now();
     // Materialize: the blob inflates from a point over INTRO_MS with an
     // easeOutBack (~10% liquid overshoot), brightness fading up alongside
     // (the shader clamps u_intro for the emission fade).
@@ -2036,7 +2246,6 @@
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       raf = requestAnimationFrame(frame);
     }
-    raf = requestAnimationFrame(frame);
 
     // Context loss during boot → stop cleanly (browser clears to transparent;
     // the ring gauge + telemetry still carry the loader).
@@ -2275,14 +2484,20 @@
   function initScrollProgress() {
     const bar = document.querySelector('.scroll-progress span');
     if (!bar) return;
+    // Scroll range is cached (re-measured on resize / document growth) — reading
+    // scrollHeight in the scroll handler forced a layout on every event — and
+    // the bar is a compositor-only scaleX instead of a layout-dirtying width.
+    let range = 0;
+    function measure() { range = document.documentElement.scrollHeight - window.innerHeight; }
     function update() {
-      const h = document.documentElement.scrollHeight - window.innerHeight;
-      const p = h > 0 ? window.scrollY / h : 0;
-      bar.style.width = (p * 100).toFixed(2) + '%';
+      const p = range > 0 ? Math.min(1, window.scrollY / range) : 0;
+      bar.style.transform = 'scaleX(' + p.toFixed(4) + ')';
     }
+    measure();
     update();
     window.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
+    window.addEventListener('resize', () => { measure(); update(); });
+    if ('ResizeObserver' in window) new ResizeObserver(() => { measure(); update(); }).observe(document.body);
   }
 
   /* -------------------------------------------------------
@@ -2645,10 +2860,14 @@
       seed = (seed * 9301 + 49297) % 233280;
       return seed / 233280;
     };
+    // The stars are drawn on ONE 2D canvas behind the 3D world instead of as
+    // ~1300 individually 3D-transformed <div>s: those were the warp's per-frame
+    // cost (style recalc + layerize + hit-testing over every star layer). Each
+    // star is projected with the exact CSS math the divs used — world tilt
+    // rotateX·rotateY about the viewport centre, then the viewport perspective
+    // (see projectStar) — so positions, sizes, colours and fades are unchanged.
+    const stars = [];
     for (let i = 0; i < STAR_COUNT; i++) {
-      const el = document.createElement('div');
-      el.className = 'warp-star';
-
       // Bias toward small (power curve) so most stars read as fine points,
       // with occasional larger ones for variation. Brightness floor is high
       // (~0.88 alpha, nearly all stars at/near full) so the field reads bright
@@ -2661,23 +2880,78 @@
       const baseAlpha = 0.88 + Math.pow(rnd(), 0.9) * 0.12; // ~0.88 – 1.0 (near-full, median ~0.95)
       const isAccent  = rnd() < 0.12;                       // ~12% extra-bright + a touch larger
 
-      const px = (isAccent ? size + 0.9 : size).toFixed(2) + 'px';
-      el.style.width  = px;
-      el.style.height = px;
-      if (isAccent) {
+      const px = +(isAccent ? size + 0.9 : size).toFixed(2);
+      stars.push({
+        r: px / 2,
+        // At 1.6–4.5px the old border-radius divs rasterized almost as squares,
+        // so they emitted ~4/π more light than a true disc of the same width
+        // (measured 0.73–0.81). Draw the disc with the square's AREA to match.
+        dr: (px / 2) * 1.128,
         // Extra-bright pure-white accents (no green; no glow — see above).
-        el.style.background = 'rgba(255, 255, 254, ' + Math.min(1, baseAlpha + 0.1).toFixed(2) + ')';
-      } else {
-        el.style.background = 'rgba(252, 250, 244, ' + baseAlpha.toFixed(2) + ')';
-      }
-
-      world.appendChild(el);
-      items.push({
-        el, type: 'star',
+        a: isAccent ? +Math.min(1, baseAlpha + 0.1).toFixed(2) : +baseAlpha.toFixed(2),
+        accent: isAccent,
         x: (rnd() - 0.5) * 3800,                  // wide spread — fills periphery + behind frames
         y: (rnd() - 0.5) * 3800,
         baseZ: -rnd() * STAR_Z_SPAN               // spans cards + frame field → even density throughout
       });
+    }
+    const starCanvas = document.createElement('canvas');
+    starCanvas.className = 'warp-stars';
+    starCanvas.setAttribute('aria-hidden', 'true');
+    viewport.insertBefore(starCanvas, world);
+    const sctx = starCanvas.getContext('2d');
+    let starW = 0, starH = 0, starDpr = 1;
+    function sizeStarCanvas() {
+      const w = viewport.clientWidth, h = viewport.clientHeight;
+      const d = Math.min(window.devicePixelRatio || 1, 2);
+      if (w === starW && h === starH && d === starDpr) return;
+      starW = w; starH = h; starDpr = d;
+      starCanvas.width = Math.max(1, Math.round(w * d));
+      starCanvas.height = Math.max(1, Math.round(h * d));
+    }
+    sizeStarCanvas();
+    // The view the world is currently rendered with — mirrors exactly what
+    // render() writes to world.style.transform / viewport.style.perspective.
+    const view = { tiltX: 0, tiltY: 0, fov: 1000 };
+    const STAR_RGB = 'rgb(252, 250, 244)', ACCENT_RGB = 'rgb(255, 255, 254)';
+    // `opacityFor(vizZ)` → the star's fade (paintItems' star rule); static
+    // callers pass their own. Each div's top-left sat at (x, y) — its inline
+    // transform replaced the CSS centring — so the disc centre is (x+r, y+r).
+    // CSS rotateX(a) rotateY(b) applies Y first, then X; perspective d maps a
+    // point at depth z to scale d / (d − z) about the viewport centre.
+    function paintStars(cameraZ, opacityFor) {
+      const d = starDpr;
+      sctx.setTransform(d, 0, 0, d, 0, 0);
+      sctx.clearRect(0, 0, starW, starH);
+      const ax = view.tiltX * Math.PI / 180, ay = view.tiltY * Math.PI / 180;
+      const cX = Math.cos(ax), sX = Math.sin(ax), cY = Math.cos(ay), sY = Math.sin(ay);
+      const P = view.fov, hw = starW / 2, hh = starH / 2;
+      let fill = '';
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+        const z = s.baseZ + cameraZ;
+        const alpha = opacityFor(z);
+        if (alpha <= 0) continue;
+        const px = s.x + s.r, py = s.y + s.r;
+        const x1 = px * cY + z * sY, z1 = -px * sY + z * cY;          // rotateY
+        const y2 = py * cX - z1 * sX, z2 = py * sX + z1 * cX;         // rotateX
+        const w = P - z2;
+        if (w <= 1) continue;                                         // behind the eye
+        const k = P / w;
+        const col = s.accent ? ACCENT_RGB : STAR_RGB;
+        if (col !== fill) { sctx.fillStyle = col; fill = col; }
+        sctx.globalAlpha = alpha * s.a;
+        sctx.beginPath();
+        sctx.arc(hw + x1 * k, hh + y2 * k, s.dr * k, 0, 6.283185307);
+        sctx.fill();
+      }
+      sctx.globalAlpha = 1;
+    }
+    // paintItems' star fade: in from far depth, out fast once past the camera.
+    function starFade(vizZ) {
+      if (vizZ < -3200) return 0;
+      if (vizZ < -2200) return (vizZ + 3200) / 1000;
+      return vizZ > 0 ? Math.max(0, 1 - vizZ / 300) : 1;
     }
 
     // Shared per-item paint pass. Called once now to set the correct
@@ -2695,13 +2969,6 @@
         let alpha;
         if (vizZ < -3200)      alpha = 0;
         else if (vizZ < -2200) alpha = (vizZ + 3200) / 1000;
-        else if (item.type === 'star') {
-          // Stars fade out fast once they pass the camera (vizZ > 0) instead
-          // of being held at full opacity while perspective balloons them into
-          // big, hard-edged near-camera quads. That cull keeps the GPU light
-          // (no giant overdrawn layers) and the pass reads as a clean streak.
-          alpha = vizZ > 0 ? Math.max(0, 1 - vizZ / 300) : 1;
-        }
         else if (vizZ > 80) alpha = Math.max(0, 1 - (vizZ - 80) / 1600);
         else                   alpha = 1;
         if (alpha < 0) alpha = 0;
@@ -2731,10 +2998,7 @@
         }
 
         let trans = `translate3d(${item.x}px, ${item.y}px, ${vizZ.toFixed(1)}px)`;
-        if (item.type === 'star') {
-          const stretch = Math.max(1, Math.min(1 + Math.abs(velocity) * 0.06, 8));
-          trans += ` scale3d(1, 1, ${stretch.toFixed(2)})`;
-        } else if (item.type === 'heading') {
+        if (item.type === 'heading') {
           trans += ` rotateZ(${item.rot}deg)`;
         } else {
           const floatY = Math.sin(t + item.x * 0.01) * 5;
@@ -2743,6 +3007,7 @@
         // Same for the transform — skip the write when unchanged.
         if (trans !== item._lastTr) { item.el.style.transform = trans; item._lastTr = trans; }
       }
+      paintStars(cameraZ, starFade);
     }
 
     // Apply the correct first-frame state immediately (cameraZ=0, no
@@ -2763,6 +3028,7 @@
     };
 
     const reduceMotion = reduceMotionMQ && reduceMotionMQ.matches;
+    let staticStars = false;   // reduced-motion: the star canvas shows the static field
 
     // Drive cameraZ from section scroll progress. `scrub: 1.6`
     // gives the heavy "Lenis-bouncy" feel — scroll inputs land
@@ -2906,18 +3172,22 @@
       state.visible = false;
       items.forEach((item) => {
         item.el.style.visibility = '';   // undo any paintItems cull (static view shows all)
-        if (item.type === 'star') {
-          item.el.style.opacity = '0.4';
-          item.el.style.transform =
-            `translate3d(${item.x}px, ${item.y}px, ${item.baseZ}px)`;
-        } else {
-          item.el.style.opacity = '1';
-          item.el.style.transform =
-            `translate3d(${item.x}px, ${item.y}px, ${item.baseZ + TOTAL_Z * 0.5}px)` +
-            (item.rot ? ` rotateZ(${item.rot}deg)` : '');
-        }
+        item.el.style.opacity = '1';
+        item.el.style.transform =
+          `translate3d(${item.x}px, ${item.y}px, ${item.baseZ + TOTAL_Z * 0.5}px)` +
+          (item.rot ? ` rotateZ(${item.rot}deg)` : '');
       });
+      // Static field: every star at its base depth, uniformly dimmed to 0.4.
+      paintStars(0, () => 0.4);
+      staticStars = true;
     }
+
+    // Keep the star canvas sized to the viewport; repaint the current view.
+    window.addEventListener('resize', () => {
+      sizeStarCanvas();
+      if (staticStars) paintStars(0, () => 0.4);
+      else paintStars(state.cameraZ, starFade);
+    });
 
     // Off-stage culling: while the skills section is nowhere near the
     // viewport, hide the 3D world (visibility — not display, so no layout
@@ -2931,6 +3201,7 @@
       new IntersectionObserver((es) => {
         const on = es.some((e) => e.isIntersecting);
         world.style.visibility = on ? '' : 'hidden';
+        starCanvas.style.visibility = on ? '' : 'hidden';
       }, { rootMargin: '75% 0px' }).observe(section);
     }
 
@@ -2975,16 +3246,19 @@
       if (tiltKey !== lastTilt) {
         world.style.transform = `rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg)`;
         lastTilt = tiltKey;
+        view.tiltX = +tiltX.toFixed(2);   // the star canvas projects with the same view
+        view.tiltY = +tiltY.toFixed(2);
       }
 
       // Dynamic perspective — closer FOV when scrolling fast (warp feel).
       // Write only on change: an unconditional perspective write invalidates
-      // style for EVERY 3D child (1300+ stars) even on frames where the
-      // value is identical (e.g. while velocity sits at the cap).
+      // style for every 3D child even on frames where the value is identical
+      // (e.g. while velocity sits at the cap).
       const fov = (1000 - Math.min(Math.abs(state.velocity) * 6, 450)).toFixed(0);
       if (fov !== lastFov) {
         viewport.style.perspective = fov + 'px';
         lastFov = fov;
+        view.fov = +fov;
       }
 
       // HUD — write only when the rendered string actually changed (each
@@ -5129,60 +5403,55 @@
           '}',
         ].join('\n');
 
-        function compile(type, src) {
-          const sh = gl.createShader(type);
-          gl.shaderSource(sh, src);
-          gl.compileShader(sh);
-          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
-          return sh;
-        }
-        const vs = compile(gl.VERTEX_SHADER, VERT);
-        const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-        if (!vs || !fs) return null;
-        const prog = gl.createProgram();
-        gl.attachShader(prog, vs);
-        gl.attachShader(prog, fs);
-        gl.linkProgram(prog);
-        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-        gl.useProgram(prog);
+        // The raymarch program compiles OFF the main thread (linkProgramAsync)
+        // — it used to block boot for ~635ms. Until it's linked, ok() is false
+        // and a hover simply shows the 2D starfield fallback.
+        let ready = false;
+        let prog = null, tex = null;
+        let uTime, uRes, uMouse, uShape, uClick, uBub, uLensC, uLensSz, uNameB, uTextVH, uTextVO, uHasT;
+        linkProgramAsync(gl, VERT, FRAG).then((p) => {
+          if (!p) return;
+          prog = p;
+          gl.useProgram(prog);
 
-        const gbuf = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, gbuf);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-        const gloc = gl.getAttribLocation(prog, 'position');
-        gl.enableVertexAttribArray(gloc);
-        gl.vertexAttribPointer(gloc, 2, gl.FLOAT, false, 0, 0);
-        // Straight-alpha blend — outside the blob the shader outputs alpha 0,
-        // so the page shows through (no circle) and the silhouette feathers.
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.clearColor(0, 0, 0, 0);
+          const gbuf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, gbuf);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+          const gloc = gl.getAttribLocation(prog, 'position');
+          gl.enableVertexAttribArray(gloc);
+          gl.vertexAttribPointer(gloc, 2, gl.FLOAT, false, 0, 0);
+          // Straight-alpha blend — outside the blob the shader outputs alpha 0,
+          // so the page shows through (no circle) and the silhouette feathers.
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.clearColor(0, 0, 0, 0);
 
-        const uTime  = gl.getUniformLocation(prog, 'iTime');
-        const uRes   = gl.getUniformLocation(prog, 'iResolution');
-        const uMouse = gl.getUniformLocation(prog, 'uMouse');
-        const uShape = gl.getUniformLocation(prog, 'uShape');
-        const uClick = gl.getUniformLocation(prog, 'uClickTime');
-        const uBub   = gl.getUniformLocation(prog, 'uBubbles');
-        const uText   = gl.getUniformLocation(prog, 'uText');
-        const uLensC  = gl.getUniformLocation(prog, 'uLensCenter');
-        const uLensSz = gl.getUniformLocation(prog, 'uLensSize');
-        const uNameB  = gl.getUniformLocation(prog, 'uNameBox');
-        const uTextVH = gl.getUniformLocation(prog, 'uTextVH');
-        const uTextVO = gl.getUniformLocation(prog, 'uTextVOff');
-        const uHasT   = gl.getUniformLocation(prog, 'uHasText');
+          uTime  = gl.getUniformLocation(prog, 'iTime');
+          uRes   = gl.getUniformLocation(prog, 'iResolution');
+          uMouse = gl.getUniformLocation(prog, 'uMouse');
+          uShape = gl.getUniformLocation(prog, 'uShape');
+          uClick = gl.getUniformLocation(prog, 'uClickTime');
+          uBub   = gl.getUniformLocation(prog, 'uBubbles');
+          const uText = gl.getUniformLocation(prog, 'uText');
+          uLensC  = gl.getUniformLocation(prog, 'uLensCenter');
+          uLensSz = gl.getUniformLocation(prog, 'uLensSize');
+          uNameB  = gl.getUniformLocation(prog, 'uNameBox');
+          uTextVH = gl.getUniformLocation(prog, 'uTextVH');
+          uTextVO = gl.getUniformLocation(prog, 'uTextVOff');
+          uHasT   = gl.getUniformLocation(prog, 'uHasText');
 
-        // "Software Engineer" glyph texture (uploaded on hover once fonts are
-        // ready) plus the geometry that locks it onto the name's footprint.
-        const tex = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.useProgram(prog);
-        gl.uniform1i(uText, 0);
-        gl.uniform1f(uHasT, 0);
+          // "Software Engineer" glyph texture (uploaded on hover once fonts are
+          // ready) plus the geometry that locks it onto the name's footprint.
+          tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.uniform1i(uText, 0);
+          gl.uniform1f(uHasT, 0);
+          ready = true;
+        });
         let hasText = false;
         let lensCX = 0, lensCY = 0;   // blob centre in name-local px
 
@@ -5240,8 +5509,9 @@
           graf = requestAnimationFrame(gtick);
         }
         return {
-          ok() { return !document.body.classList.contains('perf-lite'); },
+          ok() { return ready && !document.body.classList.contains('perf-lite'); },
           resize(px) {
+            if (!ready) return;
             size = Math.max(1, Math.round(px));
             if (cv.width !== size || cv.height !== size) { cv.width = size; cv.height = size; }
             gl.useProgram(prog);
@@ -5249,17 +5519,18 @@
             gl.uniform2f(uRes, size, size);
           },
           kick() {
-            if (graf || document.body.classList.contains('perf-lite')) return;
+            if (!ready || graf || document.body.classList.contains('perf-lite')) return;
             // Reset the clocks so every hover pops the orb in fresh (the
             // squash-bounce plays from uClickTime≈0).
             gt0 = clickT0 = performance.now();
             graf = requestAnimationFrame(gtick);
           },
           stop() { if (graf) { cancelAnimationFrame(graf); graf = 0; } },
-          morph() { shape = (shape + 1) % 3; clickT0 = performance.now(); if (!graf) this.kick(); },
+          morph() { if (!ready) return; shape = (shape + 1) % 3; clickT0 = performance.now(); if (!graf) this.kick(); },
           setMouse(nx, ny) { gmouse.tx = nx; gmouse.ty = ny; },
           // Upload the wordmark canvas as the refraction source.
           setText(canvasEl) {
+            if (!ready) return;
             gl.useProgram(prog);
             gl.bindTexture(gl.TEXTURE_2D, tex);
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -5272,6 +5543,7 @@
           // The geometry that pins the wordmark to the name: canvas size, the
           // name's layout box (px), and the text band's vertical placement.
           setName(lensPx, boxW, boxH, vh, voff) {
+            if (!ready) return;
             gl.useProgram(prog);
             gl.uniform1f(uLensSz, lensPx);
             gl.uniform2f(uNameB, Math.max(1, boxW), Math.max(1, boxH));
@@ -5283,8 +5555,31 @@
         };
       }
       const glassCanvas = document.getElementById('heroSignLensGlass');
-      const glass = (glassCanvas && !(reduceMotionMQ && reduceMotionMQ.matches))
-        ? initLensGlass(glassCanvas) : null;
+      // Hover-only, so the glass orb's WebGL context + shader are created
+      // once the hero is revealed and the main thread is idle — never inside
+      // the boot sequence. Until then a hover shows the 2D starfield fallback
+      // (and starts the build early).
+      let glass = null;
+      const canGlass = !!glassCanvas && !(reduceMotionMQ && reduceMotionMQ.matches);
+      let glassTried = false;
+      const makeGlass = () => {
+        if (!canGlass || glassTried) return;
+        glassTried = true;
+        glass = initLensGlass(glassCanvas);
+      };
+      if (canGlass) {
+        const whenIdle = (fn) => (window.requestIdleCallback
+          ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+        if (!document.body.classList.contains('is-pre-load')) whenIdle(makeGlass);
+        else {
+          const glassMo = new MutationObserver(() => {
+            if (document.body.classList.contains('is-pre-load')) return;
+            glassMo.disconnect();
+            setTimeout(() => whenIdle(makeGlass), 2500);   // after the intro + name draw-on
+          });
+          glassMo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        }
+      }
 
       const TILT = -8 * Math.PI / 180;   // matches the CSS rotate(-8deg)
       const cosT = Math.cos(TILT), sinT = Math.sin(TILT);
@@ -5366,6 +5661,7 @@
         } else { lraf = 0; }
       }
       el.addEventListener('mouseenter', (e) => {
+        makeGlass();
         const p = toLocal(e.clientX, e.clientY);
         target.x = cur.x = p.x;
         target.y = cur.y = p.y;
@@ -5656,40 +5952,35 @@
       '}',
     ].join('\n');
 
-    function compile(type, src) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
-      return sh;
-    }
-    const vs = compile(gl.VERTEX_SHADER, VERT);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) { canvas.remove(); return; }
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
-    gl.useProgram(prog);
+    // Compiled off the main thread (linkProgramAsync). Until it's linked,
+    // draw() is a no-op (the canvas stays transparent) and uniform writes
+    // to the still-null locations are ignored; the boot warmup awaits it.
+    let ready = false;
+    let uTime = null, uRes = null, uMouse = null, uInf = null, uRot = null;
+    const progReady = linkProgramAsync(gl, VERT, FRAG).then((prog) => {
+      if (!prog) { canvas.remove(); return; }
+      gl.useProgram(prog);
 
-    // Single fullscreen triangle.
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const locPos = gl.getAttribLocation(prog, 'position');
-    gl.enableVertexAttribArray(locPos);
-    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
-    // Premultiplied-over: fragment already carries colour*alpha (see FRAG).
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.clearColor(0, 0, 0, 0);
+      // Single fullscreen triangle.
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const locPos = gl.getAttribLocation(prog, 'position');
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+      gl.enable(gl.BLEND);
+      // Premultiplied-over: fragment already carries colour*alpha (see FRAG).
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
 
-    const uTime = gl.getUniformLocation(prog, 'iTime');
-    const uRes = gl.getUniformLocation(prog, 'iResolution');
-    const uMouse = gl.getUniformLocation(prog, 'mousePosition');
-    const uInf = gl.getUniformLocation(prog, 'mouseInfluence');
-    const uRot = gl.getUniformLocation(prog, 'uRot');
+      uTime = gl.getUniformLocation(prog, 'iTime');
+      uRes = gl.getUniformLocation(prog, 'iResolution');
+      uMouse = gl.getUniformLocation(prog, 'mousePosition');
+      uInf = gl.getUniformLocation(prog, 'mouseInfluence');
+      uRot = gl.getUniformLocation(prog, 'uRot');
+      ready = true;
+      resize();
+    });
 
     // Scene-driven room rotation: exactly one face (90°) per hero checkpoint
     // scene (target = heroSceneRot, written by the cinema tick). rot eases
@@ -5720,6 +6011,7 @@
       // reaches the stop — rather than trailing it.
       rot.target = heroSceneRot;
       rot.cur += (rot.target - rot.cur) * 0.25;
+      if (!ready) return;
       gl.uniform1f(uTime, tSec);
       gl.uniform2f(uMouse, mouse.x, mouse.y);
       gl.uniform1f(uInf, mouse.inf);
@@ -5727,9 +6019,20 @@
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
+    // While nothing interactive is moving (cube parked, cursor still) the only
+    // motion is the ~9s, 5% ripple — sub-pixel per frame — so redraw this
+    // ~6.7MP supersampled pass every OTHER frame (a steady half cadence, never
+    // uneven). Turning / cursor motion redraws every frame as before.
+    let skipParity = 0;
+    function settled() {
+      return Math.abs(heroSceneRot - rot.cur) < 1e-4 &&
+        Math.abs(mouse.tx - mouse.x) < 1e-3 && Math.abs(mouse.ty - mouse.y) < 1e-3 &&
+        Math.abs(mouse.tinf - mouse.inf) < 1e-3;
+    }
     function tick(now) {
       raf = 0;
       if (!visible) return;
+      if (settled() && (skipParity ^= 1)) { raf = requestAnimationFrame(tick); return; }
       draw(((now - t0) / 1000) * TIME_SCALE);
       // perf-lite can arrive later (adaptive FPS probe) — freeze on
       // this frame; the grid stays visible at zero ongoing cost.
@@ -5761,11 +6064,11 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Boot warmup: guarantee a sized first paint during the loading screen
-    // (the shader already compiled above). Graceful GPU-context-loss handling:
-    // the browser clears the drawing buffer on loss (transparent, not a frozen
-    // frame), we just stop the now-dead loop so it can't spin/error forever.
-    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    // Boot warmup: the loader waits for the (async) compile, then guarantees a
+    // sized first paint. Graceful GPU-context-loss handling: the browser
+    // clears the drawing buffer on loss (transparent, not a frozen frame), we
+    // just stop the now-dead loop so it can't spin/error forever.
+    bootWarmups.push(() => progReady.then(() => { try { resize(); } catch (e) {} }));
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
@@ -5905,36 +6208,29 @@
       '}',
     ].join('\n');
 
-    function compile(type, src) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
-      return sh;
-    }
-    const vs = compile(gl.VERTEX_SHADER, VERT);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) { canvas.remove(); return; }
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
-    gl.useProgram(prog);
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const locPos = gl.getAttribLocation(prog, 'position');
-    gl.enableVertexAttribArray(locPos);
-    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
-    // Premultiplied-over: fragment carries colour*alpha (see FRAG output).
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.clearColor(0, 0, 0, 0);
+    // Compiled off the main thread (linkProgramAsync); draw() waits for it and
+    // the boot warmup awaits it, so the static room is ready before reveal.
+    let ready = false;
+    const progReady = linkProgramAsync(gl, VERT, FRAG).then((prog) => {
+      if (!prog) { canvas.remove(); return; }
+      gl.useProgram(prog);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const locPos = gl.getAttribLocation(prog, 'position');
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+      gl.enable(gl.BLEND);
+      // Premultiplied-over: fragment carries colour*alpha (see FRAG output).
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
+      ready = true;
+      resize();
+    });
 
     let lost = false;
     function draw() {
-      if (lost) return;
+      if (lost || !ready) return;
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
@@ -5971,7 +6267,7 @@
       canvas.classList.add('is-visible');
     }
 
-    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    bootWarmups.push(() => progReady.then(() => { try { resize(); } catch (e) {} }));
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       lost = true;   // static layer degrades to transparent on GPU reset
@@ -6118,37 +6414,31 @@
       '}',
     ].join('\n');
 
-    function compile(type, src) {
-      const sh = gl.createShader(type);
-      gl.shaderSource(sh, src);
-      gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) return null;
-      return sh;
-    }
-    const vs = compile(gl.VERTEX_SHADER, VERT);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) { canvas.remove(); return; }
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { canvas.remove(); return; }
-    gl.useProgram(prog);
+    // Compiled off the main thread (linkProgramAsync); draw() waits for it,
+    // and the boot warmup awaits it so the tunnel is ready before reveal.
+    let ready = false;
+    let uTime = null, uRes = null, uTravel = null, uMouse = null;
+    const progReady = linkProgramAsync(gl, VERT, FRAG).then((prog) => {
+      if (!prog) { canvas.remove(); return; }
+      gl.useProgram(prog);
 
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const locPos = gl.getAttribLocation(prog, 'position');
-    gl.enableVertexAttribArray(locPos);
-    gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.clearColor(0, 0, 0, 0);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const locPos = gl.getAttribLocation(prog, 'position');
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 2, gl.FLOAT, false, 0, 0);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
 
-    const uTime = gl.getUniformLocation(prog, 'iTime');
-    const uRes = gl.getUniformLocation(prog, 'iResolution');
-    const uTravel = gl.getUniformLocation(prog, 'uTravel');
-    const uMouse = gl.getUniformLocation(prog, 'uMouse');
+      uTime = gl.getUniformLocation(prog, 'iTime');
+      uRes = gl.getUniformLocation(prog, 'iResolution');
+      uTravel = gl.getUniformLocation(prog, 'uTravel');
+      uMouse = gl.getUniformLocation(prog, 'uMouse');
+      ready = true;
+      resize();
+    });
     // Smoothed pointer driving BOTH the shader vanishing-point shift and
     // the canvas perspective tilt on hover — the tilt uses the SAME
     // mapping as the warp world (initSkillsWarp: tiltX = mouseY*4,
@@ -6174,6 +6464,7 @@
     const t0 = performance.now();
 
     function draw(now) {
+      if (!ready) return;
       gl.uniform1f(uTime, (now - t0) / 1000);
       gl.uniform1f(uTravel, travel);
       // Horizontal parallax is inverted (cursor right → pipe leans left);
@@ -6247,8 +6538,10 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Boot warmup (sized first paint during the loader) + graceful context-loss.
-    bootWarmups.push(() => { try { resize(); } catch (e) {} });
+    // Boot warmup (awaits the async compile, then one sized draw during the
+    // loader so the driver's first-draw setup never lands mid-scroll) +
+    // graceful context-loss.
+    bootWarmups.push(() => progReady.then(() => { try { resize(); draw(performance.now()); } catch (e) {} }));
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
@@ -6514,7 +6807,11 @@
     // Light the globe + HUD while the section is on screen, and pause the
     // globe\u2019s render loop (data-active) when it isn\u2019t — keeps it off the GPU
     // everywhere else on the page.
+    // The globe's settled `blur(0) brightness(1) saturate(1)` would keep a
+    // full-screen offscreen filter pass alive while the section is shown.
+    const unsettleGlobe = settleRevealFilter(globe, () => xpx2.classList.contains('is-on'));
     const setGlobe = (on) => {
+      if (!on) unsettleGlobe();
       xpx2.classList.toggle('is-on', on);
       if (!globe) return;
       clearTimeout(globe.__pauseT);
@@ -6543,11 +6840,27 @@
     // hitch off the scroll and into the loader. Just toggles the same
     // data-active attribute the normal gating uses, so it's harmless if the
     // vendor globe isn't ready yet (it'll simply warm on scroll instead).
+    // Waits for vendor/globe.js to finish its (sliced) spike build — signalled
+    // by data-ready / 'globeready' — so the pulse also covers the points
+    // geometry upload; capped so a slow CDN can't hold the loader.
     bootWarmups.push(() => new Promise((resolve) => {
       if (!globe) { resolve(); return; }
-      clearTimeout(globe.__pauseT);
-      globe.setAttribute('data-active', '1');
-      setTimeout(() => { globe.setAttribute('data-active', '0'); resolve(); }, 350);
+      let pulsed = false;
+      const pulse = () => {
+        if (pulsed) return;
+        pulsed = true;
+        clearTimeout(globe.__pauseT);
+        globe.setAttribute('data-active', '1');
+        setTimeout(() => {
+          if (!xpx2.classList.contains('is-on')) globe.setAttribute('data-active', '0');
+          resolve();
+        }, 350);
+      };
+      if (globe.getAttribute('data-ready') === '1') pulse();
+      else {
+        globe.addEventListener('globeready', pulse, { once: true });
+        setTimeout(pulse, 6000);
+      }
     }));
 
     // Per-panel reveal + active scene / dot.
@@ -7384,7 +7697,11 @@
       framesTask.catch(() => {}),
       trackBoot(fontsReady()),
       trackBoot(preloadUrlList(extraPreload)),
-    ].concat(bootWarmups.map((w) => trackBoot(Promise.resolve().then(w)))));
+      // Warmups START ~one frame apart (each still runs to completion on its
+      // own), so their first draws / texture uploads never stack into one
+      // long frame while the loader animates.
+    ].concat(bootWarmups.map((w, i) => trackBoot(
+      new Promise((r) => setTimeout(r, i * 20)).then(w)))));
 
     // Play the first-paint reveal. The loader greets, then HOLDS until bootReady
     // resolves (or a hard cap) before lifting. If GSAP / the loader element are

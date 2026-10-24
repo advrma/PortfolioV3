@@ -981,6 +981,21 @@ DAT.Globe = function (container, opts) {
     this._baseGeometry = subgeo;
   }
 
+  // Same build as addData, but in ~8ms slices on separate tasks so the main
+  // thread keeps animating (the one-shot build was a ~0.5s freeze).
+  function addDataSliced(data, done) {
+    var self = this, step = 3, i = 0, subgeo = new THREE.Geometry();
+    (function chunk() {
+      var t0 = performance.now();
+      for (; i < data.length && performance.now() - t0 < 8; i += step) {
+        addPoint(data[i], data[i + 1], data[i + 2] * 200, colorFn(data[i + 2]), subgeo);
+      }
+      if (i < data.length) { setTimeout(chunk, 0); return; }
+      self._baseGeometry = subgeo;
+      done();
+    })();
+  }
+
   var mapFront = new THREE.Texture(generateTexture('front')),
     mapBack = new THREE.Texture(generateTexture('back')),
     mapLeft = new THREE.Texture(generateTexture('left')),
@@ -1077,6 +1092,7 @@ DAT.Globe = function (container, opts) {
   init();
   this.animate = animate;
   this.addData = addData;
+  this.addDataSliced = addDataSliced;
   this.createPoints = createPoints;
   return this;
 };
@@ -1134,14 +1150,27 @@ function generateDotTexture() {
     var globe = new DAT.Globe(container);
     var xhr = new XMLHttpRequest();
     xhr.open("GET", "https://cdn.jsdelivr.net/gh/dataarts/webgl-globe@2d24ba30/globe/population909500.json", true);
+    // Signals the page (script.js warmup) that the spikes exist, so the first
+    // full render (shader compile + geometry upload) can be warmed in the loader.
+    function ready() {
+      container.setAttribute("data-ready", "1");
+      container.dispatchEvent(new Event("globeready"));
+    }
     xhr.onreadystatechange = function () {
       if (xhr.readyState === 4) {
         if (xhr.status === 200) {
           var data = JSON.parse(xhr.responseText);
-          for (var i = 0; i < data.length; i++) globe.addData(data[i][1]);
-          globe.createPoints();
+          // Only the LAST series is ever shown — addData overwrote
+          // _baseGeometry per series — so build just that one, sliced.
+          globe.addDataSliced(data[data.length - 1][1], function () {
+            globe.createPoints();
+            globe.animate();
+            ready();
+          });
+          return;
         }
         globe.animate(); // spin even if data fails (earth + atmosphere)
+        ready();
       }
     };
     xhr.send(null);

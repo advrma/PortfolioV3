@@ -206,9 +206,13 @@ body.perf-lite .hero__welcome--right {
 }
 .scroll-progress span {
   display: block; height: 100%;
-  width: 0%;
+  width: 100%;
+  /* Driven by a compositor-only scaleX (initScrollProgress); the gradient
+     scales with the bar exactly as it used to stretch with its width. */
+  transform: scaleX(0);
+  transform-origin: 0 50%;
   background: linear-gradient(90deg, var(--ink), var(--accent-deep));
-  transition: width 80ms linear;
+  transition: transform 80ms linear;
 }
 
 /* =========================================================
@@ -3410,17 +3414,16 @@ body.perf-lite .callcard__def {
 }
 
 /* Particle dot */
-.warp-star {
+/* Warp starfield: ONE flat canvas behind the 3D world (initSkillsWarp
+   projects every star with the world's own tilt + perspective), replacing
+   ~1300 individually 3D-transformed star divs and their per-frame
+   style/layer/hit-test cost. */
+.warp-stars {
   position: absolute;
-  width: 2px; height: 2px;
-  border-radius: 50%;
-  background: rgba(242, 238, 229, 0.8);
-  transform: translate(-50%, -50%);
-  /* No will-change here: ~1300 stars × will-change = ~1300 permanent GPU
-     layers (huge VRAM). Instead the compositor promotes only the visible,
-     animating ones on demand (paintItems stops touching faded-out stars).
-     No box-shadow either: a blurred glow would inflate every star's layer
-     texture far past its pixel size — flat round dots keep it cheap. */
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 /* Scanlines + vignette overlays inside pin */
@@ -4426,7 +4429,13 @@ html.is-dark .is-hyper-hover .hyper-word.is-hovered::before { background: #fff; 
    first, the contour lines follow, then the text — read as one slow wave
    rather than a flat simultaneous flip. The accent scan blade (.theme-sweep)
    rides across on top of this. */
-html, body { transition: background-color .95s var(--ease-soft), color .95s var(--ease-soft); }
+html, body { transition: background-color .95s var(--ease-soft); }
+/* The inherited TEXT-colour fade lives on the containers actually on screen
+   at the flip (which inherit from body), not on <body> itself: an inherited
+   colour transition on body re-styled the WHOLE document (~4,100 elements)
+   on every frame of the ~1s fade (~20ms per frame). Their descendants inherit
+   the animated colour exactly as before; off-screen sections just switch. */
+.nav, .xp, .contact { transition: color .95s var(--ease-soft); }
 .topo-bg { transition: color 1s var(--ease-soft) .12s; }
 .xp__eyebrow, .xp__lede,
 .tl__when, .tl__role, .tl__org-name, .tl__loc,
