@@ -2156,7 +2156,7 @@ body.perf-lite .callcard__def {
      the intro's background. z-index 2 keeps the gallery in front of the warp
      (z-index 1). The gallery layer stays transparent (--clear) throughout the
      intro so the skills scene reads straight through it. */
-  height: 580vh;
+  height: 1000vh;         /* 8 projects: ~110vh of scroll per project-to-project pan */
   margin-top: -100vh;     /* overlaps the warp's 200vh tail so the gallery pin
                             expands to full screen while the warp pin is STILL stuck
                             behind it. The expand (intro ST) starts exactly at the
@@ -2953,7 +2953,7 @@ body.perf-lite .callcard__def {
 .hall .is-hyper-hover .hyper-word.is-hovered { color: #0C0C0A; }
 
 @media (max-width: 768px) {
-  .hall { height: 580vh; }
+  .hall { height: 1000vh; }
   .hall-slide {
     top: auto;
     bottom: 18%;

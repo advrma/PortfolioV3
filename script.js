@@ -3051,7 +3051,7 @@
     const hallPin      = section.querySelector('.hall__pin');
     const reduceMotion = !!(reduceMotionMQ && reduceMotionMQ.matches);
 
-    const SLIDE_COUNT = 3;
+    const SLIDE_COUNT = 8;
     const SPACING_X   = 45;     // 3D units between paintings
     const P_WIDTH     = 14;
     const P_HEIGHT    = 18;
@@ -3061,12 +3061,12 @@
     // grid into near-black, matching the pin's ink background.
     const BG_HEX      = 0x0C0C0A;
 
-    // Placeholder painting images — abstract / tech-feel covers
-    // for each project card. Swap with real shots later.
+    // Still-image fallbacks, used only when THREE.VideoTexture is unavailable
+    // (every project plane is a video). Missing indices fall back to [0].
     const IMAGES = [
-      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80', // 0 STEALTH (video fallback)
-      'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80', // 1 SPLITZ
-      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80'     // 2 PEERCONNECT (video fallback)
+      'https://images.unsplash.com/photo-1535378917042-10a22c95931a?w=900&q=80',
+      'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900&q=80',
+      'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=900&q=80'
     ];
     // A few project planes show a looping video instead of a still image
     // (index → src). The video is rendered as a THREE.VideoTexture on the
@@ -3075,15 +3075,21 @@
     // on case-sensitive hosts (Vercel/Linux) while working on Windows. git tracks
     // 'Splitz.mp4' / 'Peerconnect.mp4' capitalized (a Windows case-rename git never
     // recorded) but 'stealth.mp4' lowercase — hence the mixed case here. Verify with
-    // `git ls-files Project-gallery-videos` before changing.
+    // `git ls-files Project-gallery-videos` before changing. Spaces are
+    // %20-encoded. Order = the hall-slide order in index.html.
     const VIDEO_SRC = {
-      0: 'Project-gallery-videos/stealth.mp4',
-      1: 'Project-gallery-videos/Splitz.mp4',
-      2: 'Project-gallery-videos/Peerconnect.mp4'
+      0: 'Project-gallery-videos/Nowline%20video.mp4',
+      1: 'Project-gallery-videos/AIMesh%20Video.mp4',
+      2: 'Project-gallery-videos/SmallSQL%20Video.mp4',
+      3: 'Project-gallery-videos/stealth.mp4',
+      4: 'Project-gallery-videos/FirstMate%20Video.mp4',
+      5: 'Project-gallery-videos/Nocturne%20Video.mp4',
+      6: 'Project-gallery-videos/Splitz.mp4',
+      7: 'Project-gallery-videos/Peerconnect.mp4'
     };
     // Hovering a video plane shows a live link-preview card (vanilla port of
     // the Aceternity LinkPreview) and clicking it opens the URL.
-    const VIDEO_LINK = { 0: 'https://www.trystealth.org/' };
+    const VIDEO_LINK = { 3: 'https://www.trystealth.org/' };
     const hoverTargets = [];    // { mesh, url } for raycast hover/click
     const VIDEO_SCALE = 1.6;    // video plane width vs a normal painting (P_WIDTH)
     const VIDEO_DX    = -1.6;   // shift left (world units) so the bigger plane grows into
@@ -3092,6 +3098,24 @@
     const videoTextures = [];   // their VideoTextures (uploaded only while their plane is near view)
     const videoMeshes = [];     // the plane mesh per video (for the visibility test)
     const videoNear = [];       // per-video "near the camera view" state (hysteresis)
+    const slideVideoIdx = {};   // slide index → index into videoEls
+    const videoWarmed = [];     // per-video: preload flipped to 'auto' + load() issued
+    // ~127MB of clips across 8 projects — far too much to pull at boot. Only the
+    // first WARM_AHEAD+1 are warmed up front; each later clip is warmed as the
+    // camera reaches the project before it (see warmSlideVideos in updateUI).
+    const WARM_AHEAD = 1;
+    function warmVideo(vi) {
+      const v = videoEls[vi];
+      if (!v || videoWarmed[vi]) return;
+      videoWarmed[vi] = true;
+      v.preload = 'auto';
+      try { v.load(); } catch (e) {}
+    }
+    function warmSlideVideos(idx) {
+      for (let s = idx; s <= idx + WARM_AHEAD; s++) {
+        if (slideVideoIdx[s] !== undefined) warmVideo(slideVideoIdx[s]);
+      }
+    }
     const _vNdc = new THREE.Vector3();   // scratch for the per-frame projection
     let videoOnScreen = false;  // gallery pin (with a video) is in view → keep rendering
 
@@ -3218,7 +3242,8 @@
         map: linesTex, transparent: true, opacity: 0.9, depthWrite: false
       })
     );
-    gridMesh.position.set(SPACING_X, 0, -12);   // centred over the wall, behind the planes
+    const GRID_CX = (SLIDE_COUNT - 1) * SPACING_X / 2;   // midpoint of the painting row
+    gridMesh.position.set(GRID_CX, 0, -12);     // centred over the wall, behind the planes
     gridMesh.renderOrder = -2;
     galleryGroup.add(gridMesh);
     const plusMesh = new THREE.Mesh(
@@ -3227,7 +3252,7 @@
         map: plusTex, transparent: true, opacity: 0.9, depthWrite: false
       })
     );
-    plusMesh.position.set(SPACING_X, 0, -11.5); // a hair in front of the lattice
+    plusMesh.position.set(GRID_CX, 0, -11.5);   // a hair in front of the lattice
     plusMesh.renderOrder = -1;
     galleryGroup.add(plusMesh);
 
@@ -3260,11 +3285,11 @@
         vid.setAttribute('playsinline', '');
         vid.setAttribute('webkit-playsinline', '');
         vid.setAttribute('muted', '');
-        // metadata-only at page load: the three clips are ~19MB combined and
-        // used to download (and even start decoding) while the HERO was still
-        // fetching its image sequence. A one-shot observer on #skills flips
-        // them to preload='auto' with a full flythrough of lead time, and the
-        // render loop starts playback per-plane as each one nears the view.
+        // metadata-only at page load: the clips used to download (and even
+        // start decoding) while the HERO was still fetching its image
+        // sequence. warmVideo() flips them to preload='auto' — the first ones
+        // early, the rest as the pan approaches — and the render loop starts
+        // playback per-plane as each one nears the view.
         vid.preload = 'metadata';
         const vtex = new THREE.VideoTexture(vid);
         vtex.minFilter = THREE.LinearFilter;
@@ -3274,6 +3299,7 @@
         mat.map = vtex;
         mat.color.set(0xffffff);
         mat.needsUpdate = true;
+        slideVideoIdx[i] = videoEls.length;
         videoEls.push(vid);
         videoTextures.push(vtex);
         videoMeshes.push(mesh);
@@ -3560,18 +3586,18 @@
       videoEls.forEach((v) => { const p = v.play(); if (p && p.catch) p.catch(() => {}); });
     }
 
-    // Warm the clips while the user is still flying through the skills warp:
-    // flip preload metadata → auto once #skills actually enters the viewport.
-    // That still leaves ~7 viewports of flythrough before the first video
-    // plane can appear, but it's late enough that the ~19MB of clips never
-    // competes with the hero image sequence at page load. (No rootMargin —
+    // Warm the first clips while the user is still flying through the skills
+    // warp: flip preload metadata → auto once #skills actually enters the
+    // viewport (a no-op if the boot warmup already did). Later clips warm
+    // progressively as the pan approaches them (warmSlideVideos), so the
+    // full set never competes with the hero image sequence. (No rootMargin —
     // the section overlaps the hero's tail, so any margin fires at the top.)
     if (videoEls.length && 'IntersectionObserver' in window) {
       const skillsSec = document.getElementById('skills');
       if (skillsSec) {
         const warm = new IntersectionObserver((es) => {
           if (!es.some((e) => e.isIntersecting)) return;
-          videoEls.forEach((v) => { v.preload = 'auto'; try { v.load(); } catch (e) {} });
+          warmSlideVideos(0);
           warm.disconnect();
         }, { rootMargin: '0px' });
         warm.observe(skillsSec);
@@ -3767,6 +3793,9 @@
       if (idx === lastActiveIdx) return;
       const prevIdx = lastActiveIdx;
       lastActiveIdx = idx;
+      // Pre-roll the next clip(s) while this project dwells. Skipped on the
+      // initial updateUI(0) at init so nothing downloads during page load.
+      if (prevIdx !== -1) warmSlideVideos(idx);
       for (let i = 0; i < SLIDE_COUNT; i++) {
         if (!slideEls[i]) continue;
         slideEls[i].classList.toggle('is-active', i === idx);
@@ -3973,18 +4002,24 @@
     // no decode/upload hitch and no blank plane. Runs during the loading screen.
     bootWarmups.push(() => new Promise((resolve) => {
       const renderOnce = () => { try { resize(); renderer.render(scene, camera); } catch (e) {} };
-      let pending = videoEls.length;
+      // Only the first clips the visitor meets (the rest warm on approach).
+      const bootVids = [];
+      for (let s = 0; s <= WARM_AHEAD; s++) {
+        if (slideVideoIdx[s] !== undefined) bootVids.push(slideVideoIdx[s]);
+      }
+      let pending = bootVids.length;
       if (!pending) { renderOnce(); resolve(); return; }
       let settled = false;
       const finishWarm = () => { if (settled) return; settled = true; renderOnce(); resolve(); };
-      videoEls.forEach((v, i) => {
+      bootVids.forEach((i) => {
+        const v = videoEls[i];
         const onReady = () => {
           v.removeEventListener('loadeddata', onReady);
           if (videoTextures[i]) videoTextures[i].needsUpdate = true;
           if (--pending <= 0) finishWarm();
         };
         v.addEventListener('loadeddata', onReady);
-        try { v.preload = 'auto'; v.load(); } catch (e) { onReady(); }
+        warmVideo(i);
       });
       setTimeout(finishWarm, 4000);   // never let a stalled clip hold the loader
     }));
@@ -4088,7 +4123,9 @@
           // a natural runway to settle on the last project before
           // the section actually exits — covers slow/moderate
           // scrolls; the onLeave snap covers very fast scrolls.
-          if (adj > 0.88) adj = 1;
+          // Rescaled (not clamped) so every project-to-project pan gets
+          // an equal share of the runway before the hold.
+          adj = Math.min(1, adj / 0.88);
           targetScroll = progressToScroll(adj);
           kickRender();
         }
