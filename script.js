@@ -112,17 +112,21 @@
   const captions = Array.from(document.querySelectorAll('.cinema__caption'));
   const cinemaAsideLeft = document.getElementById('cinemaAsideLeft');
   const cinemaAsideRight = document.getElementById('cinemaAsideRight');
-  // "Good part" headline behind the character. gpTL is the paused
-  // word-wipe timeline (built in initGoodPart); setGoodPart() plays /
-  // reverses it. GP_REVEAL_FRAME is the animFrame at which the headline
-  // wipes in — set on the reel's FINAL approach to center (it lands dead
-  // center at frame 250 of TIMELINE_MAX/270). Triggering a touch before
-  // that lets the word-wipe begin slightly earlier; the ~1.5s timeline
-  // finishes just as the character settles centered.
-  const goodPart = document.getElementById('goodPart');
-  let gpTL = null;
-  let gpShown = false;
-  const GP_REVEAL_FRAME = 230;
+  // Organizations scene behind the character (3D ASCII marks, the
+  // handwritten heading and roles). orgsAscii drives the canvas and
+  // orgsWriter raises the words (both built in initOrgs); setOrgs(frame)
+  // shows / hides each from the reel's animFrame. Both come in on the
+  // reel's FINAL approach to center (it lands dead center at frame 250
+  // of TIMELINE_MAX/270): the 3D marks first, ORGS_MARKS_FRAME, so they
+  // are already assembling while the character travels over; the words
+  // at ORGS_REVEAL_FRAME, finishing just as the character settles.
+  const orgsEl = document.getElementById('orgs');
+  let orgsAscii = null;
+  let orgsWriter = null;     // the words' rise-in (see initOrgs)
+  let orgsMarksShown = false;
+  let orgsShown = false;
+  const ORGS_MARKS_FRAME = 200;
+  const ORGS_REVEAL_FRAME = 230;
   let asideSide = 0;   // -1 = right text shown (char left); 1 = left text shown (char right)
   let heroTerminal = null;   // left-aside terminal controller (see initHeroTerminal)
   let onBioUserScroll = null;   // set by initIgBio; lets a real user scroll instantly start the bio's disappear
@@ -451,27 +455,49 @@
 
   /* HUD/captions read from the character-animation progress
      (everything after the UI has scrolled away). */
+  // Called every reel tick, so every write is skipped unless its value
+  // actually changed: replacing a text node (even with identical text) or
+  // touching a layout property re-lays out the HUD, and any layout makes the
+  // browser re-hit-test the cursor — per frame, that was a real cost.
+  const captionSpans = captions.map((c) => ({
+    el: c, from: parseFloat(c.dataset.from), to: parseFloat(c.dataset.to), on: c.classList.contains('is-active')
+  }));
+  let hudFrameShown = -1, hudBarShown = '', hudSecShown = -1;
+  let hudBarTrack = 0;   // the progress track's width in px (cached by refreshHeroLayout)
   function renderCinemaUI(animP) {
     const cp = clamp01(animP);
     const sourceFrameNumber = Math.round(cp * (TOTAL_SOURCE_FRAMES - 1)) + 1;
-    if (cinemaFrameNum) {
+    if (cinemaFrameNum && sourceFrameNumber !== hudFrameShown) {
+      hudFrameShown = sourceFrameNumber;
       cinemaFrameNum.textContent = `${String(sourceFrameNumber).padStart(3, '0')} / 300`;
     }
     if (cinemaBar) {
-      cinemaBar.style.width = (cp * 100).toFixed(1) + '%';
+      // scaleX, not width (compositor-only) — same 0.1% steps as before, and
+      // snapped to a whole pixel of the track, as the laid-out width was, so
+      // the bar's tip lands on exactly the pixel it always did.
+      const bar = (cp * 100).toFixed(1);
+      if (bar !== hudBarShown) {
+        hudBarShown = bar;
+        const frac = +bar / 100;
+        const sx = hudBarTrack > 0 ? Math.round(frac * hudBarTrack) / hudBarTrack : frac;
+        cinemaBar.style.transform = 'scaleX(' + sx.toFixed(5) + ')';
+      }
     }
     if (cinemaRuntime) {
       const totalSeconds = 12;
-      const t = cp * totalSeconds;
-      const mm = Math.floor(t / 60).toString().padStart(2, '0');
-      const ss = Math.floor(t % 60).toString().padStart(2, '0');
-      cinemaRuntime.textContent = `${mm}:${ss}`;
+      const sec = Math.floor(cp * totalSeconds);
+      if (sec !== hudSecShown) {
+        hudSecShown = sec;
+        const mm = Math.floor(sec / 60).toString().padStart(2, '0');
+        const ss = Math.floor(sec % 60).toString().padStart(2, '0');
+        cinemaRuntime.textContent = `${mm}:${ss}`;
+      }
     }
-    captions.forEach((c) => {
-      const from = parseFloat(c.dataset.from);
-      const to = parseFloat(c.dataset.to);
-      c.classList.toggle('is-active', cp >= from && cp < to);
-    });
+    for (let i = 0; i < captionSpans.length; i++) {
+      const c = captionSpans[i];
+      const on = cp >= c.from && cp < c.to;
+      if (on !== c.on) { c.on = on; c.el.classList.toggle('is-active', on); }
+    }
   }
 
   /* -------------------------------------------------------
@@ -893,6 +919,7 @@
       let shown = aside.classList.contains('is-revealed');
       if (shown) startAuto();
       const obs = new MutationObserver(function () {
+        if (heroRehearsing) return;
         const now = aside.classList.contains('is-revealed');
         if (now && !shown) { shown = true; startAuto(); }
         else if (!now && shown) { shown = false; stopAuto(); }
@@ -1098,6 +1125,7 @@
     let outByScroll = false;
     clearAll();
     const obs = new MutationObserver(function () {
+      if (heroRehearsing) return;
       const now = aside.classList.contains('is-revealed');
       if (now && !shown) { shown = true; outByScroll = false; writeIn(); }
       else if (!now && shown) { shown = false; writeOut(); }
@@ -1187,6 +1215,7 @@
     let shown = aside.classList.contains('is-revealed');
     if (shown) start();
     const obs = new MutationObserver(function () {
+      if (heroRehearsing) return;
       const now = aside.classList.contains('is-revealed');
       if (now && !shown) { shown = true; start(); }
       else if (!now && shown) { shown = false; stop(); }
@@ -1319,6 +1348,9 @@
     pinRect: null,
     // Loop state
     running: false,
+    lastTickTime: 0,            // rAF timestamp of the previous tick (0 = fresh start)
+    frameMs: 16.667,            // the display's frame interval, as last observed
+    pinCovers: false,           // the sticky pin spans the whole viewport (see heroCovering)
     // Visibility gating — the reel suspends entirely while the hero
     // section is off-screen (set by the #hero IntersectionObserver) or
     // the tab is hidden (visibilitychange). No point drawing the
@@ -1398,6 +1430,31 @@
   let autoScrollClearT = 0;
 
 
+  // Scroll position, read ONCE per scroll event. Reading window.scrollY in
+  // the middle of a frame forces a style + layout flush whenever anything is
+  // dirty (and something always is while the reel runs), so the per-frame
+  // code reads this cached copy instead.
+  let scrollYNow = window.scrollY || 0;
+  window.addEventListener('scroll', () => {
+    scrollYNow = window.scrollY;
+    updateHeroCover();
+  }, { passive: true });
+
+  // The skills section starts BEHIND the hero pin (.warp has margin-top:
+  // -100vh), so IntersectionObservers on it report "visible" from the first
+  // hero scroll — while the opaque pin still hides every pixel of it.
+  // heroCovering is true while the pin fills the viewport; work that only
+  // matters once the section can be SEEN (the warp tunnel shader) waits on it.
+  let heroCovering = false;
+  const heroCoverSubs = [];
+  function updateHeroCover() {
+    const on = motion.pinCovers && motion.pinRunway > 0 &&
+      scrollYNow <= motion.heroSectionTop + motion.pinRunway + 1;
+    if (on === heroCovering) return;
+    heroCovering = on;
+    for (let i = 0; i < heroCoverSubs.length; i++) { try { heroCoverSubs[i](on); } catch (e) {} }
+  }
+
   /* Recomputed only on init + resize. */
   function refreshHeroLayout() {
     const vw = window.innerWidth;
@@ -1410,6 +1467,11 @@
     // can map (animFrame - HOLD_FRAME) → scrollY linearly.
     motion.heroSectionTop = heroSection.offsetTop;
     motion.pinRunway = Math.max(0, heroSection.offsetHeight - window.innerHeight);
+    motion.pinCovers = !!motion.pinRect && motion.pinRect.height >= window.innerHeight - 1;
+    hudBarTrack = (cinemaBar && cinemaBar.parentNode) ? cinemaBar.parentNode.clientWidth : 0;
+    hudBarShown = '';      // re-snap the bar to the (possibly resized) track
+    scrollYNow = window.scrollY;
+    updateHeroCover();
   }
 
   /* Compile + link a WebGL program WITHOUT blocking the main thread. With
@@ -1433,15 +1495,19 @@
     const ext = gl.getExtension('KHR_parallel_shader_compile');
     if (!ext) return Promise.resolve(finish());
     return new Promise((resolve) => {
+      // Every status query is a synchronous round-trip to the GPU process and
+      // BLOCKS for as long as that process is busy compiling (traced: 11-19ms
+      // per poll, one of 71ms — polling every 16ms spent most of the compile
+      // stalled). So poll rarely, backing off: 24, 36, 54 ... capped at 160ms.
+      let wait = 24;
       const poll = () => {
         if (gl.isContextLost()) { resolve(null); return; }
         if (gl.getProgramParameter(prog, ext.COMPLETION_STATUS_KHR)) resolve(finish());
-        else setTimeout(poll, 16);   // setTimeout, not rAF: keeps polling in a hidden tab
+        else { wait = Math.min(160, wait * 1.5); setTimeout(poll, wait); }   // setTimeout, not rAF: keeps polling in a hidden tab
       };
-      // First query on a later task: any status query is a synchronous GPU
-      // round-trip, and right after linkProgram it would queue behind every
-      // other shader still compiling at boot.
-      setTimeout(poll, 16);
+      // First query on a later task: right after linkProgram it would queue
+      // behind every other shader still compiling at boot.
+      setTimeout(poll, wait);
     });
   }
 
@@ -1496,7 +1562,11 @@
     setDecodePlan(list);
   }
 
-  function motionTick() {
+  // Last values written to the three UI-exit elements (they sit at 0 or 1
+  // for most of the reel — rewriting the same style string every tick still
+  // costs a style pass).
+  let uiPShown = '';
+  function motionTick(ts) {
     // Suspend the whole reel while the hero is off-screen or the tab is
     // hidden — nothing to draw, and the warp/gallery sections below are
     // the expensive ones. Wakes via kickMotion() on re-enter.
@@ -1509,9 +1579,9 @@
       // only matters if the user outran the crawl on the way out. Below the pin
       // runway (into the warp) → assembled (MAX); above the hero → the hold pose.
       if (motion.hasScrolled && motion.pinRunway > 0) {
-        if (window.scrollY >= motion.heroSectionTop + motion.pinRunway) {
+        if (scrollYNow >= motion.heroSectionTop + motion.pinRunway) {
           motion.animFrame = TIMELINE_MAX; motion.gateIndex = CHECKPOINTS.length - 1;
-        } else if (window.scrollY <= motion.heroSectionTop) {
+        } else if (scrollYNow <= motion.heroSectionTop) {
           motion.animFrame = HOLD_FRAME; motion.gateIndex = 0;
         }
       }
@@ -1525,11 +1595,19 @@
     // --- Delta-time: advance by elapsed wall-time, not a fixed amount
     // per tick, so the crawl runs at a constant speed regardless of the
     // device's frame rate (no fps-coupled jitter). `rate` is 1.0 at 60fps.
-    const nowT = performance.now();
-    let dt = motion.lastTickTime ? nowT - motion.lastTickTime : 16.667;
+    // The clock is the rAF TIMESTAMP (the frame's vsync time), not
+    // performance.now() at whatever moment this callback happens to run:
+    // callback start times wobble by a millisecond or more, and on a 120-180Hz
+    // display (5-8ms frames) that wobble became a visible shimmer in the crawl
+    // — each frame moved the figure a slightly different distance. A tick that
+    // has no previous tick to measure from (first ever / waking from rest)
+    // steps by the display's last observed frame interval.
+    const nowT = (typeof ts === 'number' && ts > 0) ? ts : performance.now();
+    let dt = motion.lastTickTime ? nowT - motion.lastTickTime : motion.frameMs;
     motion.lastTickTime = nowT;
     if (dt > 33) dt = 33;        // cap gaps (tab switch / GC) to ~2 frames
-    else if (dt < 1) dt = 16.667;
+    else if (dt < 1) dt = motion.frameMs;
+    else if (dt < 20) motion.frameMs = dt;
     const rate = dt / 16.667;
 
     // --- Idle breathing ---
@@ -1598,7 +1676,7 @@
     // already parked at MAX here (see the off-screen exit-snap), so in the
     // normal case this is a no-op; it just holds through the tail.
     if (motion.playDirection === -1 && motion.hasScrolled && motion.pinRunway > 0 &&
-        window.scrollY > motion.heroSectionTop + motion.pinRunway + 4) {
+        scrollYNow > motion.heroSectionTop + motion.pinRunway + 4) {
       motion.animFrame = TIMELINE_MAX;       // hold assembled through the tail
       shouldAdvance = false;                 // no crawl + no follow through the tail
       // NB: gateIndex is deliberately NOT reset here — reverse gestures made in
@@ -1667,7 +1745,7 @@
         (motion.animFrame - HOLD_FRAME) / (TIMELINE_MAX - HOLD_FRAME)
       );
       const followY = motion.heroSectionTop + motion.pinRunway * scrollProg;
-      const curY = window.scrollY;
+      const curY = scrollYNow;   // cached per scroll event — no mid-frame layout flush
       const follow = advanceStep > 0
         ? followY > curY + 1     // forward: pull the page down to the reel
         : followY < curY - 1;    // reverse: pull the page up to the reel
@@ -1675,6 +1753,7 @@
         isAutoScrolling = true;
         if (autoScrollClearT) { clearTimeout(autoScrollClearT); autoScrollClearT = 0; }
         window.scrollTo({ top: followY, left: 0, behavior: 'instant' });
+        scrollYNow = followY;    // the scroll event will confirm (or correct) it
       }
     } else if (isAutoScrolling && !autoScrollClearT) {
       // Reel parked: absorb the async event tail, then hand scroll back.
@@ -1694,22 +1773,28 @@
     const uiP = motion.hasScrolled
       ? clamp01((motion.animFrame - HOLD_FRAME) / UI_EXIT_FRAMES)
       : 0;
-    if (heroStageUI) {
-      heroStageUI.style.transform =
-        'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
-      heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+    const uiPKey = uiP.toFixed(4);
+    if (uiPKey !== uiPShown) {
+      uiPShown = uiPKey;
+      // The hero UI is fully out (opacity 0): stop animating what it holds.
+      document.body.classList.toggle('hero-ui-gone', uiP >= 1);
+      if (heroStageUI) {
+        heroStageUI.style.transform =
+          'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
+        heroStageUI.style.opacity = (1 - uiP).toFixed(3);
+      }
+      if (heroSign) {
+        // Move the signature UP + fade with the UI exit so it scrolls
+        // away with everything else instead of staying stuck behind the
+        // character. Composed with its centering + tilt; the leading
+        // translate is in viewport units (vh) to match the UI's travel.
+        heroSign.style.transform =
+          'translate3d(0, ' + (-uiP * 110).toFixed(2) + 'vh, 0) translate(-50%, -50%) rotate(-8deg)';
+        heroSign.style.opacity = (1 - uiP).toFixed(3);
+      }
+      if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
     }
-    if (heroSign) {
-      // Move the signature UP + fade with the UI exit so it scrolls
-      // away with everything else instead of staying stuck behind the
-      // character. Composed with its centering + tilt; the leading
-      // translate is in viewport units (vh) to match the UI's travel.
-      heroSign.style.transform =
-        'translate3d(0, ' + (-uiP * 110).toFixed(2) + 'vh, 0) translate(-50%, -50%) rotate(-8deg)';
-      heroSign.style.opacity = (1 - uiP).toFixed(3);
-    }
-    if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
-    setGoodPart(motion.animFrame >= GP_REVEAL_FRAME);
+    setOrgs(motion.animFrame);
 
     // --- Character render from animFrame ---
     const timelineProgress = motion.animFrame / TIMELINE_MAX;
@@ -1744,6 +1829,7 @@
         'translate3d(calc(-50% + ' + finalX2.toFixed(2) + 'px), ' +
         motion.cursorRenderedY.toFixed(2) + 'px, 0)';
       motion.running = false;
+      motion.lastTickTime = 0;   // the next wake starts a fresh dt (see above)
       return;
     }
     // Otherwise keep ticking: the reel is still moving or the cursor is
@@ -1765,6 +1851,7 @@
       motion.cursorRenderedY = motion.cursorTargetY;
       const progress = motion.animFrame / TIMELINE_MAX;
       const { uiP, animP } = splitProgress(progress);
+      uiPShown = '';   // written directly below — invalidate motionTick's cache
       if (heroStageUI) {
         heroStageUI.style.transform =
           'translate3d(0, ' + (-uiP * 110).toFixed(2) + '%, 0)';
@@ -1776,7 +1863,7 @@
         heroSign.style.opacity = (1 - uiP).toFixed(3);
       }
       if (cinemaOverlay) cinemaOverlay.style.opacity = uiP.toFixed(3);
-      setGoodPart(motion.animFrame >= GP_REVEAL_FRAME);
+      setOrgs(motion.animFrame);
       const fx = motion.cursorRenderedX + computeScrollX(progress);
       cinemaCanvas.style.transform =
         'translate3d(calc(-50% + ' + fx.toFixed(2) + 'px), ' +
@@ -2274,6 +2361,94 @@
      rise and the hand-off reads as one smooth motion.
      rAF-driven; safety-timed.
      ------------------------------------------------------- */
+  /* -------------------------------------------------------
+     rehearseHero — a dress rehearsal BEHIND the loader.
+     The first time anything appears, the browser has to rasterise
+     its layers and the GPU process has to build the draw pipelines
+     for its effects (the blur-in filters, the frosted HUD chips,
+     the 3D testimonial wall, the Instagram panel's images...).
+     Traced on a cold load: 114ms + 52ms of raster as the curtain
+     lifted, 13-47ms draw passes through the first scroll, 72ms of
+     raster when the Instagram panel came in — every one a visible
+     hitch in the reel, and all gone the SECOND time each thing
+     appeared. So everything gets its first appearance here, where
+     nobody can see it: for ~1/3s the hero's opening UI and both
+     side panels are put in their on-screen state under the loader,
+     then snapped back (transitions off) to exactly how they were.
+     The loader is set to opacity 0.999 meanwhile: visually opaque
+     (the bleed rounds to nothing), but a truly opaque layer lets
+     the compositor skip drawing what it covers — which would skip
+     the very work this exists to get done.
+     The three aside observers ignore the class toggles
+     (heroRehearsing), so no slideshow / typing / tilt starts.
+     ------------------------------------------------------- */
+  let heroRehearsing = false;
+  let signRehearse = null;   // set by initHeroSign
+  function rehearseHero() {
+    const loader = document.getElementById('preloader');
+    const body = document.body;
+    if (!loader || !body.classList.contains('is-pre-load') ||
+        (reduceMotionMQ && reduceMotionMQ.matches)) return Promise.resolve();
+    return new Promise((resolve) => {
+      const asides = [cinemaAsideLeft, cinemaAsideRight].filter(Boolean);
+      heroRehearsing = true;
+      loader.style.opacity = '0.999';
+      body.classList.add('boot-rehearse');
+      asides.forEach((el) => el.classList.add('is-revealed'));
+      if (signRehearse) { try { signRehearse(true); } catch (e) {} }
+      // The two panels blur in from 16px. The GPU builds a separate blur
+      // program per kernel size, so a real reveal hitched every time the
+      // shrinking radius reached a size it had not drawn before. Step each
+      // panel through the whole range here, half a pixel per frame — fading in
+      // as it sharpens, exactly as the real reveal does (blur + partial
+      // opacity together is its own pipeline; rehearsing at full opacity left
+      // one 35ms hitch on the first real reveal).
+      const testi = cinemaAsideRight && cinemaAsideRight.querySelector('.testi3d');
+      const blurEls = [[testi, 0.85], [cinemaAsideLeft, 0.95]].filter((b) => b[0]);
+      blurEls.forEach((b) => { b[0].style.transition = 'none'; });
+      // 16px -> 1px in half-pixel steps, then finely through the last pixel:
+      // the tail of the real ease-out spends many frames below 1px, and those
+      // tiny kernels are their own programs too.
+      const radii = [];
+      for (let v = 16; v >= 1; v -= 0.5) radii.push(v);
+      [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.07, 0.05, 0.03, 0.02, 0.01, 0].forEach((v) => radii.push(v));
+      let step = 0, ended = false;
+      const t0 = performance.now();
+      const end = () => {
+        if (ended) return;
+        ended = true;
+        body.classList.add('boot-rehearse-reset');       // snap back — no fade-outs
+        asides.forEach((el) => el.classList.remove('is-revealed'));
+        blurEls.forEach((b) => { b[0].style.transition = ''; b[0].style.opacity = ''; b[0].style.filter = ''; });
+        unsettleLeft(); unsettleRight();
+        if (signRehearse) { try { signRehearse(false); } catch (e) {} }
+        body.classList.remove('boot-rehearse');
+        void body.offsetWidth;                           // apply the snapped state now
+        requestAnimationFrame(() => {
+          body.classList.remove('boot-rehearse-reset');
+          loader.style.opacity = '';
+          heroRehearsing = false;
+          resolve();
+        });
+      };
+      const sweep = () => {
+        if (ended) return;
+        if (step >= radii.length) {
+          if (performance.now() - t0 >= 340) end(); else requestAnimationFrame(sweep);
+          return;
+        }
+        const radius = radii[step++];
+        blurEls.forEach((b) => {
+          b[0].style.opacity = Math.max(0.02, 1 - radius / 16).toFixed(3);
+          b[0].style.filter = 'blur(' + radius + 'px) brightness(' + (1 - (1 - b[1]) * radius / 16).toFixed(3) + ')';
+        });
+        requestAnimationFrame(sweep);
+      };
+      requestAnimationFrame(sweep);
+      setTimeout(end, 1600);                             // never hold the curtain on this
+    });
+  }
+
   function initPreloader(bootReady) {
     bootReady = Promise.resolve(bootReady || null);
     const loader = document.getElementById('preloader');
@@ -4955,61 +5130,568 @@
      text-effect component's stroke draw-on. JS-driven so the timing
      is frame-accurate and reliable.
      ------------------------------------------------------- */
-  // Build the "good part" headline: inject a reveal block into every
-  // word and assemble a paused GSAP timeline that wipes each word in
-  // bottom-to-up (block scales up from the bottom edge, the word inks
-  // in mid-sweep, then the block continues up and off the top). Played
-  // / reversed by setGoodPart() as the cinema view comes and goes.
-  function initGoodPart() {
-    if (!goodPart) return;
-    const words = Array.from(goodPart.querySelectorAll('.goodpart__word'));
-    if (!words.length) return;
-    const texts = words.map(function (w) { return w.querySelector('.goodpart__text'); });
-    const blocks = words.map(function (w) {
-      const b = document.createElement('span');
-      b.className = 'goodpart__block';
-      w.appendChild(b);
-      return b;
-    });
-
-    const reduce = reduceMotionMQ && reduceMotionMQ.matches;
-    if (reduce) {
-      // Reduced motion: no wipe. The words just appear / vanish with the
-      // cinema state (setGoodPart toggles goodPart.style.opacity instead).
-      gsap.set(texts, { opacity: 1 });
-      gsap.set(blocks, { display: 'none' });
-      goodPart.style.opacity = '0';
-      return;
+  // Boot the organizations scene: the canvas (both 3D marks) and the
+  // words. Each line rises up out of the mask on its own baseline (the
+  // hero title's entrance; .orgs__write clips, .orgs__in moves) on ONE
+  // shared clock: the heading first, then each role, then its
+  // organisation, left side a beat ahead of the right. Leaving runs the
+  // same clock backwards, faster, so the words sink away in reverse order.
+  function initOrgs() {
+    if (!orgsEl) return;
+    orgsAscii = initOrgsAscii();
+    const q = (sel) => document.querySelector(sel);
+    const lines = [
+      // [moving element, start (s), duration (s), last value written]
+      [q('.orgs__title .orgs__in'), 0.15, 1.0, -1],
+      [q('.orgs__role--l .orgs__rname .orgs__in'), 0.7, 0.85, -1],
+      [q('.orgs__role--r .orgs__rname .orgs__in'), 0.9, 0.85, -1],
+      [q('.orgs__role--l .orgs__org .orgs__in'), 1.1, 0.8, -1],
+      [q('.orgs__role--r .orgs__org .orgs__in'), 1.3, 0.8, -1],
+    ].filter((l) => l[0]);
+    const END = Math.max.apply(null, lines.map((l) => l[1] + l[2]));
+    const ease = (t) => 1 - Math.pow(1 - t, 4);   // easeOutQuart, as the site's --ease-out-quart
+    let T = 0, on = false, raf = 0, last = 0;
+    function paint() {
+      for (const l of lines) {
+        const f = ease(Math.min(1, Math.max(0, (T - l[1]) / l[2])));
+        if (f === l[3]) continue;          // parked lines are not rewritten
+        l[3] = f;
+        l[0].style.transform = f >= 1 ? 'none' : 'translateY(' + ((1 - f) * 150).toFixed(2) + '%)';
+      }
     }
-
-    gsap.set(texts, { opacity: 0 });
-    gsap.set(blocks, { scaleY: 0, transformOrigin: 'center bottom' });
-
-    const DUR = 0.6, STAG = 0.085;
-    gpTL = gsap.timeline({ paused: true, defaults: { ease: 'expo.inOut' } });
-    // A — each block scales UP from its bottom edge, staggered per word.
-    gpTL.to(blocks, {
-      scaleY: 1, duration: DUR, stagger: STAG, transformOrigin: 'center bottom'
-    });
-    // B — ink each word in halfway through its own block sweep.
-    gpTL.set(texts, { opacity: 1, stagger: STAG }, '<' + (DUR / 2));
-    // C — the block keeps moving UP, scaling to 0 off the top edge,
-    //     uncovering the word it just revealed.
-    gpTL.to(blocks, {
-      scaleY: 0, duration: DUR, stagger: STAG, transformOrigin: 'center top'
-    }, '<' + (DUR * 0.4));
+    function frame(now) {
+      raf = 0;
+      const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
+      last = now;
+      T = on ? Math.min(END, T + dt) : Math.max(0, T - dt * 3.2);
+      paint();
+      if ((on && T < END) || (!on && T > 0)) raf = requestAnimationFrame(frame);
+      else last = 0;
+    }
+    const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
+    orgsWriter = {
+      show: function (v) {
+        on = v;
+        if (reduce) { T = v ? END : 0; paint(); return; }
+        if (!raf) { last = 0; raf = requestAnimationFrame(frame); }
+        // Safety net (as for the welcome line): rAF is throttled in a
+        // background tab, which could leave a line half-written.
+        clearTimeout(orgsWriter.safety);
+        orgsWriter.safety = setTimeout(() => { if (on === v) { T = v ? END : 0; paint(); } },
+          (v ? END : END / 3.2) * 1000 + 600);
+      },
+      safety: 0
+    };
   }
 
-  // Toggle the headline. Plays the word-wipe forward when entering the
-  // cinema view and reverses it (same animation, mirrored) when leaving.
-  function setGoodPart(on) {
-    if (gpShown === on) return;
-    gpShown = on;
-    if (gpTL) {
-      if (on) gpTL.play(); else gpTL.reverse();
-    } else if (goodPart) {
-      goodPart.style.opacity = on ? '1' : '0';
+  // Toggle the scene from the reel's frame: the ASCII marks assemble from
+  // ORGS_MARKS_FRAME (on the way over), the words rise in from
+  // ORGS_REVEAL_FRAME; scrolling back dissolves / lowers each again.
+  function setOrgs(frame) {
+    const marks = frame >= ORGS_MARKS_FRAME;
+    if (marks !== orgsMarksShown) {
+      orgsMarksShown = marks;
+      if (orgsAscii) orgsAscii.show(marks);
     }
+    const words = frame >= ORGS_REVEAL_FRAME;
+    if (words !== orgsShown) {
+      orgsShown = words;
+      if (orgsWriter) orgsWriter.show(words);
+    }
+  }
+
+  /* -------------------------------------------------------
+     initOrgsAscii — the two organisation marks (AI Society,
+     TinyFish) as 3D ASCII objects floating behind the character.
+
+     Each mark is a 72 x 40 sheet of characters (assets/org-ascii.js,
+     generated by scripts/build-org-ascii.js). Every character is one
+     instanced quad textured from a glyph atlas, placed in 3D and put
+     through a real perspective camera in the vertex shader, so the
+     marks turn, foreshorten and show their thickness:
+       • depth by part — backing tile far, pins, chip body, then the
+         "AI" lettering proud of the chip; the fish stands off its tile
+       • thickness — body cells are repeated back through their depth,
+         shaded from a far tint to the face colour (the side walls)
+       • a soft shadow cast on the backing tile
+       • motion — each mark floats and sways, leans toward the cursor,
+         assembles out of scrambled glyphs on reveal; signals run down
+         the chip's pins, the fish swims (a wave down its tail) and
+         blows bubbles, the tile's lines drift
+     Both marks share ONE canvas and one program. The loop runs only
+     while the scene is revealed and the hero is on screen. Without
+     WebGL the marks are drawn once, flat, on a 2D canvas.
+     Returns { show(on) }.
+     ------------------------------------------------------- */
+  function initOrgsAscii() {
+    const none = { show: function () {} };
+    const host = orgsEl;
+    let canvas = document.getElementById('orgsCanvas');
+    const DATA = window.ORG_ASCII;
+    if (!host || !canvas || !DATA) return none;
+    const reduce = !!(reduceMotionMQ && reduceMotionMQ.matches);
+
+    const COLS = DATA.cols, ROWS = DATA.rows;
+    const CH = 1.8;                          // cell height, in column widths
+    const HX = COLS / 2, HY = ROWS * CH / 2;
+    const PLATE = -13;                       // depth of the backing tile
+    const cellX = (c) => c + 0.5 - HX;
+    const cellY = (r) => HY - (r + 0.5) * CH;
+    const hex = (h) => [(h >> 16 & 255) / 255, (h >> 8 & 255) / 255, (h & 255) / 255];
+    const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    let seed = 20261110;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+    // Glyph table: the scramble set first (the shader picks from the first
+    // N_SCRAMBLE while a cell is assembling), then whatever the sheets use.
+    const SCRAMBLE = '01<>[]{}/|=+-*#%&$@?!;:~^';
+    const glyphs = [], glyphAt = {};
+    const gi = (ch) => {
+      if (glyphAt[ch] === undefined) { glyphAt[ch] = glyphs.length; glyphs.push(ch); }
+      return glyphAt[ch];
+    };
+    for (const ch of SCRAMBLE) gi(ch);
+    const N_SCRAMBLE = glyphs.length;
+
+    // Instance kinds (how the shader animates a quad).
+    const GLYPH = 0, BLOB = 1, BUBBLE = 2, PULSE = 3, FLOW = 4, SWIM = 5;
+    const INK = hex(0x0C0C0A), MUTE = hex(0x5F5A4F);
+    const THIN = '.:;,`"\'';                // too faint to carry a side wall
+
+    // Sheet -> instances, sorted far-to-near (painter's order; the marks
+    // never turn far enough for that order to flip).
+    // rule: { z, back?, solid?, rgb, far?, a?, kind?, fx?, size?, shadow? }
+    // A cell with `back` is repeated back through its depth — its side wall —
+    // but only where that wall would be SEEN on a solid object: the wall
+    // trails toward the mark's outer screen edge (the way it is turned), so a
+    // cell gets one when the cells beside it on that side, or right above /
+    // below it, are not part of the same solid (`solid` lists its classes,
+    // or is a (col, row) test).
+    function build(grid, rules, dir, extra) {
+      const list = [];
+      const cls = (c, r) => (c < 0 || r < 0 || c >= COLS || r >= ROWS) ? 0 : +grid.k[r * COLS + c];
+      const walled = (c, r, solid) => {
+        const out = (cc, rr) => (typeof solid === 'function' ? !solid(cc, rr) : solid.indexOf(cls(cc, rr)) < 0);
+        return out(c - dir, r) || out(c - 2 * dir, r) || out(c, r - 1) || out(c, r + 1);
+      };
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const rule = rules[cls(c, r)];
+        if (!rule) continue;
+        const ch = grid.g[r * COLS + c], g = gi(ch);
+        const x = cellX(c), y = cellY(r);
+        const fx = rule.fx ? rule.fx(c, r) : 0;
+        const kind = rule.kind || GLYPH, a = rule.a === undefined ? 1 : rule.a;
+        if (rule.back !== undefined && THIN.indexOf(ch) < 0 && walled(c, r, rule.solid)) {
+          for (let z = rule.back; z < rule.z - 0.01; z += 0.8) {
+            const t = (z - rule.back) / (rule.z - rule.back);
+            list.push([x, y, z, rnd(), g, fx, kind, 1, lerp3(rule.far, rule.rgb, t * t), 0.72 * a]);
+          }
+        }
+        list.push([x, y, rule.z, rnd(), g, fx, kind, rule.size || 1, rule.rgb, a, 1]);
+        // Soft shadow on the tile, from every 3rd column / 2nd row of the body.
+        // The tile sits far behind the body, so the turn already slides it
+        // toward the outer edge; the shadow is pulled back in and dropped.
+        if (rule.shadow && !isLowPower && c % 3 === 0 && r % 2 === 0) {
+          list.push([x + dir * 5.5, y - 5.5, PLATE + 0.01, rnd(), 0, 0, BLOB, 11, rule.shadow, 0.07]);
+        }
+      }
+      if (extra) extra(list);
+      return pack(list);
+    }
+    // Instance list -> interleaved Float32Array (12 floats each), far-to-near.
+    function pack(list) {
+      list.sort((p, q) => p[2] - q[2]);
+      const out = new Float32Array(list.length * 12);
+      out.face = new Uint8Array(list.length);          // 1 = a face / tile cell (not a wall, shadow or bubble)
+      list.forEach((e, i) => {
+        out.set([e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8][0], e[8][1], e[8][2], e[9]], i * 12);
+        out.face[i] = e[10] ? 1 : 0;
+      });
+      return out;
+    }
+
+
+    // --- AI Society: violet chip, signals running out along its pins.
+    const V_DEEP = hex(0x2A1B7E), V_FAR = hex(0xA596E8);
+    let cx0 = COLS, cx1 = 0, cy0 = ROWS, cy1 = 0;      // chip body bounds
+    for (let i = 0; i < COLS * ROWS; i++) if (DATA.ais.k[i] === '1') {
+      const c = i % COLS, r = (i / COLS) | 0;
+      cx0 = Math.min(cx0, c); cx1 = Math.max(cx1, c); cy0 = Math.min(cy0, r); cy1 = Math.max(cy1, r);
+    }
+    const pinDist = (c, r) =>
+      (Math.max(cx0 - c, c - cx1, 0) + Math.max(cy0 - r, r - cy1, 0) * CH) / 16;
+    const CHIP = (c, r) => c >= cx0 && c <= cx1 && r >= cy0 && r <= cy1;   // whole body, incl. its inner gap
+    const aisData = build(DATA.ais, {
+      1: { z: 8, back: 0, solid: CHIP, rgb: V_DEEP, far: V_FAR, shadow: hex(0x1A1040) },         // chip body
+      2: { z: 8, rgb: hex(0x7A63D6), a: 0.9, shadow: hex(0x1A1040) },                            // chip face
+      3: { z: 13.5, back: 9, solid: [3], rgb: INK, far: hex(0x6A45F0), shadow: hex(0x1A1040) },  // "AI"
+      4: { z: 9.5, rgb: V_DEEP },                                                                // "SOCIETY"
+      5: { z: 2, back: 0, solid: [5, 6], rgb: hex(0x4B379F), far: V_FAR, kind: PULSE, fx: pinDist },   // pins
+      6: { z: 3.5, rgb: hex(0xE2471F), kind: PULSE, fx: pinDist, size: 1.3 },           // pin nodes
+      7: { z: PLATE, rgb: hex(0x8D7BD1), a: 0.7, kind: FLOW, fx: (c, r) => (c + r * CH) / 34 },
+      8: { z: PLATE, rgb: MUTE, a: 0.85 },
+    }, 1);
+
+    // --- TinyFish: the fish swims (a wave down the tail) and blows bubbles.
+    const tailW = (c) => { const t = Math.min(1, Math.max(0, (36 - c) / 30)); return t * t; };
+    const F_SHADOW = hex(0x4A2000);
+    const fishData = build(DATA.fish, {
+      1: { z: 8, back: 0, solid: [1, 2, 3], rgb: INK, far: hex(0xEE8C44), kind: SWIM, fx: tailW, shadow: F_SHADOW },
+      2: { z: 8, rgb: hex(0xEC5A06), kind: SWIM, fx: tailW, shadow: F_SHADOW },
+      3: { z: 8, rgb: hex(0xC4842F), kind: SWIM, fx: tailW, shadow: F_SHADOW },
+      8: { z: PLATE, rgb: MUTE, a: 0.85 },
+      9: { z: PLATE, rgb: hex(0xCC8A3C), a: 0.75, kind: FLOW, fx: (c, r) => c / 16 + r * 0.23 },
+    }, -1, (list) => {
+      const orange = hex(0xEC5A06);
+      for (let i = 0; i < 7; i++) {
+        list.push([cellX(53) + rnd() * 3, cellY(22), 12 + rnd() * 5, rnd(),
+          gi(i % 3 ? 'o' : 'O'), i / 7 + rnd() * 0.06, BUBBLE, 0.8 + rnd() * 0.7, orange, 0.95]);
+      }
+    });
+
+    // dir: +1 = this mark's outer screen edge is its left (the reveal sweeps
+    // in from there, and the mark turns so its inner edge recedes).
+    const marks = [
+      { key: 'ais', data: aisData, dir: 1, phase: 0.0, pulse: hex(0xE2471F), spark: hex(0x7A5CF0) },
+      { key: 'fish', data: fishData, dir: -1, phase: 2.1, pulse: hex(0xFF9A3D), spark: hex(0xFF7A1A) },
+    ];
+    for (const m of marks) {
+      m.slot = host.querySelector('[data-org="' + m.key + '"]');
+      m.count = m.data.length / 12;
+      m.cx = 0; m.cy = 0; m.scale = 1;
+      m.cam = 132; m.span = COLS;
+    }
+    if (!marks[0].slot || !marks[1].slot) return none;
+
+
+    function measure(scale) {
+      const hr = host.getBoundingClientRect();
+      for (const m of marks) {
+        const r = m.slot.getBoundingClientRect();
+        m.cx = (r.left + r.width / 2 - hr.left) * scale;
+        m.cy = (r.top + r.height / 2 - hr.top) * scale;
+        m.scale = r.width / COLS * scale;
+      }
+      return hr;
+    }
+
+    let gl = null, ext = null;
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: true, antialias: false, premultipliedAlpha: true,
+        depth: false, stencil: false, powerPreference: 'high-performance'
+      });
+      ext = gl && gl.getExtension('ANGLE_instanced_arrays');
+    } catch (e) { gl = null; }
+
+    // ---------- No WebGL: the same sheets, drawn once, flat. ----------
+    if (!gl || !ext) {
+      const flat = document.createElement('canvas');
+      flat.className = canvas.className;
+      flat.setAttribute('aria-hidden', 'true');
+      canvas.replaceWith(flat);
+      canvas = flat;
+      const c2 = flat.getContext('2d');
+      const css = (rgb) => 'rgb(' + rgb.map((v) => Math.round(v * 255)).join(',') + ')';
+      const drawFlat = () => {
+        if (!c2) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const hr = measure(dpr);
+        flat.width = Math.max(1, Math.round(hr.width * dpr));
+        flat.height = Math.max(1, Math.round(hr.height * dpr));
+        c2.textAlign = 'center'; c2.textBaseline = 'middle';
+        for (const m of marks) {
+          c2.font = '500 ' + (m.scale / 0.6).toFixed(2) + 'px "Geist Mono", ui-monospace, Menlo, Consolas, monospace';
+          for (let i = 0; i < m.count; i++) {
+            const o = i * 12, d = m.data;
+            if (!d.face[i]) continue;                  // faces + tile only: no walls, shadow or bubbles
+            c2.globalAlpha = d[o + 11];
+            c2.fillStyle = css([d[o + 8], d[o + 9], d[o + 10]]);
+            c2.fillText(glyphs[d[o + 4]], m.cx + d[o] * m.scale, m.cy - d[o + 1] * m.scale);
+          }
+        }
+      };
+      window.addEventListener('resize', () => { if (host.classList.contains('is-live')) drawFlat(); });
+      return {
+        show: function (on) {
+          host.classList.toggle('is-live', on);
+          if (on) drawFlat();
+        }
+      };
+    }
+
+    // ---------- WebGL ----------
+    const VERT = [
+      'attribute vec2 aCorner;',
+      'attribute vec4 aPos;',     // x, y, z, seed
+      'attribute vec4 aLook;',    // glyph, fx, kind, size
+      'attribute vec4 aCol;',
+      'uniform vec2 uRes, uCenter, uRot, uGrid, uQuad;',
+      'uniform float uScale, uTime, uReveal, uDir, uCam, uBob, uScramble;',
+      'uniform float uSpan;',
+      'uniform vec3 uPulse, uSpark;',
+      'varying vec2 vUV;',
+      'varying vec4 vCol;',
+      'varying vec3 vBlob;',
+      'float hash(float n) { return fract(sin(n * 12.9898) * 43758.5453); }',
+      'void main() {',
+      '  vec3 p = aPos.xyz;',
+      '  float seed = aPos.w, glyph = aLook.x, fx = aLook.y, kind = aLook.z, size = aLook.w;',
+      '  vec3 col = aCol.rgb;',
+      '  float alpha = aCol.a;',
+      '  float t = uTime;',
+      // Reveal: a sweep in from the outer screen edge, roughened per cell.
+      '  float edge = clamp(p.x * uDir / uSpan + 0.5, 0.0, 1.0);',
+      '  float delay = edge * 0.5 + seed * 0.32;',
+      '  float local = clamp((uReveal * 1.3 - delay) / 0.42, 0.0, 1.0);',
+      '  float ease = local * local * (3.0 - 2.0 * local);',
+      '  float isBlob = step(0.5, kind) * step(kind, 1.5);',
+      '  float isBubble = step(1.5, kind) * step(kind, 2.5);',
+      // Signals running out along the chip's pins.
+      '  if (kind > 2.5 && kind < 3.5) {',
+      '    float w = fract(fx * 1.1 - t * 0.42 + 0.2);',
+      '    float pulse = smoothstep(0.0, 0.05, w) * smoothstep(0.26, 0.05, w);',
+      '    col = mix(col, uPulse, pulse * step(size, 1.1));',
+      '    size *= 1.0 + pulse * 0.35 * step(1.1, size);',
+      '  }',
+      // The tile's lines breathe along their length and drift a little.
+      '  if (kind > 3.5 && kind < 4.5) {',
+      '    alpha *= mix(0.3, 1.0, 0.5 + 0.5 * sin(fx * 6.2832 - t * 1.25));',
+      '    p.x += sin(t * 0.55 + seed * 6.2832) * 0.5;',
+      '  }',
+      // The fish swims: a wave travelling down the body, strongest at the tail.
+      '  if (kind > 4.5) {',
+      '    float sw = sin(t * 3.1 + p.x * 0.13);',
+      '    p.z += fx * sw * 7.5 + sin(t * 1.3) * 0.8;',
+      '    p.x += fx * cos(t * 3.1 + p.x * 0.13) * 1.1;',
+      '  }',
+      // Bubbles rise from the mouth, swell and fade.
+      '  if (isBubble > 0.5) {',
+      '    float life = fract(t * 0.14 + fx);',
+      '    p.y += life * 27.0;',
+      '    p.x += sin(life * 8.0 + seed * 6.2832) * 1.7 + life * 3.0;',
+      '    p.z += life * 7.0;',
+      '    alpha *= smoothstep(0.0, 0.08, life) * smoothstep(1.0, 0.72, life);',
+      '    size *= mix(0.75, 1.35, life);',
+      '  }',
+      // Assembling cells scramble; a few keep flickering afterwards.
+      '  float flick = step(0.994, hash(seed * 91.7 + floor(t * 4.0 + seed * 9.0)));',
+      '  float scr = max(step(local, 0.985), flick) * uScramble * (1.0 - isBlob) * (1.0 - isBubble);',
+      '  if (scr > 0.5) glyph = floor(hash(seed * 7.31 + floor(t * 15.0 + seed * 40.0)) * ' + N_SCRAMBLE.toFixed(1) + ');',
+      '  col = mix(uSpark, col, mix(1.0, ease, 1.0 - isBlob));',
+      '  alpha *= ease;',
+      // Quad corner in the mark's own plane, so glyphs foreshorten with it.
+      '  vec2 q = mix(uQuad, vec2(1.0), isBlob) * size;',
+      '  vec3 o = p + vec3(aCorner * q, 0.0);',
+      '  o.z += (1.0 - ease) * (16.0 + 46.0 * seed) * (1.0 - isBlob);',
+      '  o.y += uBob - (1.0 - ease) * (seed - 0.5) * 9.0;',
+      '  float cy = cos(uRot.x), sy = sin(uRot.x), cp = cos(uRot.y), sp = sin(uRot.y);',
+      '  vec3 r = vec3(o.x * cy + o.z * sy, o.y, -o.x * sy + o.z * cy);',
+      '  r = vec3(r.x, r.y * cp - r.z * sp, r.y * sp + r.z * cp);',
+      '  float w = uCam / (uCam - r.z);',
+      '  vec2 s = uCenter + vec2(r.x, -r.y) * w * uScale;',
+      '  gl_Position = vec4(s.x / uRes.x * 2.0 - 1.0, 1.0 - s.y / uRes.y * 2.0, 0.0, 1.0);',
+      '  float gx = mod(glyph, uGrid.x), gy = floor(glyph / uGrid.x);',
+      '  vUV = (vec2(gx, gy) + vec2(aCorner.x, -aCorner.y) + 0.5) / uGrid;',
+      '  vCol = vec4(col, alpha);',
+      '  vBlob = vec3(aCorner, isBlob);',
+      '}'
+    ].join('\n');
+    const FRAG = [
+      'precision mediump float;',
+      'uniform sampler2D uAtlas;',
+      'varying vec2 vUV;',
+      'varying vec4 vCol;',
+      'varying vec3 vBlob;',
+      'void main() {',
+      '  float g = texture2D(uAtlas, vUV).a;',
+      '  float b = smoothstep(1.0, 0.0, length(vBlob.xy) * 2.0);',
+      '  float a = mix(g, b * b, vBlob.z) * vCol.a;',
+      '  gl_FragColor = vec4(vCol.rgb * a, a);',   // premultiplied
+      '}'
+    ].join('\n');
+
+    const ATLAS = 512, CELL_W = 32, CELL_H = 64, FONT_PX = 42;
+    const GRID_X = ATLAS / CELL_W, GRID_Y = ATLAS / CELL_H;
+    const FONT = '500 ' + FONT_PX + 'px "Geist Mono", ui-monospace, Menlo, Consolas, monospace';
+    let quadW = CELL_W / (FONT_PX * 0.6), quadH = CELL_H / (FONT_PX * 0.6);
+    function buildAtlas() {
+      const cv = document.createElement('canvas');
+      cv.width = ATLAS; cv.height = ATLAS;
+      const c = cv.getContext('2d');
+      c.font = FONT;
+      c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+      c.fillStyle = '#fff'; c.strokeStyle = '#fff';
+      c.lineWidth = 1.1; c.lineJoin = 'round';      // a touch of extra weight
+      // One column of the sheet = one character advance of the real font.
+      const adv = c.measureText('M').width || FONT_PX * 0.6;
+      quadW = CELL_W / adv; quadH = CELL_H / adv;
+      glyphs.forEach((ch, i) => {
+        const x = (i % GRID_X) * CELL_W + CELL_W / 2;
+        const y = Math.floor(i / GRID_X) * CELL_H + CELL_H / 2 + FONT_PX * 0.35;
+        c.fillText(ch, x, y);
+        c.strokeText(ch, x, y);
+      });
+      return cv;
+    }
+
+    let ready = false, dead = false;
+    let U = null;
+    const loc = {};
+    const fontReady = (document.fonts && document.fonts.load)
+      ? Promise.race([
+        document.fonts.load(FONT, 'M@#'),
+        new Promise((r) => setTimeout(r, 2500))
+      ]).catch(() => {})
+      : Promise.resolve();
+    const progReady = Promise.all([linkProgramAsync(gl, VERT, FRAG), fontReady]).then((res) => {
+      const prog = res[0];
+      if (!prog || gl.isContextLost()) { dead = true; canvas.remove(); return; }
+      gl.useProgram(prog);
+      const quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5]), gl.STATIC_DRAW);
+      loc.corner = gl.getAttribLocation(prog, 'aCorner');
+      gl.enableVertexAttribArray(loc.corner);
+      gl.vertexAttribPointer(loc.corner, 2, gl.FLOAT, false, 0, 0);
+      for (const name of ['aPos', 'aLook', 'aCol']) {
+        loc[name] = gl.getAttribLocation(prog, name);
+        gl.enableVertexAttribArray(loc[name]);
+        ext.vertexAttribDivisorANGLE(loc[name], 1);
+      }
+      for (const m of marks) {
+        m.buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+        gl.bufferData(gl.ARRAY_BUFFER, m.data, gl.STATIC_DRAW);
+      }
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, buildAtlas());
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      U = {};
+      for (const name of ['uRes', 'uCenter', 'uRot', 'uGrid', 'uQuad', 'uScale', 'uTime', 'uReveal',
+        'uDir', 'uCam', 'uBob', 'uScramble', 'uPulse', 'uSpark', 'uAtlas', 'uSpan']) {
+        U[name] = gl.getUniformLocation(prog, name);
+      }
+      gl.uniform1i(U.uAtlas, 0);
+      gl.uniform2f(U.uGrid, GRID_X, GRID_Y);
+      gl.uniform2f(U.uQuad, quadW, quadH);
+      gl.uniform1f(U.uScramble, reduce ? 0 : 1);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   // premultiplied-over
+      gl.clearColor(0, 0, 0, 0);
+      ready = true;
+    });
+
+    let shown = false, heroOn = true, raf = 0;
+    let reveal = 0, last = 0;
+    const t0 = performance.now();
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    const YAW = 0.47, PITCH = -0.05;
+
+    function layout() {
+      // Slightly supersampled at 1x so the small glyphs keep their edges.
+      const dpr = Math.min(Math.max(window.devicePixelRatio || 1, isLowPower ? 1 : 1.5), 2);
+      const hr = measure(dpr);
+      const w = Math.max(1, Math.round(hr.width * dpr)), h = Math.max(1, Math.round(hr.height * dpr));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(U.uRes, w, h);
+    }
+
+    function draw(t, rev) {
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform1f(U.uTime, t);
+      gl.uniform1f(U.uReveal, rev);
+      for (const m of marks) {
+        const sway = reduce ? 0 : 1;
+        gl.uniform1f(U.uScale, m.scale);
+        gl.uniform1f(U.uDir, m.dir);
+        gl.uniform1f(U.uCam, m.cam);
+        gl.uniform1f(U.uSpan, m.span);
+        gl.uniform2f(U.uCenter, m.cx - mouse.x * m.scale * 1.2, m.cy);   // slight counter-drift = depth
+        gl.uniform2f(U.uRot,
+          m.dir * YAW + sway * Math.sin(t * 0.43 + m.phase) * 0.085 + mouse.x * 0.16,
+          PITCH + sway * Math.sin(t * 0.31 + m.phase * 1.7) * 0.05 + mouse.y * 0.1);
+        gl.uniform1f(U.uBob, sway * Math.sin(t * 0.8 + m.phase) * 1.3);
+        gl.uniform3f(U.uPulse, m.pulse[0], m.pulse[1], m.pulse[2]);
+        gl.uniform3f(U.uSpark, m.spark[0], m.spark[1], m.spark[2]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+        gl.vertexAttribPointer(loc.aPos, 4, gl.FLOAT, false, 48, 0);
+        gl.vertexAttribPointer(loc.aLook, 4, gl.FLOAT, false, 48, 16);
+        gl.vertexAttribPointer(loc.aCol, 4, gl.FLOAT, false, 48, 32);
+        ext.drawArraysInstancedANGLE(gl.TRIANGLE_STRIP, 0, 4, m.count);
+      }
+    }
+
+    function frame(now) {
+      raf = 0;
+      if (!ready || dead) return;
+      const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
+      last = now;
+      const target = shown ? 1 : 0;
+      if (reduce) reveal = target;
+      else if (reveal < target) reveal = Math.min(target, reveal + dt / 2.1);
+      else if (reveal > target) reveal = Math.max(target, reveal - dt / 0.85);
+      mouse.x += (mouse.tx - mouse.x) * 0.06;
+      mouse.y += (mouse.ty - mouse.y) * 0.06;
+      draw(reduce ? 1.0 : (now - t0) / 1000, reveal);
+      if (!shown && reveal <= 0) { host.classList.remove('is-live'); last = 0; return; }
+      if (reduce || !heroOn) { last = 0; return; }       // static frame / off screen
+      raf = requestAnimationFrame(frame);
+    }
+    function kick() {
+      if (!raf && ready && !dead && (shown || reveal > 0)) raf = requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('resize', () => {
+      if (!ready || dead || !host.classList.contains('is-live')) return;
+      layout();
+      kick();
+    });
+    if (!reduce) {
+      window.addEventListener('mousemove', (e) => {
+        mouse.tx = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.ty = (e.clientY / window.innerHeight) * 2 - 1;
+      }, { passive: true });
+    }
+    const heroSec = document.getElementById('hero');
+    if (heroSec && 'IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        heroOn = entries.some((e) => e.isIntersecting);
+        if (heroOn) kick();
+        else if (raf) { cancelAnimationFrame(raf); raf = 0; last = 0; }
+      }).observe(heroSec);
+    }
+    // Boot warmup: once the program + atlas are up, draw the finished marks
+    // once (the canvas is still hidden) so buffers, texture and shader are all
+    // resident before the reveal — then clear. Context loss just stops the loop.
+    bootWarmups.push(() => progReady.then(() => {
+      if (!ready) return;
+      try { layout(); draw(1, 1); gl.clear(gl.COLOR_BUFFER_BIT); } catch (e) {}
+    }));
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      dead = true;
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    }, false);
+
+    return {
+      show: function (on) {
+        shown = on;
+        if (dead) return;
+        if (on) host.classList.add('is-live');
+        progReady.then(() => {
+          if (!ready || dead) return;
+          if (shown) layout();
+          kick();
+        });
+      }
+    };
   }
 
   function initHeroSign() {
@@ -5106,31 +5788,102 @@
       });
       draw.style.opacity = '1';
 
-      const inked = new Array(n).fill(false);
+      // Every change to a stroke makes the browser re-rasterise the name AND
+      // re-run its three soft drop-shadows across the whole wordmark (blurs up
+      // to 0.3em wide). Traced on a 180Hz display: 1.55s of GPU-thread time in
+      // the first 2.6s after the curtain lifts — the reel's opening stutter —
+      // against 0.24s with the shadow off. The shadow has to stay, so the pen
+      // is redrawn at most ~60 times a second instead of on every display
+      // frame: identical on a 60Hz screen, a third of the work at 180Hz. And
+      // if the frames that carry a redraw start running long (a GPU that can't
+      // keep up), the gap between redraws stretches, up to 66ms, and recovers
+      // when frames are quick again.
+      // That only works if EVERY change is on this clock, so the ink-in
+      // (fill-opacity 0 -> 1, stroke-width -> 0 over 0.55s, CSS `ease`) is
+      // driven here too rather than by its CSS transition, which would have
+      // repainted the name every frame regardless.
+      strokes.forEach((p) => { p.style.transition = 'none'; });
+      const PEN = parseFloat(getComputedStyle(strokes[0]).strokeWidth) || 11;
+      const INK_MS = 550;
+      // CSS `ease` = cubic-bezier(0.25, 0.1, 0.25, 1)
+      const easeCss = (t) => {
+        if (t <= 0) return 0;
+        if (t >= 1) return 1;
+        let lo = 0, hi = 1, s = t;
+        for (let k = 0; k < 24; k++) {
+          s = (lo + hi) / 2;
+          const x = 3 * (1 - s) * (1 - s) * s * 0.25 + 3 * (1 - s) * s * s * 0.25 + s * s * s;
+          if (x < t) lo = s; else hi = s;
+        }
+        return 3 * (1 - s) * (1 - s) * s * 0.1 + 3 * (1 - s) * s * s * 1 + s * s * s;
+      };
+      const stage = new Array(n).fill(0);   // 0 waiting/drawing, 1 inking in, 2 finished
       const drawEase = (t) => 1 - Math.pow(1 - t, 3);   // easeOutCubic
       const t0 = performance.now();
       let welcomeKicked = false;
-      function frame(now) {
-        const elapsed = now - t0;
+      function apply(elapsed) {
         for (let i = 0; i < n; i++) {
-          if (inked[i]) continue;
+          if (stage[i] === 2) continue;
           const q = (elapsed - i * STAGGER) / DRAW;   // this letter's progress
           if (q <= 0) continue;
-          if (q >= 1) {
-            inked[i] = true;
-            strokes[i].style.strokeDashoffset = '0';  // pin the drawn state
-            strokes[i].style.fillOpacity = '1';       // ink this letter in
-            strokes[i].style.strokeWidth = '0';       // pen thins to nothing
+          const st = strokes[i].style;
+          if (q < 1) {
+            st.strokeDashoffset = String(lengths[i] * (1 - drawEase(q)));
+            continue;
+          }
+          if (stage[i] === 0) { stage[i] = 1; st.strokeDashoffset = '0'; }   // pin the drawn state
+          const r = (elapsed - (i * STAGGER + DRAW)) / INK_MS;
+          if (r >= 1) {
+            stage[i] = 2;
+            st.fillOpacity = '1';       // inked in
+            st.strokeWidth = '0';       // pen thinned to nothing
           } else {
-            strokes[i].style.strokeDashoffset = String(lengths[i] * (1 - drawEase(q)));
+            const e = easeCss(r);
+            st.fillOpacity = e.toFixed(4);
+            st.strokeWidth = (PEN * (1 - e)).toFixed(3);
           }
         }
+      }
+      let gap = 15, lastWrite = -1e9, lastNow = 0, wrote = false;
+      function frame(now) {
+        const elapsed = now - t0;
+        if (wrote && lastNow) {          // how long did the frame carrying the last redraw take?
+          const d = now - lastNow;
+          if (d > 24) gap = Math.min(66, gap * 1.5);
+          else if (d < 19) gap = Math.max(15, gap * 0.92);
+        }
+        lastNow = now;
+        const finished = elapsed >= total + INK_MS + 40;
+        wrote = finished || now - lastWrite >= gap - 1.5;   // (60Hz frames arrive 16.7ms apart)
+        if (wrote) { lastWrite = now; apply(elapsed); }
         // Welcome line kicks once the name is ~halfway drawn.
         if (!welcomeKicked && elapsed >= total * 0.5) { welcomeKicked = true; writeWelcome(); }
-        if (elapsed < total + 80) requestAnimationFrame(frame);
+        if (!finished) requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
     }
+
+    // Boot rehearsal hook (see rehearseHero): show the name half-drawn, with
+    // its shadow, under the loader, so the shadow's first (and slowest —
+    // traced at 115ms) rasterisation is not the first thing that happens as
+    // the curtain lifts. Restores the hidden state exactly.
+    signRehearse = (on) => {
+      const draw = document.getElementById('heroSignDraw');
+      if (!draw || started) return;
+      const strokes = Array.prototype.slice.call(draw.querySelectorAll('.hero-sign__stroke'));
+      if (!strokes.length || typeof strokes[0].getTotalLength !== 'function') return;
+      strokes.forEach((p) => {
+        if (on) {
+          const L = p.getTotalLength();
+          p.style.strokeDasharray = String(L);
+          p.style.strokeDashoffset = String(L * 0.5);
+        } else {
+          p.style.strokeDasharray = '';
+          p.style.strokeDashoffset = '';
+        }
+      });
+      draw.style.opacity = on ? '1' : '';
+    };
 
     // Trigger once the loader has removed .is-pre-load (the hero is
     // revealed). If that already happened, go now.
@@ -5409,7 +6162,7 @@
         let ready = false;
         let prog = null, tex = null;
         let uTime, uRes, uMouse, uShape, uClick, uBub, uLensC, uLensSz, uNameB, uTextVH, uTextVO, uHasT;
-        linkProgramAsync(gl, VERT, FRAG).then((p) => {
+        const whenLinked = linkProgramAsync(gl, VERT, FRAG).then((p) => {
           if (!p) return;
           prog = p;
           gl.useProgram(prog);
@@ -5510,6 +6263,16 @@
         }
         return {
           ok() { return ready && !document.body.classList.contains('perf-lite'); },
+          // Resolves once the program has linked (or failed).
+          whenLinked: whenLinked,
+          // One tiny draw, so the driver's first-use setup for this program
+          // happens behind the loader instead of on the first hover.
+          warm() {
+            if (!ready) return;
+            this.resize(48);
+            gdraw(performance.now());
+            gl.clear(gl.COLOR_BUFFER_BIT);
+          },
           resize(px) {
             if (!ready) return;
             size = Math.max(1, Math.round(px));
@@ -5555,10 +6318,15 @@
         };
       }
       const glassCanvas = document.getElementById('heroSignLensGlass');
-      // Hover-only, so the glass orb's WebGL context + shader are created
-      // once the hero is revealed and the main thread is idle — never inside
-      // the boot sequence. Until then a hover shows the 2D starfield fallback
-      // (and starts the build early).
+      // Built and compiled BEHIND THE LOADER, as a boot warmup. It used to be
+      // deferred to idle time after the reveal — but a compile keeps the GPU
+      // process busy for ~0.5s, and whenever that landed (a hover as the page
+      // opened, or the idle timer firing as the visitor scrolled) the reel
+      // hitched: every status poll stalled the main thread and frames queued
+      // behind the compile. The loader has a fixed minimum hold, so the compile
+      // normally fits inside it for free; the wait is capped so a slow driver
+      // can't hold the curtain (a late link just means the first hover shows
+      // the 2D starfield fallback, as before).
       let glass = null;
       const canGlass = !!glassCanvas && !(reduceMotionMQ && reduceMotionMQ.matches);
       let glassTried = false;
@@ -5568,17 +6336,12 @@
         glass = initLensGlass(glassCanvas);
       };
       if (canGlass) {
-        const whenIdle = (fn) => (window.requestIdleCallback
-          ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
-        if (!document.body.classList.contains('is-pre-load')) whenIdle(makeGlass);
-        else {
-          const glassMo = new MutationObserver(() => {
-            if (document.body.classList.contains('is-pre-load')) return;
-            glassMo.disconnect();
-            setTimeout(() => whenIdle(makeGlass), 2500);   // after the intro + name draw-on
-          });
-          glassMo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-        }
+        bootWarmups.push(() => {
+          makeGlass();
+          if (!glass || !glass.whenLinked) return null;
+          const warmed = glass.whenLinked.then(() => { try { glass.warm(); } catch (e) {} });
+          return Promise.race([warmed, new Promise((r) => setTimeout(r, 2500))]);
+        });
       }
 
       const TILT = -8 * Math.PI / 180;   // matches the CSS rotate(-8deg)
@@ -5731,11 +6494,21 @@
      that pauses that CSS animation while the hero is off screen.
      ------------------------------------------------------- */
   function initWelcomeBreath() {
+    // Register --wb as an animatable number (see the welcome-line breath in
+    // styles.css). Where that isn't supported the stylesheet keeps the
+    // original text-shadow animation.
+    try {
+      if (window.CSS && CSS.registerProperty) {
+        CSS.registerProperty({ name: '--wb', syntax: '<number>', inherits: true, initialValue: '0' });
+        document.documentElement.classList.add('wb-ok');
+      }
+    } catch (e) {}
     const heroSec = document.getElementById('hero');
     if (heroSec && 'IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
         const visible = entries[0].isIntersecting;
         document.body.classList.toggle('hero-hidden', !visible);
+        document.body.classList.toggle('hero-onscreen', visible);
         // Gate the cinema reel: suspend it entirely while the hero is
         // off-screen, resume (and repaint) on re-entry.
         motion.heroVisible = visible;
@@ -6497,7 +7270,7 @@
       if (!visible) return;
       const dt = Math.min(Math.max((now - lastNow) / 1000, 0.001), 0.1);
       lastNow = now;
-      const y = window.scrollY;
+      const y = scrollYNow;   // cached per scroll event (a live read forces layout)
       scrollVel += ((y - lastY) / dt - scrollVel) * 0.08;
       lastY = y;
       const boost = Math.max(-BOOST_CAP, Math.min(BOOST_CAP, scrollVel * SCROLL_GAIN));
@@ -6518,7 +7291,7 @@
       // Re-seed the clocks so a resume after an off-screen stretch
       // doesn't register as one giant dt / scroll spike.
       lastNow = performance.now();
-      lastY = window.scrollY;
+      lastY = scrollYNow;
       raf = requestAnimationFrame(tick);
     }
 
@@ -6549,13 +7322,26 @@
 
     if (reduce) return;
 
+    // Runs only while the section can actually be SEEN: in the viewport AND
+    // not still behind the hero pin. (The section overlaps the hero's last
+    // 100vh, so the observer alone reported "visible" from the first hero
+    // scroll and this full-screen shader rendered, hidden, for the whole reel.)
+    let inView = true;
+    const syncVisible = () => {
+      const v = inView && !heroCovering;
+      if (v === visible) return;
+      visible = v;
+      if (visible) kick();
+      else if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    };
+    heroCoverSubs.push(syncVisible);
     if ('IntersectionObserver' in window) {
       new IntersectionObserver((entries) => {
-        visible = entries.some((e) => e.isIntersecting);
-        if (visible) kick();
-        else if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        inView = entries.some((e) => e.isIntersecting);
+        syncVisible();
       }).observe(section);
     }
+    syncVisible();
 
     // Cursor-steered 3D tilt — mirrors the warp world's tilt input
     // exactly (same section, same normalized mouse, same axes). The
@@ -7614,7 +8400,7 @@
 
     initTopo();
     initHeroSign();
-    initGoodPart();
+    initOrgs();
     initWelcomeBreath();
     initHeroGrid();
     initContactRoom();
@@ -7693,10 +8479,15 @@
       renderFrame(frameState.idx, false);
       if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.refresh();
     });
+    const fontsTask = trackBoot(fontsReady());
+    const assetsTask = trackBoot(preloadUrlList(extraPreload));
     const bootReady = Promise.all([
       framesTask.catch(() => {}),
-      trackBoot(fontsReady()),
-      trackBoot(preloadUrlList(extraPreload)),
+      fontsTask,
+      assetsTask,
+      // Once type + images are in, give every hero reveal its first
+      // appearance behind the loader (see rehearseHero).
+      trackBoot(Promise.all([fontsTask, assetsTask]).then(rehearseHero)),
       // Warmups START ~one frame apart (each still runs to completion on its
       // own), so their first draws / texture uploads never stack into one
       // long frame while the loader animates.

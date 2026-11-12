@@ -26,7 +26,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=292" />
+<link rel="stylesheet" href="styles.css?v=310" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark boot screen: a raymarched liquid-glass orb (WebGL, vanilla
@@ -283,38 +283,28 @@
     <!-- Soft glow behind character -->
     <div class="hero-stage__halo" aria-hidden="true"></div>
 
-    <!-- ===== "Good part" headline — a big, page-filling statement set in
-         the site's heavy display face (Anton). It sits BEHIND the character
-         (z below the canvas) so the figure stands in front of it, and each
-         WORD wipes in bottom-to-up via its own reveal block. The blocks are
-         injected + the GSAP timeline is built in initGoodPart(); the reveal
-         is toggled on once the cinema HUD takes over (see motionTick). -->
-    <div class="goodpart" id="goodPart" aria-hidden="true">
-      <!-- Each line is split into a left + right word group with a
-           .goodpart__gap spacer between them. The gap is sized to the
-           character's silhouette so the figure lands in the clear centre
-           and every word stays readable beside it. -->
-      <span class="goodpart__line">
-        <span class="goodpart__side goodpart__side--l">
-          <span class="goodpart__word"><span class="goodpart__text">NOW</span></span>
-          <span class="goodpart__word"><span class="goodpart__text">LET&rsquo;S</span></span>
-        </span>
-        <span class="goodpart__gap" aria-hidden="true"></span>
-        <span class="goodpart__side goodpart__side--r">
-          <span class="goodpart__word"><span class="goodpart__text">GET</span></span>
-        </span>
-      </span>
-      <span class="goodpart__line">
-        <span class="goodpart__side goodpart__side--l">
-          <span class="goodpart__word"><span class="goodpart__text">TO</span></span>
-          <span class="goodpart__word"><span class="goodpart__text">THE</span></span>
-        </span>
-        <span class="goodpart__gap" aria-hidden="true"></span>
-        <span class="goodpart__side goodpart__side--r goodpart__side--good">
-          <span class="goodpart__word goodpart__word--good"><span class="goodpart__text">GOOD</span></span>
-          <span class="goodpart__word goodpart__word--stuff"><span class="goodpart__text">STUFF</span></span>
-        </span>
-      </span>
+    <!-- ===== Organizations scene — what stands behind the character once
+         the reel lands on its final, centred pose. The two organisation
+         marks float in the room as 3D ASCII objects, drawn on ONE WebGL
+         canvas (initOrgsAscii) from the cell grids in assets/org-ascii.js;
+         each .orgs__slot only marks where its mark sits, so the layout
+         stays in CSS. The words use the site's editorial pair (Anton caps +
+         Instrument Serif italic) and rise in through a mask, driven by
+         initOrgs(). Everything here is
+         BEHIND the character (z below its canvas); the reveal is toggled
+         from motionTick via setOrgs(). -->
+    <div class="orgs" id="orgs">
+      <canvas class="orgs__canvas" id="orgsCanvas" aria-hidden="true"></canvas>
+      <h2 class="orgs__title orgs__write"><span class="orgs__in">Organizations <em class="orgs__em">I&rsquo;m part of</em></span></h2>
+
+      <div class="orgs__slot orgs__slot--l" data-org="ais" aria-hidden="true"></div>
+      <div class="orgs__slot orgs__slot--r" data-org="fish" aria-hidden="true"></div>
+
+      <!-- The roles themselves are set in the cinema overlay (above its
+           soft bottom veil, which would grey them out down here); that
+           overlay is aria-hidden, so the same facts are stated once here. -->
+      <p class="orgs__sr">Collaboration Officer, The AI Society at Arizona State University.
+        Campus Ambassador, TinyFish at Arizona State University.</p>
     </div>
 
     <!-- Signature wordmark — the hero's name, set as the page <h1>.
@@ -424,8 +414,8 @@
 
       <!-- Welcome line split across the bottom corners of the frame,
            in the same cursive as the name (smaller + lighter). -->
-      <span class="hero__welcome hero__welcome--left">Welcome To My</span>
-      <span class="hero__welcome hero__welcome--right">Portfolio Experience</span>
+      <span class="hero__welcome hero__welcome--left" data-text="Welcome To My">Welcome To My</span>
+      <span class="hero__welcome hero__welcome--right" data-text="Portfolio Experience">Portfolio Experience</span>
 
       <!-- Scroll hint row -->
       <div class="hero__bottom">
@@ -440,6 +430,17 @@
 
     <!-- ===== CINEMA HUD/CAPTIONS — fades in after UI leaves ===== -->
     <div class="hero-stage__cinema" id="cinemaOverlay" aria-hidden="true">
+      <!-- Organizations scene: the role held at each organisation, hung
+           under its ASCII mark (see .orgs above). Revealed with the scene
+           by setOrgs(). -->
+      <p class="orgs__role orgs__role--l">
+        <span class="orgs__write orgs__rname"><span class="orgs__in">Collaboration Officer</span></span>
+        <span class="orgs__write orgs__org"><span class="orgs__in">The AI Society at ASU</span></span>
+      </p>
+      <p class="orgs__role orgs__role--r">
+        <span class="orgs__write orgs__rname"><span class="orgs__in">Campus Ambassador</span></span>
+        <span class="orgs__write orgs__org"><span class="orgs__in">TinyFish at ASU</span></span>
+      </p>
       <div class="cinema__hud cinema__hud--tl">
         <div class="cinema__hud-label">FRAME</div>
         <div class="cinema__hud-num" id="cinemaFrameNum">001 / 300</div>
@@ -964,11 +965,26 @@
       <span class="xpx2__dot"></span>
       <span class="xpx2__dot"></span>
       <span class="xpx2__dot"></span>
+      <span class="xpx2__dot"></span>
     </div>
 
     <div class="xpx2__scroll">
-      <section class="xpp" data-xpp data-scene="SOFTWARE RESEARCHER">
+      <section class="xpp" data-xpp data-scene="CAMPUS AMBASSADOR">
         <div class="xpcard left">
+          <span class="xpcard__num">Nov 2026 &#8594; Present</span>
+          <h2 class="xpcard__title">
+            <span class="text-scramble" data-scramble-text="CAMPUS AMBASSADOR"></span>
+            <span class="xpcard__sub">
+              <span class="xpcard__logo"><img src="assets/logos/tinyfish.png" alt="TinyFish" onerror="this.closest('.xpcard__logo').style.display='none'" /></span>
+              <span class="xpcard__co">TinyFish</span>
+            </span>
+          </h2>
+          <p class="xpcard__body" data-hyper data-hl-words="campus,ambassador,tinyfish,ai,agents,automate,workflows,judging,sunhacks,hands-on,workshops,chatgpt,claude">As a Campus Ambassador for TinyFish at Arizona State University, I introduce students across computing and business to AI agents that automate real workflows on the web. I&rsquo;m judging the &ldquo;Hire Your First AI Employee&rdquo; track at SunHacks as a TinyFish representative and partnering with TinyFish&rsquo;s other ASU campus lead on hands-on workshops, where students connect TinyFish with ChatGPT or Claude to automate tasks for their own majors.</p>
+        </div>
+      </section>
+
+      <section class="xpp" data-xpp data-scene="SOFTWARE RESEARCHER">
+        <div class="xpcard right">
           <span class="xpcard__num">Oct 2026 &#8594; Present</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="SOFTWARE RESEARCHER &amp; DEVELOPER"></span>
@@ -982,7 +998,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="OFFICE ASSISTANT">
-        <div class="xpcard right">
+        <div class="xpcard left">
           <span class="xpcard__num">Aug 2026 &#8594; Sep 2026</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="OFFICE ASSISTANT"></span>
@@ -996,7 +1012,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="AI ENGINEER">
-        <div class="xpcard left">
+        <div class="xpcard right">
           <span class="xpcard__num">Aug 2026 &#8594; Present</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="AI ENGINEER"></span>
@@ -1010,7 +1026,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="AI DEVELOPER">
-        <div class="xpcard right">
+        <div class="xpcard left">
           <span class="xpcard__num">Aug 2026 &#8594; Present</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="AI DEVELOPER"></span>
@@ -1024,7 +1040,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="FOUNDING ENGINEER">
-        <div class="xpcard left">
+        <div class="xpcard right">
           <span class="xpcard__num">May 2026 &#8594; Aug 2026</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="FOUNDING ENGINEER"></span>
@@ -1038,7 +1054,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="FORWARD DEPLOYED ENGINEER">
-        <div class="xpcard right">
+        <div class="xpcard left">
           <span class="xpcard__num">May 2025 &#8594; Aug 2025</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="FORWARD DEPLOYED ENGINEER"></span>
@@ -1052,7 +1068,7 @@
       </section>
 
       <section class="xpp" data-xpp data-scene="VR SIMULATION">
-        <div class="xpcard left">
+        <div class="xpcard right">
           <span class="xpcard__num">Aug 2024 &#8594; Dec 2024</span>
           <h2 class="xpcard__title">
             <span class="text-scramble" data-scramble-text="VIRTUAL REALITY ASSISTANT"></span>
@@ -1140,7 +1156,8 @@
 
 </main>
 
-<script src="script.js?v=323" defer></script>
+<script src="assets/org-ascii.js?v=3" defer></script>
+<script src="script.js?v=339" defer></script>
 <script src="vendor/globe.js?v=7" defer></script>
 </body>
 </html>

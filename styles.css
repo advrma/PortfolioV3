@@ -259,6 +259,24 @@ body:not(.is-pre-load) .hero-stage__canvas {
   transition: opacity 0.6s var(--ease-out-quart);
 }
 
+/* BOOT REHEARSAL (rehearseHero in script.js): for ~1/3s behind the loader
+   the hero's opening UI, the cinema HUD and both side panels are really
+   drawn, so their first raster + GPU pipeline setup is paid there instead
+   of as a hitch when each first appears. Then everything snaps back. */
+body.boot-rehearse.is-pre-load .nav,
+body.boot-rehearse.is-pre-load .hero__eyebrow,
+body.boot-rehearse.is-pre-load .hero__title-word,
+body.boot-rehearse.is-pre-load .hero__title-italic,
+body.boot-rehearse.is-pre-load .hero__tagline,
+body.boot-rehearse.is-pre-load .hero__status,
+body.boot-rehearse.is-pre-load .hero__card,
+body.boot-rehearse.is-pre-load .hero-stage__canvas { opacity: 1; }
+body.boot-rehearse .hero-stage__cinema { opacity: 1 !important; }
+body.boot-rehearse-reset .hero-stage__pin,
+body.boot-rehearse-reset .hero-stage__pin *,
+body.boot-rehearse-reset .hero-stage__pin *::before,
+body.boot-rehearse-reset .hero-stage__pin *::after { transition: none !important; }
+
 /* Keep the preload progress bar hidden through the greeting +
    curtain lift so the sheet reveals a clean stage; it fades back
    in only once the hero takes over (by then loading is usually
@@ -581,115 +599,145 @@ body.perf-lite .hero-stage__canvas {
 body.hero-hidden .hero-stage__halo { animation-play-state: paused; }
 
 /* =========================================================
-   "GOOD PART" HEADLINE — big page-filling statement behind
-   the character. z-index 1 keeps it BEHIND the canvas (z2)
-   so the figure stands in front of the words. Each word is
-   an overflow-clipped box; initGoodPart() injects a reveal
-   .goodpart__block per word and wipes it bottom-to-up.
+   ORGANIZATIONS SCENE — what stands behind the character on
+   the reel's final, centred pose. The two 3D ASCII marks are
+   the stars; the words are set in the site's editorial pair
+   (Anton + Instrument Serif italic) and rise in under them.
+     • .orgs__canvas one WebGL canvas: both 3D ASCII marks
+     • .orgs__title  the heading, one line BEHIND the character
+     • .orgs__slot   where each mark sits (read by the script)
+     • .orgs__role   the role held at each organisation (these two
+                     live in the cinema overlay, above its veil)
+   z-index 1 keeps .orgs behind the character canvas (z2).
    ========================================================= */
-.goodpart {
+.orgs {
   position: absolute;
   inset: 0;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.02em;
-  text-align: center;
-  /* Shifted a touch above dead-center so the statement sits high on
-     the frame, over the character's head/shoulders. */
-  transform: translateY(-6vh);
-  font-family: var(--f-display);   /* Anton — the site's heavy condensed display */
-  font-weight: 400;                /* Anton is already black at 400 */
-  font-size: clamp(36px, 8.7vw, 210px);
-  line-height: 0.92;
-  letter-spacing: -0.025em;        /* tighter tracking reads bigger + heavier */
-  text-transform: uppercase;
-  color: var(--ink);
   pointer-events: none;
   user-select: none;
 }
-/* Three-track grid: equal 1fr side columns flank a fixed center column,
-   so the gap is locked to dead-center (= the character) regardless of how
-   wide each word group is. A group wider than its 1fr track simply bleeds
-   off its outer screen edge (clipped by the pin), never behind the figure. */
-.goodpart__line {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: baseline;
-  white-space: nowrap;
-}
-.goodpart__side {
-  min-width: 0;            /* let the track stay 1fr; content overflows outward */
-  white-space: nowrap;
-}
-.goodpart__side--l { justify-self: end; text-align: right; }
-.goodpart__side--r { justify-self: start; text-align: left; }
-/* Premium graduated cast shadow on the giant statement — applied here (not on the
-   glyph) because .goodpart__word is overflow:hidden for the reveal wipe and would clip
-   a text-shadow. Three stacked drop-shadows on the un-clipped side: crisp contact + soft
-   mid + wide ambient, warm-to-cool tint, em-scaled to match the rest of the copy. The
-   headline is static once revealed, so the layer rasterises once — no per-frame cost. */
-.goodpart__side {
-  filter:
-    drop-shadow(0 0.01em 0.01em rgba(28, 21, 11, 0.56))
-    drop-shadow(0 0.045em 0.06em rgba(24, 18, 10, 0.4))
-    drop-shadow(0 0.14em 0.24em rgba(20, 16, 10, 0.24));
-}
-body.perf-lite .goodpart__side {
-  filter: drop-shadow(0 0.055em 0.07em rgba(26, 20, 10, 0.52));
-}
-/* Nudge STUFF a little toward GOOD (leftward). */
-.goodpart__word--stuff { margin-left: -0.1em; }
-/* Shift the whole GOOD STUFF group a bit toward the left as a unit. */
-.goodpart__side--good { transform: translateX(-0.28em); }
-/* Center safe-zone (the middle grid track) sized to the character's
-   head/face width at the headline's height. */
-.goodpart__gap {
-  width: clamp(140px, 19.5vw, 380px);
-}
-.goodpart__word {
-  position: relative;
-  display: inline-block;
-  overflow: hidden;                /* clips the rising reveal block */
-  vertical-align: top;
-  padding: 0.06em 0.05em 0.04em;   /* room so the glyphs never clip */
-}
-.goodpart__text {
-  display: inline-block;
-  will-change: opacity;
-  /* Extra stroke thickens Anton's already-heavy strokes so the words
-     read even bolder at this size. */
-  -webkit-text-stroke: 0.012em var(--ink);
-}
-/* "GOOD" stays black like the rest, but sits on a neon-accent highlight
-   (a marker swash behind the word). The highlight lives on the text span
-   so it fades in with the word — never showing before the reveal. */
-.goodpart__word--good .goodpart__text {
-  color: var(--ink);
-  -webkit-text-fill-color: var(--ink);
-  /* Neon accent as a stroked outline box around the word (transparent fill,
-     sharp 90° corners) rather than a solid highlight. */
-  background: transparent;
-  border: 0.055em solid var(--accent);
-  border-radius: 0;
-  padding: 0.04em 0.12em;
-}
-/* Injected per word: a glowing NEON block that wipes the word in,
-   bottom-to-up (scaleY 0→1 from the bottom, then 1→0 off the top).
-   The electric-chartreuse accent + bloom give the reveal its neon flash. */
-.goodpart__block {
+/* One edge length for both marks: as tall as the band between the title
+   and the roles allows, never wider than its side of the figure. */
+.hero-stage__pin { --org-size: min(52vh, 33vw); }
+/* Read by screen readers only (the visible roles sit in an aria-hidden layer). */
+.orgs__sr {
   position: absolute;
-  left: 0; top: 0;
-  width: 100%; height: 100%;
-  z-index: 2;
-  background: var(--accent);
-  box-shadow: 0 0 2.2vw rgba(216, 255, 56, 0.65),
-              0 0 0.6vw rgba(216, 255, 56, 0.9);
-  transform: scaleY(0);
-  transform-origin: center bottom;
-  pointer-events: none;
+  width: 1px; height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The canvas only composites while the scene is up (initOrgsAscii adds
+   .is-live for the reveal and drops it once the marks have dissolved). */
+.orgs__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+}
+.orgs.is-live .orgs__canvas { visibility: visible; }
+
+/* Type — the site's own editorial pair, as in the section headings and
+   the hero captions: Anton capitals carrying the line, Instrument Serif
+   italic for the softer half. Kept compact so the two 3D marks stay the
+   statement. Each line rises up out of a mask on the line below it (the
+   hero title's entrance), driven by initOrgs: .orgs__write is the mask
+   (generous on the top and sides so italic overhangs are never trimmed;
+   the bottom edge hides the rising text), .orgs__in is what moves. */
+.orgs__write {
+  display: inline-block;
+  font-weight: 400;
+  line-height: 0.92;
+  white-space: nowrap;
+  color: var(--ink);
+  clip-path: inset(-0.5em -0.45em -0.3em -0.45em);
+}
+.orgs__in {
+  display: inline-block;
+  transform: translateY(150%);       /* hidden until initOrgs raises it */
+}
+
+/* The heading: ONE big line in Instrument Serif italic across the room,
+   BEHIND the character — it sits low enough that the head covers part
+   of it, which is intended. Clears the corner tags by sitting below them,
+   so it may run nearly the full width. */
+.orgs__title {
+  position: absolute;
+  left: 50%;
+  top: max(6.5vh, 96px);   /* never up among the FRAME / SEQUENCE tags */
+  margin: 0;
+  font-family: var(--f-serif);
+  font-style: italic;
+  letter-spacing: -0.02em;
+  font-size: min(15vh, calc((100vw - 2 * var(--gutter)) / 9.2));
+  transform: translateX(-50%);
+}
+/* "I'm part of" — on the lime marker stroke, exactly like the
+   emphasised words in the hero captions (.cinema__aside-w--em). */
+.orgs__em {
+  font-style: italic;
+  padding: 0 0.06em;
+  background: linear-gradient(transparent 68%, var(--accent) 68%, var(--accent) 92%, transparent 92%);
+}
+
+.orgs__slot {
+  position: absolute;
+  top: 52%;
+  width: var(--org-size);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+}
+.orgs__slot--l { left: 19%; }
+.orgs__slot--r { left: 81%; }
+
+/* The two roles — a matched pair, mirrored about the figure: the role in
+   Anton capitals, the organisation in italic serif beneath it. They sit
+   in the cinema overlay (ABOVE the character), so the type is sized to
+   the strip beside the figure and can never run onto it. */
+.orgs__role {
+  position: absolute;
+  top: 80.5%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.16em;
+  font-size: clamp(18px, min(4.6vh, calc((50vw - 40vh - var(--gutter)) / 10.6)), 72px);
+}
+.orgs__role--l { left: var(--gutter); align-items: flex-start; }
+.orgs__role--r { right: var(--gutter); align-items: flex-end; }
+.orgs__rname {
+  font-family: var(--f-display);
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+}
+.orgs__org {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 0.66em;
+  letter-spacing: -0.005em;
+  color: var(--ink-mute);
+}
+
+/* Portrait: the figure sits low and the space above it is free, so the
+   heading runs across the top and the two marks sit side by side under it. */
+@media (max-aspect-ratio: 1/1) {
+  .hero-stage__pin { --org-size: 45vw; }
+  .orgs__title { top: 11.5%; font-size: min(10vw, 6.4vh); }
+  .orgs__slot { top: 33%; }
+  .orgs__slot--l { left: 26%; }
+  .orgs__slot--r { left: 74%; }
+  .orgs__role {
+    top: 46.5%;
+    width: 48vw;
+    align-items: center;
+    font-size: min(4.6vw, 3vh);
+  }
+  .orgs__org { font-size: 0.72em; }
+  .orgs__role--l { left: 2vw; align-items: center; }
+  .orgs__role--r { right: 2vw; align-items: center; }
 }
 
 /* Signature wordmark behind the character. Cursive, tilted like a
@@ -963,24 +1011,61 @@ body.perf-lite .hero-sign__draw {
 }
 .hero__welcome--left  { left: calc(var(--gutter) + 18px); }
 .hero__welcome--right { right: calc(var(--gutter) + 18px); }
-/* Breathing weight (animated-text port): a SINGLE rendering of each
-   line whose strokes fatten and thin via a same-colour horizontal
-   smear (faux-bold) animating 0 -> ~0.6px and back. Paint-only — no
-   reflow, no per-frame glyph re-raster — and, being one layer rather
-   than a stacked bold copy, it cannot produce the double-image
-   ghosting. The two corners run slightly out of phase for a gentle
-   wave. Paused while the hero is off screen. */
+/* Breathing weight (animated-text port): each line's strokes fatten and
+   thin via a same-colour horizontal smear (faux-bold) of 0 -> ~0.6px and
+   back. The two corners run slightly out of phase for a gentle wave.
+
+   ORIGINAL form (still the fallback, below): an animated text-shadow
+       0 0 0 transparent  ->  0.6px 0 0 currentColor, -0.6px 0 0 currentColor
+   on the line itself. But any text-shadow change invalidates LAYOUT, so
+   the whole page re-laid out, re-hit-tested the cursor and repainted on
+   every frame for as long as the hero was up — measured as 40-70% of
+   every idle hero frame, even after the line had scrolled out of view.
+
+   CURRENT form (html.wb-ok — set by script.js once it has registered
+   --wb as an animatable <number>): the two shadows are two real copies of
+   the text (::before / ::after, from data-text). Only --wb animates, 0 ->
+   1; each copy sits at +/-0.6px * --wb with opacity --wb — precisely the
+   interpolated shadows (offset and colour-alpha both ramp linearly with
+   progress; all layers share one colour, so stacking order is moot). A
+   transform / opacity change needs NO layout, so the per-frame cost drops
+   to a tiny repaint of the line.
+   The copies are deliberately NOT promoted to compositor layers (no
+   will-change, no transform/opacity animation of their own): a composited
+   child makes the browser rasterise the line's own text in a separate,
+   pixel-snapped layer, which visibly shifted the right-hand line (its box
+   starts on a fractional pixel).
+   Paused while the hero is off screen, and once the UI has scrolled away
+   (body.hero-ui-gone — the line is invisible from there on). */
 @keyframes welcomeBreath {
   0%   { text-shadow: 0 0 0 transparent; }
   100% { text-shadow: 0.6px 0 0 currentColor, -0.6px 0 0 currentColor; }
+}
+@keyframes welcomeBreathVar {
+  0%   { --wb: 0; }
+  100% { --wb: 1; }
 }
 .hero__welcome--left,
 .hero__welcome--right {
   animation: welcomeBreath 2.4s alternate ease-in-out infinite both;
 }
 .hero__welcome--right { animation-delay: -0.6s; }   /* phase offset -> wave */
+html.wb-ok .hero__welcome--left,
+html.wb-ok .hero__welcome--right { animation-name: welcomeBreathVar; }
+html.wb-ok .hero__welcome::before,
+html.wb-ok .hero__welcome::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0; top: 0;
+  opacity: var(--wb);
+  pointer-events: none;
+}
+html.wb-ok .hero__welcome::before { transform: translateX(calc(var(--wb) * -0.6px)); }
+html.wb-ok .hero__welcome::after  { transform: translateX(calc(var(--wb) * 0.6px)); }
 body.hero-hidden .hero__welcome--left,
-body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
+body.hero-hidden .hero__welcome--right,
+body.hero-ui-gone .hero__welcome--left,
+body.hero-ui-gone .hero__welcome--right { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   .hero__welcome--left,
   .hero__welcome--right { animation: none; }
@@ -1266,10 +1351,15 @@ body.hero-hidden .hero__welcome--right { animation-play-state: paused; }
   background: rgba(12,12,10,0.10);
   margin-top: 4px;
 }
+/* Filled via scaleX (compositor-only), not width: a width change re-lays
+   out the HUD on every reel frame. Same pixels — the gradient spans the
+   bar's own box either way. */
 .cinema__hud-bar i {
-  display: block; height: 100%; width: 0%;
+  display: block; height: 100%; width: 100%;
   background: linear-gradient(90deg, var(--ink), var(--accent-deep));
-  transition: width 60ms linear;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 60ms linear;
 }
 
 .cinema__crosshair span {
@@ -1682,12 +1772,20 @@ body.perf-lite .tcol__track { animation: none; }
   color: var(--ink);
   opacity: 0;
   filter: blur(16px) brightness(0.95);
-  transition: opacity .8s, filter .8s;
+  /* visibility follows the fade: hidden only once the fade-out has finished
+     (0.85s later), visible the instant a reveal starts — so nothing changes on
+     screen. While hidden, the whole panel drops out of the browser's hit
+     testing: at opacity 0 it was still walked on every cursor hit test (a
+     quarter of each one), and one runs per frame while the page auto-scrolls. */
+  visibility: hidden;
+  transition: opacity .8s, filter .8s, visibility 0s linear .85s;
 }
 .cinema__aside--igpost.is-revealed {
   opacity: 1;
   filter: blur(0) brightness(1);
   pointer-events: auto;
+  visibility: visible;
+  transition: opacity .8s, filter .8s, visibility 0s;
 }
 /* md and below (≤768): the IG section is a wide horizontal layout (tilted panel +
    Anton bio side-by-side) that can't fit a phone/small-tablet — the bio ran off the
@@ -1926,6 +2024,8 @@ body.perf-lite .igbio {
 .igstory__tip-text { white-space: pre-wrap; }
 .igstory__caret { display: inline-block; margin-left: 1px; font-weight: 400; animation: igblink 1s steps(1) infinite; }
 @keyframes igblink { 50% { opacity: 0; } }
+/* The caret only shows inside an open story tip — don't tick it otherwise. */
+.igstory:not(.is-active) .igstory__caret { animation-play-state: paused; }
 .igstory__dots { position: absolute; left: 50%; transform: translateX(-50%); top: -15px; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; }
 .igstory__dots i { display: block; border-radius: 50%; background: #fff; box-shadow: 0 4px 10px -4px rgba(0, 0, 0, 0.4); }
 .igstory__dots i:nth-child(1) { width: 10px; height: 10px; }
@@ -2065,6 +2165,8 @@ body.perf-lite .callcard__def {
   animation: callcardBlink 0.8s ease-in-out infinite alternate;
 }
 @keyframes callcardBlink { from { opacity: 0; } to { opacity: 1; } }
+/* Hidden card = no caret to blink. */
+.callcard:not(.is-in) .callcard__caret { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   .callcard__caret { animation: none; }
   .callcard { transition: none; }
@@ -2408,6 +2510,10 @@ body.perf-lite .callcard__def {
 .lp-card.is-loaded .lp-card__skeleton {
   opacity: 0;
 }
+/* The shimmer animates background-position (main-thread paint work): only
+   run it while the card is actually up and still loading. */
+.lp-card:not(.is-on) .lp-card__skeleton,
+.lp-card.is-loaded .lp-card__skeleton { animation-play-state: paused; }
 @keyframes lp-shimmer {
   0%   { background-position: -120% 0; }
   100% { background-position: 220% 0; }
@@ -4983,6 +5089,12 @@ body.perf-lite .xpx__wire-flow { animation: none; }
    — but scoped (no global scroll hijack). Driven by initXpShowcase.
    ========================================================= */
 .xpx2 { position: relative; z-index: 1; }
+/* While the HERO is on screen the experience section is thousands of pixels
+   away, but its glass cards were still walked on every cursor hit test — 60%
+   of each one, and one runs per frame while the hero auto-scrolls. Hidden
+   elements are skipped. (body.hero-onscreen is set by the hero's
+   IntersectionObserver; without it nothing is hidden.) */
+body.hero-onscreen .xpx2 { visibility: hidden; }
 
 /* Cursor-follow guide arrow (canvas). Fixed to the viewport, above the cards,
    click-through. Only visible while the section is on screen (.is-on). */
