@@ -1347,9 +1347,17 @@ body.hero-ui-gone .hero__welcome--right { animation-play-state: paused; }
 .cinema__hud-label { font-size: 9px; color: var(--ink-mute); opacity: 0.7; }
 .cinema__hud-num { color: var(--ink); font-weight: 500; }
 .cinema__hud-bar {
+  position: relative;
   display: block; width: 100%; height: 2px;
   background: rgba(12,12,10,0.10);
   margin-top: 4px;
+}
+/* A tick at each of the reel's stops, so the bar reads as chapters. */
+.cinema__hud-tick {
+  position: absolute;
+  top: -3px;
+  width: 1px; height: 8px;
+  background: rgba(12, 12, 10, 0.38);
 }
 /* Filled via scaleX (compositor-only), not width: a width change re-lays
    out the HUD on every reel frame. Same pixels — the gradient spans the
@@ -1713,14 +1721,14 @@ body.perf-lite .hterm {
   font-size: clamp(10px, 0.63vw, 16px);
   color: #1b1b17;
 }
-.tcard__id { display: flex; flex-direction: column; min-width: 0; }
+.tcard__id { display: flex; flex-direction: column; min-width: 0; text-align: left; }
 .tcard__name {
   font-family: var(--f-sans);
   font-weight: 600;
   font-size: clamp(10px, 0.51vw, 13px);
   color: var(--ink);
   display: flex; align-items: center; gap: 5px;
-  white-space: nowrap;
+  line-height: 1.15;   /* role names may run to two lines */
 }
 .tcard__flag { font-size: clamp(10px, 0.47vw, 12px); }
 .tcard__handle { font-family: var(--f-mono); font-size: 11px; color: var(--ink-mute); }
@@ -1902,8 +1910,11 @@ body.perf-lite .tcol__track { animation: none; }
    over neighbouring glyphs. */
 .igbio__ch--hl {
   color: var(--ink);
-  background: var(--accent);
-  box-shadow: 0 0.06em 0 var(--accent), 0 -0.04em 0 var(--accent);
+  /* The marker is held to the capital letters' own band. Anton's inline box
+     is ~1.5em tall against a 0.98 line-height, so a plain background ran a
+     quarter-em into the line ABOVE and painted over the bottom third of its
+     letters ("BEYOND", "CREATIVE", "TRAVELING"... were half hidden). */
+  background: linear-gradient(transparent 19%, var(--accent) 19%, var(--accent) 81%, transparent 81%);
   text-shadow: none;                        /* keep glyphs crisp on the neon bars — no halo */
 }
 /* Weak devices: drop to a single soft layer. */
@@ -5151,6 +5162,17 @@ body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
 .xpx2.is-on .xpx2__tag,
 .xpx2.is-on .xpx2__hud,
 .xpx2.is-on .xpx2__strip { opacity: 1; }
+/* The section label and the HUD are fixed while the role cards scroll past
+   underneath, so each sits on a small dark plate: a card's date line used
+   to run straight through the HUD text ("PRESENTAI ENGINEER") on its way
+   up. The padding is cancelled by the margin, so the type has not moved. */
+.xpx2__tag, .xpx2__hud {
+  padding: 9px 12px;
+  margin: -9px -12px;
+  background: rgba(9, 10, 13, 0.92);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(216, 255, 56, 0.12), 0 10px 24px -12px rgba(0, 0, 0, 0.8);
+}
 .xpx2__tag {
   top: calc(clamp(16px, 3vh, 40px) + 18px);
   left: calc(clamp(16px, 3.5vw, 64px) + 22px);
@@ -5199,6 +5221,8 @@ body.perf-lite .xpx2.is-on .xpx2__globe { opacity: .55; }
           backdrop-filter: blur(16px) saturate(1.05);
   box-shadow: 0 40px 90px -40px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.05);
   border-radius: 2px;
+  /* initXpTilt leans the card toward the pointer; this eases it there and back. */
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1);
 }
 .xpcard.right { margin-left: auto; text-align: right; border-left: none; border-right: 1px solid rgba(216,255,56,.24); }
 
@@ -5428,3 +5452,70 @@ body.perf-lite .xpx2__orbs { opacity: .6; }
   .xpx2__stars::before, .xpx2__stars::after,
   .xpx2__orbs::before, .xpx2__orbs::after { animation: none; }
 }
+
+/* =========================================================
+   CUSTOM CURSOR (initCursor in script.js) — a dot on the
+   pointer and a ring that trails it. Mouse / trackpad only;
+   the native cursor is hidden only once the script has built
+   ours (html.has-cur), so nothing is lost if it never runs.
+   Both parts are fixed, pointer-events:none, and moved by
+   transform alone.
+   ========================================================= */
+html.has-cur, html.has-cur * { cursor: none !important; }
+.cur {
+  position: fixed; left: 0; top: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s ease;
+  --cur: #0C0C0A;          /* ink on the cream sections */
+  --cur-ink: #F2EEE5;
+}
+.cur.is-on { opacity: 1; }
+.cur[data-theme="dark"] { --cur: #D8FF38; --cur-ink: #0C0C0A; }   /* chartreuse on the dark ones */
+.cur[data-state="hide"] { opacity: 0; }                            /* the signature's ink lens takes over */
+.cur__dot, .cur__ring {
+  position: absolute; left: 0; top: 0;
+  will-change: transform;
+}
+.cur__dot::before {
+  content: "";
+  position: absolute; left: -3px; top: -3px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--cur);
+  transition: scale .25s ease, opacity .25s ease, background .3s ease;
+}
+/* The ring is drawn by a pseudo-element so its size can ease with `scale`
+   while the element's own transform stays free for the position. */
+.cur__ring::before {
+  content: "";
+  position: absolute; left: -17px; top: -17px;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--cur);
+  opacity: 0.55;
+  transition: scale .45s cubic-bezier(.22, 1, .36, 1), opacity .3s ease,
+              background .3s ease, border-color .3s ease;
+}
+.cur__label {
+  position: absolute; left: 0; top: 0;
+  translate: -50% -50%;
+  font-family: var(--f-mono);
+  font-size: 9px; font-weight: 500; font-style: normal;
+  letter-spacing: 0.18em;
+  color: var(--cur-ink);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+/* Over something clickable: the ring opens and the dot ducks out. */
+.cur[data-state="link"] .cur__ring::before { scale: 1.75; opacity: 0.9; }
+.cur[data-state="link"] .cur__dot::before { scale: 0.5; }
+/* With a label (NEXT / OPEN): a filled disc carrying the word. */
+.cur[data-state="label"] .cur__ring::before { scale: 2.1; opacity: 1; background: var(--cur); }
+.cur[data-state="label"] .cur__dot::before { opacity: 0; }
+.cur[data-state="label"] .cur__label { opacity: 1; transition-delay: .08s; }
+.cur.is-down .cur__ring::before { scale: 0.8; }
+.cur[data-state="link"].is-down .cur__ring::before { scale: 1.45; }
+.cur[data-state="label"].is-down .cur__ring::before { scale: 1.85; }

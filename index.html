@@ -26,7 +26,7 @@
      (Old CYBERFICTION-IMAGES/*.png preloads were stale — the reel uses WebP now.) -->
 <link rel="preload" as="image" href="CYBERFICTION-WEBP/male0001.webp" />
 
-<link rel="stylesheet" href="styles.css?v=310" />
+<link rel="stylesheet" href="styles.css?v=317" />
 
 <!-- Critical preloader styles inlined for a reliable first paint.
      A dark boot screen: a raymarched liquid-glass orb (WebGL, vanilla
@@ -446,12 +446,14 @@
         <div class="cinema__hud-num" id="cinemaFrameNum">001 / 300</div>
       </div>
       <div class="cinema__hud cinema__hud--tr">
-        <div class="cinema__hud-label">SEQUENCE</div>
-        <div class="cinema__hud-num">CYBERFICTION · 03</div>
+        <!-- Which chapter of the reel is on screen (set by renderCinemaUI). -->
+        <div class="cinema__hud-label">CHAPTER</div>
+        <div class="cinema__hud-num" id="cinemaChapter">01 / 03 · ABOUT</div>
       </div>
       <div class="cinema__hud cinema__hud--bl">
         <div class="cinema__hud-label">PROGRESS</div>
-        <div class="cinema__hud-bar"><i id="cinemaBar"></i></div>
+        <!-- The three ticks mark the reel's stops (positioned by initHudTicks). -->
+        <div class="cinema__hud-bar" id="cinemaBarTrack"><i id="cinemaBar"></i></div>
       </div>
       <div class="cinema__hud cinema__hud--br">
         <div class="cinema__hud-label">RUNTIME</div>
@@ -1157,7 +1159,7 @@
 </main>
 
 <script src="assets/org-ascii.js?v=3" defer></script>
-<script src="script.js?v=339" defer></script>
+<script src="script.js?v=347" defer></script>
 <script src="vendor/globe.js?v=7" defer></script>
 </body>
 </html>

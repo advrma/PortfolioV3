@@ -123,6 +123,8 @@
   const orgsEl = document.getElementById('orgs');
   let orgsAscii = null;
   let orgsWriter = null;     // the words' rise-in (see initOrgs)
+  const wallScene = document.getElementById('testiScene');   // stop-1 work wall (3D scene)
+  let wallTiltShown = '';
   let orgsMarksShown = false;
   let orgsShown = false;
   const ORGS_MARKS_FRAME = 200;
@@ -462,10 +464,39 @@
   const captionSpans = captions.map((c) => ({
     el: c, from: parseFloat(c.dataset.from), to: parseFloat(c.dataset.to), on: c.classList.contains('is-active')
   }));
-  let hudFrameShown = -1, hudBarShown = '', hudSecShown = -1;
+  let hudFrameShown = -1, hudBarShown = '', hudSecShown = -1, hudChapterShown = -1;
   let hudBarTrack = 0;   // the progress track's width in px (cached by refreshHeroLayout)
+  // The reel's three chapters after the opening pose, by the animFrame at
+  // which each one's content starts coming in. Shown in the top-right HUD
+  // chip so every stop reads as a chapter of ONE sequence.
+  const cinemaChapter = document.getElementById('cinemaChapter');
+  const HUD_CHAPTERS = [
+    [0,   '01 / 03 · ABOUT'],
+    [156, '02 / 03 · BEYOND CODE'],
+    [200, '03 / 03 · ORGANIZATIONS'],
+  ];
+  // Tick marks on the progress bar at each of the reel's stops.
+  (function initHudTicks() {
+    const track = document.getElementById('cinemaBarTrack');
+    if (!track) return;
+    [127, 183].forEach((f) => {
+      const t = document.createElement('span');
+      t.className = 'cinema__hud-tick';
+      t.style.left = (f / 270 * 100).toFixed(2) + '%';
+      track.appendChild(t);
+    });
+  })();
   function renderCinemaUI(animP) {
     const cp = clamp01(animP);
+    if (cinemaChapter) {
+      const f = cp * 270;
+      let ch = 0;
+      for (let i = 1; i < HUD_CHAPTERS.length; i++) if (f >= HUD_CHAPTERS[i][0]) ch = i;
+      if (ch !== hudChapterShown) {
+        hudChapterShown = ch;
+        cinemaChapter.textContent = HUD_CHAPTERS[ch][1];
+      }
+    }
     const sourceFrameNumber = Math.round(cp * (TOTAL_SOURCE_FRAMES - 1)) + 1;
     if (cinemaFrameNum && sourceFrameNumber !== hudFrameShown) {
       hudFrameShown = sourceFrameNumber;
@@ -710,7 +741,25 @@
     const el = document.getElementById('callcardType');
     if (!el) return null;
     const fig = el.closest('.callcard');
-    const TEXT = 'Hi, I am Aditya, a Computer Science student at Arizona State University building at the intersection of AI, full-stack engineering, and product-focused design.';
+    // [[...]] marks the phrases that get the lime marker stroke (<em>), the
+    // same emphasis as the stop-2 statement and the organizations heading.
+    const SRC = 'Hi, I am Aditya, a Computer Science student at Arizona State University building at the intersection of AI, full-stack engineering, and product-focused design.';
+    let TEXT = '';
+    const EM = [];   // per character: inside a marked phrase?
+    SRC.split(/\[\[|\]\]/).forEach((seg, i) => {
+      for (let k = 0; k < seg.length; k++) EM.push(i % 2 === 1);
+      TEXT += seg;
+    });
+    // The first n characters as HTML, with the marked runs wrapped in <em>.
+    function htmlUpTo(n) {
+      let out = '', open = false;
+      for (let k = 0; k < n; k++) {
+        if (EM[k] !== open) { out += EM[k] ? '<em>' : '</em>'; open = EM[k]; }
+        const ch = TEXT.charAt(k);
+        out += ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch;
+      }
+      return open ? out + '</em>' : out;
+    }
     const SPEED = 8;   // ms/char  snappy
     el.textContent = '';
     // Invisible sizer holds the FULL line so the box keeps its final height
@@ -719,7 +768,7 @@
     const sizer = document.createElement('span');
     sizer.className = 'callcard__sizer';
     sizer.setAttribute('aria-hidden', 'true');
-    sizer.textContent = TEXT;
+    sizer.innerHTML = htmlUpTo(TEXT.length);
     const live = document.createElement('span');
     live.className = 'callcard__live';
     const typed = document.createElement('span');
@@ -741,11 +790,11 @@
         fig.classList.add('is-in');                 // fade/slide the whole card in
         fig.classList.remove('is-drawn'); void fig.offsetWidth; fig.classList.add('is-drawn');  // (re)draw arrow
       }
-      if (reduce) { typed.textContent = TEXT; return; }
+      if (reduce) { typed.innerHTML = htmlUpTo(TEXT.length); return; }
       let i = 0;
       typed.textContent = '';
       (function type() {
-        typed.textContent = TEXT.slice(0, i);
+        typed.innerHTML = htmlUpTo(i);
         if (i < TEXT.length) { i++; typeTimer = setTimeout(type, SPEED); }
       })();
     }
@@ -774,22 +823,25 @@
      scroll in alternating directions via a pure-CSS marquee
      (two copies per track, translateY -50% = seamless loop)
      and pause on hover. Fills the right half opposite the
-     character. NOTE: placeholder testimonials — swap for real
-     ones when available.
+     character. The cards keep the testimonial-card look but carry
+     REAL content: roles I have held (name = the role, handle = the
+     organisation) and things I have built (handle = Project), each with a
+     one-line fact taken from the experience / projects sections
+     further down. Keep these in step with those sections.
      ------------------------------------------------------- */
   function initTestimonials() {
     const scene = document.getElementById('testiScene');
     if (!scene) return;
     const data = [
-      { name: 'Ava Green',   handle: '@ava',  flag: '\u{1F1E6}\u{1F1FA}', body: 'Shipped our AI feature in days, not months.' },
-      { name: 'Mateo Rossi', handle: '@mat',  flag: '\u{1F1EE}\u{1F1F9}', body: 'Clean code and a sharp design eye — rare combo.' },
-      { name: 'Maya Patel',  handle: '@maya', flag: '\u{1F1EE}\u{1F1F3}', body: 'The interface just feels fast and thoughtful.' },
-      { name: 'Noah Smith',  handle: '@noah', flag: '\u{1F1FA}\u{1F1F8}', body: 'Took our messy idea and made it ship-ready.' },
-      { name: 'Emma Lee',    handle: '@emma', flag: '\u{1F1E8}\u{1F1E6}', body: 'Best engineer-designer I have worked with.' },
-      { name: 'Lucas Stone', handle: '@luc',  flag: '\u{1F1EB}\u{1F1F7}', body: 'Turned real complexity into something effortless.' },
-      { name: 'Haruto Sato', handle: '@haru', flag: '\u{1F1EF}\u{1F1F5}', body: 'Pixel-perfect and fast on every device.' },
-      { name: 'Carlos Ray',  handle: '@carl', flag: '\u{1F1EA}\u{1F1F8}', body: 'Delivers polished products people love.' },
-      { name: 'Ana Miller',  handle: '@ana',  flag: '\u{1F1E9}\u{1F1EA}', body: 'Creative, reliable, genuinely fun to build with.' }
+      { name: 'Forward Deployed Engineer', handle: 'Haleon', body: 'Shipped a RAG assistant for onboarding and enterprise search.' },
+      { name: 'Nowline', handle: 'Project', body: 'A voice-first AI assistant that plans a student’s day.' },
+      { name: 'AI Engineer', handle: 'Northern Watch', body: 'A news platform pulling 5,000+ articles from 100+ sources.' },
+      { name: 'AI Mesh', handle: 'Project', body: 'Friends pool GPU memory to run models too big for one PC.' },
+      { name: 'Campus Ambassador', handle: 'TinyFish', body: 'Introducing ASU students to AI agents for the web.' },
+      { name: 'SmallSQL', handle: 'Project', body: 'A tiny 8B model that writes Snowflake SQL like a big one.' },
+      { name: 'Researcher & Developer', handle: 'Difference Engine', body: 'Cut concept-to-demo time from 4 weeks to 1.' },
+      { name: 'Founding Engineer', handle: 'Stealth', body: 'An AI radar that matches students to internships.' },
+      { name: 'AI Developer', handle: 'NewWave', body: 'A local-LLM platform that scores therapy session notes.' }
     ];
     const palette = ['#C9B8FF', '#A8E6CF', '#FFD3B6', '#FFAAA5', '#B5D8FF', '#FFE0AC', '#D6C7FF', '#BFE8D0', '#F7C8E0'];
     const COLS = 4;
@@ -801,7 +853,7 @@
         '<div class="tcard__head">' +
           '<span class="tcard__avatar" style="background:' + palette[i % palette.length] + '">' + t.name.charAt(0) + '</span>' +
           '<div class="tcard__id">' +
-            '<figcaption class="tcard__name">' + t.name + ' <span class="tcard__flag">' + t.flag + '</span></figcaption>' +
+            '<figcaption class="tcard__name">' + t.name.replace('&', '&amp;') + '</figcaption>' +
             '<span class="tcard__handle">' + t.handle + '</span>' +
           '</div>' +
         '</div>' +
@@ -1807,6 +1859,22 @@
     renderFrame(animP * (FRAME_COUNT - 1), shouldAdvance);
     renderCinemaUI(animP);
     updateAside(timelineProgress);   // reveal the side statement opposite the character
+    // Work wall: leans a couple of degrees with the pointer, off the same
+    // eased cursor as the character's parallax — so the wall, the figure and
+    // the Instagram card all answer the pointer as objects in one room. One
+    // transform on the 3D scene (its columns are already layers), written
+    // only while the wall is up and only when the value changes.
+    if (asideSide === -1 && wallScene) {
+      const kx = -motion.cursorRenderedX / MAX_CURSOR_TX;   // -1..1, toward the pointer
+      const ky = -motion.cursorRenderedY / MAX_CURSOR_TY;
+      const key = kx.toFixed(3) + '|' + ky.toFixed(3);
+      if (key !== wallTiltShown) {
+        wallTiltShown = key;
+        wallScene.style.transform =
+          'translate(-50%, -50%) rotateX(' + (16 - ky * 1.6).toFixed(2) + 'deg) rotateY(' +
+          (-16 + kx * 2.6).toFixed(2) + 'deg) rotateZ(14deg) scale(1.18)';
+      }
+    }
 
     // --- Suspend when nothing should advance AND cursor settled ---
     // Covers: INTRO_DELAY waiting, HOLD before first scroll,
@@ -1835,6 +1903,140 @@
     // Otherwise keep ticking: the reel is still moving or the cursor is
     // still settling toward its parallax target.
     requestAnimationFrame(motionTick);
+  }
+
+  /* -------------------------------------------------------
+     initCursor — the site's own pointer, and the magnetic pull
+     on its main buttons.
+     • A small dot rides exactly on the pointer; a ring trails
+       it with a little inertia. Over anything clickable the
+       ring opens up; over the Instagram photo and the project
+       wall it carries a short label; it switches between ink
+       (cream sections) and chartreuse (dark sections).
+     • Over the signature the ring steps aside: the ink lens
+       there is already the pointer.
+     • Magnetic buttons lean toward the pointer while it is
+       over them and spring back when it leaves.
+     Mouse / trackpad only (never touch), and not under reduced
+     motion — there the native cursor is left alone. Position is
+     written as a transform on two fixed, pointer-events:none
+     elements; the loop runs only while something is still
+     settling, so a parked pointer costs nothing.
+     ------------------------------------------------------- */
+  function initCursor() {
+    const fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (!fine || (reduceMotionMQ && reduceMotionMQ.matches)) return;
+
+    const root = document.createElement('div');
+    root.className = 'cur';
+    root.setAttribute('aria-hidden', 'true');
+    root.innerHTML = '<i class="cur__ring"><span class="cur__label"></span></i><i class="cur__dot"></i>';
+    const ring = root.firstChild, dot = root.lastChild, label = ring.firstChild;
+    document.body.appendChild(root);
+    document.documentElement.classList.add('has-cur');
+
+    const DARK = '#skills, #projects, #experience, .cinema__aside--igpost, .preloader, .contact__email';
+    const CLICK = 'a, button, [role="button"], .igpost__media, .igstories > *, .igpost__dots > *';
+    let x = -100, y = -100, rx = -100, ry = -100, seen = false, raf = 0;
+    let state = '', theme = '', text = '';
+
+    // ---- magnetic buttons -------------------------------------------------
+    const mags = [];
+    [['.nav__cta', 0.32], ['.contact__email', 0.16], ['.hero__scroll', 0.4], ['.nav__monogram', 0.3]].forEach((m) => {
+      const el = document.querySelector(m[0]);
+      if (!el) return;
+      const o = { el: el, k: m[1], tx: 0, ty: 0, x: 0, y: 0, on: false, shown: '' };
+      el.addEventListener('pointermove', (e) => {
+        const r = el.getBoundingClientRect();
+        // offset of the pointer from the button's resting centre
+        o.tx = (e.clientX - (r.left - o.x + r.width / 2)) * o.k;
+        o.ty = (e.clientY - (r.top - o.y + r.height / 2)) * o.k;
+        o.on = true;
+        kick();
+      }, { passive: true });
+      el.addEventListener('pointerleave', () => { o.tx = 0; o.ty = 0; o.on = false; kick(); }, { passive: true });
+      mags.push(o);
+    });
+
+    function frame() {
+      raf = 0;
+      let busy = false;
+      rx += (x - rx) * 0.2;
+      ry += (y - ry) * 0.2;
+      if (Math.abs(x - rx) > 0.05 || Math.abs(y - ry) > 0.05) busy = true; else { rx = x; ry = y; }
+      dot.style.transform = 'translate3d(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px,0)';
+      ring.style.transform = 'translate3d(' + rx.toFixed(1) + 'px,' + ry.toFixed(1) + 'px,0)';
+      for (let i = 0; i < mags.length; i++) {
+        const o = mags[i];
+        const ease = o.on ? 0.2 : 0.12;
+        o.x += (o.tx - o.x) * ease;
+        o.y += (o.ty - o.y) * ease;
+        if (Math.abs(o.tx - o.x) > 0.05 || Math.abs(o.ty - o.y) > 0.05) busy = true; else { o.x = o.tx; o.y = o.ty; }
+        const v = (o.x === 0 && o.y === 0) ? '' : o.x.toFixed(2) + 'px ' + o.y.toFixed(2) + 'px';
+        if (v !== o.shown) { o.shown = v; o.el.style.translate = v; }
+      }
+      if (busy) raf = requestAnimationFrame(frame);
+    }
+    function kick() { if (!raf) raf = requestAnimationFrame(frame); }
+
+    // What is under the pointer decides the ring's state, label and colour.
+    // Read once per element change (pointerover), never per move.
+    function read(t) {
+      let s = '', txt = '';
+      if (t && t.closest) {
+        if (t.closest('.hero-sign')) s = 'hide';
+        else if (t.closest('.igpost__media')) { s = 'label'; txt = 'NEXT'; }
+        else if (t.closest(CLICK)) s = 'link';
+      }
+      const th = t && t.closest && t.closest(DARK) ? 'dark' : 'light';
+      if (s !== state) { state = s; root.dataset.state = s; }
+      if (th !== theme) { theme = th; root.dataset.theme = th; }
+      if (txt !== text) { text = txt; label.textContent = txt; }
+    }
+
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      x = e.clientX; y = e.clientY;
+      if (!seen) { seen = true; rx = x; ry = y; root.classList.add('is-on'); read(e.target); }
+      // The project wall marks a clickable picture by setting the canvas's
+      // own cursor (hidden under ours) — mirror it.
+      const t = e.target;
+      if (t && t.tagName === 'CANVAS' && state !== 'hide') {
+        const s = t.style.cursor === 'pointer' ? 'label' : '';
+        if (s !== state) { state = s; root.dataset.state = s; }
+        const txt = s ? 'OPEN' : '';
+        if (txt !== text) { text = txt; label.textContent = txt; }
+      }
+      kick();
+    }, { passive: true });
+    document.addEventListener('pointerover', (e) => { if (e.pointerType !== 'touch') read(e.target); }, { passive: true });
+    document.addEventListener('pointerdown', () => root.classList.add('is-down'), { passive: true });
+    document.addEventListener('pointerup', () => root.classList.remove('is-down'), { passive: true });
+    document.documentElement.addEventListener('pointerleave', () => root.classList.remove('is-on'), { passive: true });
+    document.documentElement.addEventListener('pointerenter', () => { if (seen) root.classList.add('is-on'); }, { passive: true });
+  }
+
+  /* -------------------------------------------------------
+     initXpTilt — the experience role cards lean a few degrees
+     toward the pointer while it is over them (the Instagram card
+     and the work wall already do), so the glass panels read as
+     objects floating in front of the globe. Written only on
+     pointer movement over a card; a CSS transition does the
+     easing, so there is no animation loop. Mouse only.
+     ------------------------------------------------------- */
+  function initXpTilt() {
+    const fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (!fine || (reduceMotionMQ && reduceMotionMQ.matches)) return;
+    document.querySelectorAll('.xpcard').forEach((card) => {
+      card.addEventListener('pointermove', (e) => {
+        const r = card.getBoundingClientRect();
+        const nx = ((e.clientX - r.left) / r.width) * 2 - 1;
+        const ny = ((e.clientY - r.top) / r.height) * 2 - 1;
+        card.style.transform = 'perspective(1100px) rotateY(' + (nx * 5).toFixed(2) + 'deg) rotateX(' +
+          (-ny * 3.5).toFixed(2) + 'deg) translateZ(14px)';
+      }, { passive: true });
+      card.addEventListener('pointerleave', () => { card.style.transform = ''; }, { passive: true });
+    });
   }
 
   function kickMotion() {
@@ -4216,6 +4418,8 @@
     let targetScroll  = 0;
     let prevScroll    = 0;
     let blurVel       = 0;
+    let leanVel       = 0;      // smoothed signed pan velocity (drives the pictures' lean)
+    let leanShown     = 0;      // the lean currently applied to the pictures
     const mouse       = { x: 0, y: 0 };
     let visible       = false;
     let raf           = 0;
@@ -4376,8 +4580,30 @@
         currentScroll += (targetScroll - currentScroll) * SCROLL_LERP;
         if (Math.abs(targetScroll - currentScroll) < 0.001) currentScroll = targetScroll;
       }
-      const instVel = Math.abs(currentScroll - prevScroll);
+      const signedVel = currentScroll - prevScroll;
+      const instVel = Math.abs(signedVel);
       prevScroll = currentScroll;
+
+      // Kinetic lean: the pictures swing on their vertical axis with the
+      // pan's velocity — trailing edge dragging behind, like hung panels
+      // caught in the draught of the camera going past — and stretch a
+      // touch, then settle flat on the project you stop at. One rotation +
+      // scale per picture, on a loop that is already running; skipped during
+      // the fly-in (which owns the first picture) and under reduced motion.
+      if (!reduceMotion) {
+        leanVel += (signedVel - leanVel) * 0.14;
+        let lean = flyZ > 0.01 ? 0 : -leanVel * 0.06;
+        if (lean > 0.32) lean = 0.32; else if (lean < -0.32) lean = -0.32;
+        if (Math.abs(lean) < 0.0008) lean = 0;
+        if (lean !== leanShown) {
+          leanShown = lean;
+          const sx = 1 + Math.abs(lean) * 0.22;
+          for (let i = 0; i < paintingGroups.length; i++) {
+            paintingGroups[i].rotation.y = lean;
+            paintingGroups[i].scale.x = sx;
+          }
+        }
+      }
 
       // Motion blur: snap up to the current velocity, then decay so
       // the horizontal smear trails off smoothly after scrolling stops
@@ -4440,7 +4666,7 @@
       // Keep ticking continuously while a video is on screen so its texture
       // updates every frame — including across the loop seam (so it never
       // freezes on the last frame waiting for the next scroll to re-kick).
-      if (currentScroll !== targetScroll || blurVel > 0.03 || (holding && currentScroll !== LAST_SCROLL) || videoOnScreen) kickRender();
+      if (currentScroll !== targetScroll || blurVel > 0.03 || leanShown !== 0 || (holding && currentScroll !== LAST_SCROLL) || videoOnScreen) kickRender();
     }
     function kickRender() {
       if (raf) return;
@@ -8116,6 +8342,42 @@
     }
     knot.dispose();
 
+    // SECOND SHAPE — the "AV" monogram from the nav. While the pointer is on
+    // the email button every particle's rest position swaps from the knot to
+    // this, and the same springs that hold the knot together carry the cloud
+    // across; leaving swaps it back. Built from the monogram's five strokes
+    // (56 x 32 viewBox), each given a thin tube of thickness so it has the
+    // knot's woven volume. Local frame: +Y is screen-right, +X is screen-down
+    // (the camera is rolled 90 degrees).
+    const alt = new Float32Array(COUNT * 3);
+    (function buildMonogram() {
+      const segs = [
+        [2, 30, 14, 4], [14, 4, 26, 30], [6, 22, 22, 22],   // A
+        [30, 4, 42, 30], [42, 30, 54, 4],                    // V
+      ];
+      const lens = segs.map((s) => Math.hypot(s[2] - s[0], s[3] - s[1]));
+      const total = lens.reduce((a, b) => a + b, 0);
+      const S = 4.6 / 56;          // viewBox units -> world (the mark is ~4.5 wide)
+      const TUBE = 2.3;            // tube radius, in viewBox units
+      for (let i = 0; i < COUNT; i++) {
+        let d = ((i * 0.6180339887) % 1) * total;   // even spread along the strokes
+        let s = 0;
+        while (s < segs.length - 1 && d > lens[s]) { d -= lens[s]; s++; }
+        const g = segs[s], t = d / lens[s];
+        const nx = -(g[3] - g[1]) / lens[s], ny = (g[2] - g[0]) / lens[s];   // stroke normal
+        const a = ((i * 0.7548776662) % 1) * Math.PI * 2;
+        const r = TUBE * (0.72 + 0.28 * ((i * 0.5698402909) % 1));
+        const sx = g[0] + (g[2] - g[0]) * t + nx * Math.cos(a) * r;
+        const sy = g[1] + (g[3] - g[1]) * t + ny * Math.cos(a) * r;
+        const k = i * 3;
+        alt[k] = (sy - 17) * S;                 // screen-down
+        alt[k + 1] = (sx - 28) * S;             // screen-right
+        alt[k + 2] = Math.sin(a) * r * S;       // depth
+      }
+    })();
+    let morph = false;             // pointer is on the email button
+    const TAU = Math.PI * 2;
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -8191,6 +8453,16 @@
       }, { passive: true });
     }
 
+    // The email button calls the monogram up (hover or keyboard focus).
+    const emailBtn = inner.querySelector('.contact__email');
+    if (emailBtn && !reduce) {
+      const on = () => { morph = true; }, off = () => { morph = false; };
+      emailBtn.addEventListener('pointerenter', on, { passive: true });
+      emailBtn.addEventListener('pointerleave', off, { passive: true });
+      emailBtn.addEventListener('focus', on);
+      emailBtn.addEventListener('blur', off);
+    }
+
     const R = 1.5, R2 = R * R;
     let running = false, rafId = null, last = performance.now();
 
@@ -8205,7 +8477,9 @@
       // offset so the repulsion is computed in the particles' local frame.
       const mx = -mouse.y * hh - points.position.x;
       const my = mouse.x * hw - points.position.y;
-      const pushing = mouse.active;
+      const pushing = mouse.active && !morph;
+      const rest = morph ? alt : original;      // where each particle wants to be
+      const pull = morph ? 0.016 : 0.013;        // a touch firmer while it spells the mark
 
       for (let i = 0; i < COUNT; i++) {
         const k = i * 3, k1 = k + 1, k2 = k + 2;
@@ -8222,9 +8496,9 @@
           }
         }
         // spring back to the woven seed position, then damp
-        vx += (original[k] - px) * 0.013;
-        vy += (original[k1] - py) * 0.013;
-        vz += (original[k2] - pz) * 0.013;
+        vx += (rest[k] - px) * pull;
+        vy += (rest[k1] - py) * pull;
+        vz += (rest[k2] - pz) * pull;
         vx *= 0.90; vy *= 0.90; vz *= 0.90;
 
         pos[k] = px + vx * dt;
@@ -8234,8 +8508,18 @@
       }
       geometry.attributes.position.needsUpdate = true;
       // Camera is rolled 90°, so spin about world X → an on-screen turntable
-      // (horizontal) rotation, matching the original motion.
-      points.rotation.x += 0.0016 * dt;
+      // (horizontal) rotation, matching the original motion. While the cloud
+      // spells the monogram the turntable eases round to face the viewer (the
+      // nearest whole turn) and the lean relaxes, so the letters read; on
+      // release it simply carries on turning from there.
+      if (morph) {
+        const face = Math.round(points.rotation.x / TAU) * TAU;
+        points.rotation.x += (face - points.rotation.x) * Math.min(1, 0.07 * dt);
+        points.rotation.y += (0.3 - points.rotation.y) * Math.min(1, 0.06 * dt);
+      } else {
+        points.rotation.x += 0.0016 * dt;
+        points.rotation.y += (0.5 - points.rotation.y) * Math.min(1, 0.04 * dt);
+      }
 
       renderer.render(scene, camera);
       rafId = requestAnimationFrame(step);
@@ -8461,6 +8745,10 @@
 
     // Scroll-drawn blueprint frame that wraps the experience page.
     initXpFrame();
+
+    // The site's own pointer + magnetic buttons (mouse / trackpad only).
+    initCursor();
+    initXpTilt();
 
     // Paint frame 0 right away so the hero never looks empty.
     renderFrame(0, false);
